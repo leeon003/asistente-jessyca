@@ -84,9 +84,16 @@ def escuchar(duracion_segundos: int = 5, tasa_muestreo: int = 16000) -> str:
 
         wavfile.write(temp_wav_path, tasa_muestreo, audio_data)
 
-        # 4. Transcribir usando el modelo de faster-whisper
+        # 4. Transcribir usando el modelo de faster-whisper con filtro VAD y anti-alucinación
         model = _get_model()
-        segments, _ = model.transcribe(temp_wav_path, language="es", beam_size=5)
+        segments, _ = model.transcribe(
+            temp_wav_path,
+            language="es",
+            beam_size=5,
+            condition_on_previous_text=False,
+            vad_filter=True,
+            no_speech_threshold=0.6
+        )
 
         texto_transcrito = " ".join([segment.text.strip() for segment in segments]).strip()
         return texto_transcrito

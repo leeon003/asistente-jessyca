@@ -7,6 +7,18 @@ system:
 
 audio:
   default_voice: "es-PE-CamilaNeural"
+  wake_word: "jessyca"
+  wake_word_variations:
+    - "jessyca"
+    - "jessica"
+    - "yesica"
+    - "yessica"
+    - "jesica"
+    - "jesika"
+    - "yesika"
+    - "esica"
+    - "sica"
+    - "yeca"
   sample_rate: 16000
   channels: 1
 
