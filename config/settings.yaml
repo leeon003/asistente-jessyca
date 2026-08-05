@@ -1,0 +1,15 @@
+# Configuración general de Jessyca
+system:
+  name: "Jessyca"
+  version: "0.1.0"
+  language: "es-ES"
+  debug: false
+
+audio:
+  default_voice: "es-ES-ElviraNeural"
+  sample_rate: 16000
+  channels: 1
+
+logging:
+  level: "INFO"
+  console_output: true
