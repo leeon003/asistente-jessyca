@@ -5,3 +5,7 @@ pytest
 requests
 edge-tts
 pygame
+faster-whisper
+sounddevice
+numpy
+scipy
