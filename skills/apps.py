@@ -96,7 +96,10 @@ class AbrirAplicacion(BaseSkill):
             }
 
         try:
-            subprocess.Popen(comando, shell=True)
+            if hasattr(os, "startfile"):
+                os.startfile(comando)
+            else:
+                subprocess.Popen([comando] if isinstance(comando, str) else comando)
             return {
                 "exito": True,
                 "mensaje": f"Aplicación '{nombre_app}' lanzada con éxito ({comando})."

@@ -19,14 +19,18 @@ class TestAbrirAplicacion(unittest.TestCase):
         self.assertFalse(res["exito"])
         self.assertIn("no está registrada", res["mensaje"])
 
+    @patch("os.startfile", create=True)
     @patch("subprocess.Popen")
-    def test_abrir_aplicacion_exito(self, mock_popen):
+    def test_abrir_aplicacion_exito(self, mock_popen, mock_startfile):
         skill = AbrirAplicacion()
         skill._cargar_mapeo = MagicMock(return_value={"bloc de notas": "notepad.exe"})
         res = skill.ejecutar({"nombre_app": "bloc de notas"})
         self.assertTrue(res["exito"])
         self.assertIn("lanzada con éxito", res["mensaje"])
-        mock_popen.assert_called_once_with("notepad.exe", shell=True)
+        if hasattr(os, "startfile"):
+            mock_startfile.assert_called_once_with("notepad.exe")
+        else:
+            mock_popen.assert_called_once()
 
 
 class TestCerrarAplicacion(unittest.TestCase):
@@ -122,14 +126,18 @@ class TestNormalizacion(unittest.TestCase):
     def test_buscar_no_registrada(self):
         self.assertIsNone(_buscar_en_mapeo("programa_inventado", self.MAPEO))
 
+    @patch("os.startfile", create=True)
     @patch("subprocess.Popen")
-    def test_abrir_con_nombre_mayusculas_llm(self, mock_popen):
+    def test_abrir_con_nombre_mayusculas_llm(self, mock_popen, mock_startfile):
         """Integración: AbrirAplicacion tolera 'Bloc de Notas' del LLM."""
         skill = AbrirAplicacion()
         skill._cargar_mapeo = MagicMock(return_value={"bloc de notas": "notepad.exe"})
         res = skill.ejecutar({"nombre": "Bloc de Notas"})
         self.assertTrue(res["exito"])
-        mock_popen.assert_called_once_with("notepad.exe", shell=True)
+        if hasattr(os, "startfile"):
+            mock_startfile.assert_called_once_with("notepad.exe")
+        else:
+            mock_popen.assert_called_once()
 
 
 class TestSkillsDisponibles(unittest.TestCase):

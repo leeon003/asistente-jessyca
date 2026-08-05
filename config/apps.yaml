@@ -1,4 +1,6 @@
 # Mapeo de nombres coloquiales de aplicaciones a ejecutables o rutas del sistema
 applications:
   bloc de notas: "notepad.exe"
+  block de notas: "notepad.exe"
+  notepad: "notepad.exe"
   calculadora: "calc.exe"

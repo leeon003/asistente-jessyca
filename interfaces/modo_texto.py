@@ -4,7 +4,15 @@ Loop de interfaz de texto para interactuar con Jessyca por teclado.
 Ejecutar con:
     venv\\Scripts\\python.exe -m interfaces.modo_texto
 """
+import sys
 from core.orquestador import ejecutar_orden_texto
+
+if hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
+
 
 
 BANNER = r"""
