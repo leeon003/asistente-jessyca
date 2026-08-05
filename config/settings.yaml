@@ -6,7 +6,7 @@ system:
   debug: false
 
 audio:
-  default_voice: "es-ES-ElviraNeural"
+  default_voice: "es-PE-CamilaNeural"
   sample_rate: 16000
   channels: 1
 

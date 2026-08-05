@@ -3,3 +3,5 @@ PyYAML
 psutil
 pytest
 requests
+edge-tts
+pygame
