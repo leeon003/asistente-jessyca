@@ -1,7 +1,7 @@
 # main.py — Punto de entrada principal del asistente Jessyca
-# Por ahora arranca en modo texto; se integrará voz en una fase posterior.
+# Modo Voz: integra Wake Word ("Jessyca") + STT + Orquestador + TTS
 
-from interfaces.modo_texto import iniciar_modo_texto
+from interfaces.modo_voz import iniciar_modo_voz
 
 if __name__ == "__main__":
-    iniciar_modo_texto()
+    iniciar_modo_voz()

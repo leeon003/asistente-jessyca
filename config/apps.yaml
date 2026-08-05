@@ -1,6 +1,29 @@
 # Mapeo de nombres coloquiales de aplicaciones a ejecutables o rutas del sistema
 applications:
+  # Bloc de Notas
   bloc de notas: "notepad.exe"
   block de notas: "notepad.exe"
+  blog de notas: "notepad.exe"
+  bloc notas: "notepad.exe"
+  block notas: "notepad.exe"
+  blog notas: "notepad.exe"
   notepad: "notepad.exe"
+
+  # Calculadora
   calculadora: "calc.exe"
+  calc: "calc.exe"
+
+  # Explorador de archivos
+  explorador de archivos: "explorer.exe"
+  explorador: "explorer.exe"
+
+  # Terminal / Consola
+  terminal: "cmd.exe"
+  consola: "cmd.exe"
+  cmd: "cmd.exe"
+  powershell: "powershell.exe"
+
+  # Navegador Web
+  chrome: "chrome.exe"
+  navegador: "msedge.exe"
+  edge: "msedge.exe"

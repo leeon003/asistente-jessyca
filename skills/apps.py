@@ -1,6 +1,7 @@
 import os
 import re
 import subprocess
+import shutil
 import unicodedata
 import yaml
 import psutil
