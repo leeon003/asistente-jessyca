@@ -1,4 +1,4 @@
-"""Pruebas unitarias completas del Security Manager."""
+"""Pruebas unitarias completas del Security Manager evaluando explícitamente todos los niveles de riesgo."""
 
 from __future__ import annotations
 
@@ -11,28 +11,59 @@ from core.security import (
 )
 
 
-def test_safe_and_readonly_tools_allowed_by_default() -> None:
+def test_risk_level_safe() -> None:
+    """Evaluación explícita del nivel de riesgo SAFE."""
     sec = SecurityManager()
     profile = ToolSecurityProfile(
-        name="read_system_info",
-        category="system",
-        risk_level=RiskLevel.READ_ONLY,
+        name="copy_file_tool",
+        category="filesystem",
+        risk_level=RiskLevel.SAFE,
+    )
+    decision = sec.evaluate(profile)
+    assert decision.is_allowed is True
+    assert decision.status == SecurityStatus.ALLOWED
+    assert decision.requires_user_confirmation is False
+
+
+def test_risk_level_warning() -> None:
+    """Evaluación explícita del nivel de riesgo WARNING."""
+    sec = SecurityManager()
+    profile = ToolSecurityProfile(
+        name="overwrite_temp_file",
+        category="filesystem",
+        risk_level=RiskLevel.WARNING,
     )
     decision = sec.evaluate(profile)
     assert decision.is_allowed is True
     assert decision.status == SecurityStatus.ALLOWED
 
 
-def test_dangerous_and_critical_tools_require_confirmation() -> None:
-    sec = SecurityManager(policy=SecurityPolicy(require_admin_for_critical=False))
+def test_risk_level_dangerous() -> None:
+    """Evaluación explícita del nivel de riesgo DANGEROUS."""
+    sec = SecurityManager()
     profile = ToolSecurityProfile(
-        name="delete_database",
-        category="system",
+        name="delete_directory",
+        category="filesystem",
         risk_level=RiskLevel.DANGEROUS,
     )
     decision = sec.evaluate(profile)
     assert decision.is_allowed is False
     assert decision.status == SecurityStatus.REQUIRES_CONFIRMATION
+    assert decision.requires_user_confirmation is True
+
+
+def test_risk_level_critical() -> None:
+    """Evaluación explícita del nivel de riesgo CRITICAL."""
+    sec = SecurityManager(policy=SecurityPolicy(require_admin_for_critical=False))
+    profile = ToolSecurityProfile(
+        name="modify_registry_key",
+        category="system",
+        risk_level=RiskLevel.CRITICAL,
+    )
+    decision = sec.evaluate(profile)
+    assert decision.is_allowed is False
+    assert decision.status == SecurityStatus.REQUIRES_CONFIRMATION
+    assert decision.requires_user_confirmation is True
 
 
 def test_blacklist_blocking() -> None:

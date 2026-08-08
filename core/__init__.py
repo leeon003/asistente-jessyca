@@ -28,6 +28,14 @@ from core.executor import (
 )
 from core.logger import get_logger, setup_logger
 from core.planner import AIPlanner, ExecutionPlan, SubTask
+from core.risk_engine import (
+    BulkOperationRiskRule,
+    RiskAssessment,
+    RiskEngine,
+    RiskRule,
+    StaticMetadataRiskRule,
+    SystemPathRiskRule,
+)
 from core.security import (
     AuditRecord,
     RiskLevel,
@@ -69,6 +77,12 @@ __all__ = [
     "check_hierarchical_permission",
     "AuditRecord",
     "SecurityManager",
+    "RiskAssessment",
+    "RiskRule",
+    "StaticMetadataRiskRule",
+    "SystemPathRiskRule",
+    "BulkOperationRiskRule",
+    "RiskEngine",
     "ToolCapabilitySpec",
     "CapabilityManager",
     "ContextItem",

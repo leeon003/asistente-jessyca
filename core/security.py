@@ -10,10 +10,13 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import StrEnum
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from core.logger import get_logger
 from utils.platform import check_windows_compatibility, is_admin
+
+if TYPE_CHECKING:
+    from core.risk_engine import RiskEngine
 
 logger = get_logger("jessyca.security")
 
@@ -124,6 +127,7 @@ class SecurityManager:
         self,
         policy: SecurityPolicy | None = None,
         strict_whitelist_mode: bool = False,
+        risk_engine: RiskEngine | None = None,
     ) -> None:
         self._policy = policy or SecurityPolicy()
         self._blacklist: set[str] = set()
@@ -132,6 +136,15 @@ class SecurityManager:
         self._granted_permissions: set[str] = set()
         self._audit_log: list[AuditRecord] = []
         self._strict_whitelist_mode: bool = strict_whitelist_mode
+        self._risk_engine = risk_engine
+
+    @property
+    def risk_engine(self) -> RiskEngine:
+        """Obtiene o crea la instancia de RiskEngine."""
+        if self._risk_engine is None:
+            from core.risk_engine import RiskEngine
+            self._risk_engine = RiskEngine()
+        return self._risk_engine
 
     def set_policy(self, policy: SecurityPolicy) -> None:
         """Establece o actualiza la política global de seguridad."""
@@ -186,12 +199,18 @@ class SecurityManager:
         self._granted_permissions.discard(perm)
         logger.info(f"Permiso '{perm}' revocado del sistema.")
 
-    def evaluate(self, profile: ToolSecurityProfile, user: str = "system") -> SecurityDecision:
-        """Evalúa si una herramienta puede ejecutarse según las políticas y permisos activos.
+    def evaluate(
+        self,
+        profile: ToolSecurityProfile,
+        user: str = "system",
+        arguments: dict[str, Any] | None = None,
+    ) -> SecurityDecision:
+        """Evalúa si una herramienta puede ejecutarse según las políticas, permisos y RiskEngine.
 
         Args:
             profile: Perfil de seguridad declarado por la herramienta.
             user: Nombre del usuario o agente invocador.
+            arguments: Argumentos concretos pasados a la herramienta para evaluación paramétrica.
 
         Returns:
             SecurityDecision con el resultado y justificación.
@@ -248,22 +267,26 @@ class SecurityManager:
             self._log_audit(profile, decision, user)
             return decision
 
-        # 5. Comprobar Nivel de Riesgo Máximo Permitido por Política
-        tool_risk_score = RISK_HIERARCHY.get(profile.risk_level, 2)
+        # 5. Evaluación Dinámica con RiskEngine
+        risk_assessment = self.risk_engine.evaluate_risk(profile, arguments)
+        computed_risk = risk_assessment.risk_level
+
+        # 6. Comprobar Nivel de Riesgo Máximo Permitido por Política
+        tool_risk_score = RISK_HIERARCHY.get(computed_risk, 2)
         max_risk_score = RISK_HIERARCHY.get(self._policy.max_allowed_risk, 5)
 
         if tool_risk_score > max_risk_score:
             decision = SecurityDecision(
                 is_allowed=False,
                 status=SecurityStatus.BLOCKED_BY_POLICY_MAX_RISK,
-                reason=f"El riesgo '{profile.risk_level.value}' excede el máximo permitido por la política ('{self._policy.max_allowed_risk.value}').",
+                reason=f"El riesgo calculado '{computed_risk.value}' excede el máximo permitido por la política ('{self._policy.max_allowed_risk.value}'). {risk_assessment.justification}",
             )
             self._log_audit(profile, decision, user)
             return decision
 
-        # 6. Comprobar Requerimiento de Administrador UAC para Riesgo CRITICAL
+        # 7. Comprobar Requerimiento de Administrador UAC para Riesgo CRITICAL
         if (
-            profile.risk_level == RiskLevel.CRITICAL
+            computed_risk == RiskLevel.CRITICAL
             and self._policy.require_admin_for_critical
         ):
             compat = check_windows_compatibility()
@@ -276,7 +299,7 @@ class SecurityManager:
                 self._log_audit(profile, decision, user)
                 return decision
 
-        # 7. Comprobar Permisos Requeridos (Jerárquicos y Comodines)
+        # 8. Comprobar Permisos Requeridos (Jerárquicos y Comodines)
         missing_perms = [
             p for p in profile.required_permissions
             if not check_hierarchical_permission(self._granted_permissions, p)
@@ -290,27 +313,24 @@ class SecurityManager:
             self._log_audit(profile, decision, user)
             return decision
 
-        # 8. Comprobar Solicitud de Confirmación del Usuario por Nivel de Riesgo
-        requires_conf = profile.requires_confirmation or profile.risk_level in (
-            RiskLevel.DANGEROUS,
-            RiskLevel.CRITICAL,
-        )
+        # 9. Comprobar Solicitud de Confirmación del Usuario por Nivel de Riesgo
+        requires_conf = risk_assessment.requires_confirmation
 
         if requires_conf:
             decision = SecurityDecision(
-                is_allowed=False,  # Requiere confirmación previa del usuario
+                is_allowed=False,
                 status=SecurityStatus.REQUIRES_CONFIRMATION,
-                reason=f"Herramienta '{tool_name}' [Riesgo: {profile.risk_level.value}] requiere confirmación.",
+                reason=f"Herramienta '{tool_name}' [Riesgo Calculado: {computed_risk.value}] requiere confirmación.",
                 requires_user_confirmation=True,
             )
             self._log_audit(profile, decision, user)
             return decision
 
-        # 9. Autorizado con Éxito
+        # 10. Autorizado con Éxito
         decision = SecurityDecision(
             is_allowed=True,
             status=SecurityStatus.ALLOWED,
-            reason=f"Ejecución permitida para '{tool_name}'.",
+            reason=f"Ejecución permitida para '{tool_name}' [Riesgo: {computed_risk.value}].",
         )
         self._log_audit(profile, decision, user)
         return decision
