@@ -3,7 +3,7 @@
 from core.capability import CapabilityManager, ToolCapabilitySpec
 from core.constants import APP_NAME, APP_VERSION
 from core.context_manager import ContextItem, ContextManager
-from core.contracts import IService, ITool, IToolRegistry
+from core.contracts import ISecurityManager, IService, ITool, IToolRegistry
 from core.event_bus import (
     Event,
     EventBus,
@@ -33,8 +33,10 @@ from core.security import (
     RiskLevel,
     SecurityDecision,
     SecurityManager,
+    SecurityPolicy,
     SecurityStatus,
     ToolSecurityProfile,
+    check_hierarchical_permission,
 )
 from core.session_manager import Session, SessionManager, ToolExecutionLog
 from core.types import EnvironmentMode, LogLevel, Result, WindowsVersion
@@ -45,6 +47,7 @@ __all__ = [
     "IService",
     "ITool",
     "IToolRegistry",
+    "ISecurityManager",
     "JessycaError",
     "ConfigurationError",
     "WindowsPlatformError",
@@ -62,6 +65,8 @@ __all__ = [
     "SecurityStatus",
     "ToolSecurityProfile",
     "SecurityDecision",
+    "SecurityPolicy",
+    "check_hierarchical_permission",
     "AuditRecord",
     "SecurityManager",
     "ToolCapabilitySpec",

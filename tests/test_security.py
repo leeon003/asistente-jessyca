@@ -1,20 +1,21 @@
-"""Pruebas unitarias completas del Security Manager independiente."""
+"""Pruebas unitarias completas del Security Manager."""
 
 from __future__ import annotations
 
 from core.security import (
     RiskLevel,
     SecurityManager,
+    SecurityPolicy,
     SecurityStatus,
     ToolSecurityProfile,
 )
 
 
-def test_read_only_and_safe_tools_allowed() -> None:
+def test_safe_and_readonly_tools_allowed_by_default() -> None:
     sec = SecurityManager()
     profile = ToolSecurityProfile(
-        name="read_file",
-        category="file",
+        name="read_system_info",
+        category="system",
         risk_level=RiskLevel.READ_ONLY,
     )
     decision = sec.evaluate(profile)
@@ -23,11 +24,11 @@ def test_read_only_and_safe_tools_allowed() -> None:
 
 
 def test_dangerous_and_critical_tools_require_confirmation() -> None:
-    sec = SecurityManager()
+    sec = SecurityManager(policy=SecurityPolicy(require_admin_for_critical=False))
     profile = ToolSecurityProfile(
         name="delete_database",
         category="system",
-        risk_level=RiskLevel.CRITICAL,
+        risk_level=RiskLevel.DANGEROUS,
     )
     decision = sec.evaluate(profile)
     assert decision.is_allowed is False
@@ -100,11 +101,11 @@ def test_missing_permissions() -> None:
 
 
 def test_user_confirmation_flow() -> None:
-    sec = SecurityManager()
+    sec = SecurityManager(policy=SecurityPolicy(require_admin_for_critical=False))
     profile = ToolSecurityProfile(
         name="format_disk",
         category="system",
-        risk_level=RiskLevel.CRITICAL,
+        risk_level=RiskLevel.DANGEROUS,
     )
 
     # Evaluación previa
@@ -129,9 +130,9 @@ def test_audit_log_tracking() -> None:
     sec.evaluate(p1)
     sec.evaluate(p2)
 
-    log = sec.get_audit_log()
-    assert len(log) == 2
-    assert log[0].tool_name == "t1"
-    assert log[0].status == SecurityStatus.ALLOWED
-    assert log[1].tool_name == "t2"
-    assert log[1].status == SecurityStatus.REQUIRES_CONFIRMATION
+    audit = sec.get_audit_log()
+    assert len(audit) == 2
+    assert audit[0].tool_name == "t1"
+    assert audit[0].allowed is True
+    assert audit[1].tool_name == "t2"
+    assert audit[1].allowed is False

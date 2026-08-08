@@ -7,7 +7,7 @@ que las capas superiores e inferiores dependan de abstracciones y no de concreci
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
 from core.types import JSONDict, Result
 
@@ -80,4 +80,33 @@ class IToolRegistry(Protocol):
 
     def list_tools(self) -> list[ITool]:
         """Lista todas las herramientas registradas."""
+        ...
+
+
+@runtime_checkable
+class ISecurityManager(Protocol):
+    """Protocolo para la evaluación de seguridad, políticas y permisos."""
+
+    def evaluate(self, profile: Any, user: str = "system") -> Any:
+        """Evalúa el perfil de seguridad de una herramienta."""
+        ...
+
+    def grant_permission(self, permission: str) -> None:
+        """Otorga un permiso al entorno."""
+        ...
+
+    def revoke_permission(self, permission: str) -> None:
+        """Revoca un permiso del entorno."""
+        ...
+
+    def add_to_blacklist(self, tool_name: str) -> None:
+        """Añade una herramienta a la lista negra."""
+        ...
+
+    def add_to_whitelist(self, tool_name: str) -> None:
+        """Añade una herramienta a la lista blanca."""
+        ...
+
+    def get_audit_log(self) -> list[Any]:
+        """Obtiene la lista inmutable de auditoría."""
         ...
