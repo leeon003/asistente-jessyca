@@ -17,16 +17,16 @@ logger = get_logger("jessyca.main")
 def main() -> None:
     """Función de entrada principal."""
     try:
-        mcp_server = create_mcp_server()
+        server = create_mcp_server()
 
         # Ejecución del servidor FastMCP (por defecto utiliza STDIO para integración con clientes MCP)
         logger.info("Iniciando transporte de servidor FastMCP...")
-        mcp_server.run()
+        server.run()
     except KeyboardInterrupt:
         logger.info("Servidor detenido por solicitud del usuario.")
         sys.exit(0)
     except Exception as e:
-        logger.critical(f"Error fatal al iniciar el servidor Jessyca Windows MCP: {e}")
+        logger.critical(f"Error fatal al iniciar el servidor Jessyca Windows MCP: {e}", exc_info=True)
         sys.exit(1)
 
 
