@@ -9,7 +9,7 @@ from core.confirmation import (
 )
 from core.constants import APP_NAME, APP_VERSION
 from core.context_manager import ContextItem, ContextManager
-from core.contracts import ISecurityManager, IService, ITool, IToolRegistry
+from core.contracts import ISecurityEvaluator, ISecurityManager, IService, ITool, IToolRegistry
 from core.event_bus import (
     Event,
     EventBus,
@@ -54,6 +54,15 @@ from core.security import (
     ToolSecurityProfile,
     check_hierarchical_permission,
 )
+from core.security_architecture import (
+    BaseSecurityManager,
+    SecurityContext,
+    SecurityDecisionType,
+    SecurityLevel,
+    SecurityRequest,
+    SecurityResult,
+    ToolSecurityMetadata,
+)
 from core.session_manager import Session, SessionManager, ToolExecutionLog
 from core.types import EnvironmentMode, LogLevel, Result, WindowsVersion
 
@@ -64,6 +73,7 @@ __all__ = [
     "ITool",
     "IToolRegistry",
     "ISecurityManager",
+    "ISecurityEvaluator",
     "JessycaError",
     "ConfigurationError",
     "WindowsPlatformError",
@@ -86,6 +96,13 @@ __all__ = [
     "check_hierarchical_permission",
     "AuditRecord",
     "SecurityManager",
+    "SecurityLevel",
+    "SecurityDecisionType",
+    "SecurityContext",
+    "ToolSecurityMetadata",
+    "SecurityRequest",
+    "SecurityResult",
+    "BaseSecurityManager",
     "AuditLogEntry",
     "AuditLogger",
     "get_audit_logger",

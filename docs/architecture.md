@@ -17,7 +17,8 @@ graph TD
         Exceptions[exceptions.py]
         Types[types.py]
         Logger[logger.py]
-        Contracts[contracts.py]
+        Contracts[contracts.py - ISecurityEvaluator]
+        SecurityArch[security_architecture.py - Subetapa 04.1]
         Security[security.py - SecurityManager]
         Capability[capability.py - CapabilityManager]
         Context[context_manager.py - ContextManager]
@@ -59,7 +60,8 @@ graph TD
 
 ### 1. Capa `core/` (Núcleo de Dominio y Subsystems)
 - **Modelos y Contratos**: Modelos conceptuales, abstracciones, interfaces base (Protocols/ABCs), constantes globales, tipos compartidos y excepciones.
-- **SecurityManager (`security.py`)**: Control de acceso basado en listas blancas/negras, niveles de riesgo (`READ_ONLY`, `SAFE`, `WARNING`, `DANGEROUS`, `CRITICAL`), permisos y auditoría inmutable.
+- **Security Architecture Foundation (`security_architecture.py` - Subetapa 04.1)**: Definición de modelos de dominio de seguridad (`SecurityContext`, `ToolSecurityMetadata`, `SecurityRequest`, `SecurityDecision`, `SecurityResult`), niveles (`SecurityLevel`), tipos de decisión (`SecurityDecisionType`) e interfaz `ISecurityEvaluator`.
+- **SecurityManager (`security.py`)**: Control de acceso basado en listas blancas/negras, niveles de riesgo, permisos y auditoría inmutable.
 - **CapabilityManager (`capability.py`)**: Desacopla la resolución de herramientas por capacidad declarada (ej. `Filesystem.copy`) y alias alternativos.
 - **ContextManager (`context_manager.py`)**: Estado temporal del escritorio y sesión (ventana activa, archivo actual, último OCR) con TTL opcional, independiente del LLM.
 - **SessionManager (`session_manager.py`)**: Seguimiento inmutable del ciclo de vida de sesiones, herramientas ejecutadas y exportación JSON/Markdown.
@@ -89,5 +91,5 @@ graph TD
 1. **Single Responsibility Principle (SRP)**: Cada módulo tiene un único motivo de cambio.
 2. **Open/Closed Principle (OCP)**: Se agregan herramientas automáticamente en `tools/` sin modificar el registro central.
 3. **Liskov Substitution Principle (LSP)**: Todos los componentes heredan de contratos base respetando la interfaz.
-4. **Interface Segregation Principle (ISP)**: Interfaces pequeñas y enfocadas (`IService`, `ITool`, `IToolRegistry`).
+4. **Interface Segregation Principle (ISP)**: Interfaces pequeñas y enfocadas (`IService`, `ITool`, `IToolRegistry`, `ISecurityEvaluator`).
 5. **Dependency Inversion Principle (DIP)**: Inversión de dependencias basada en `core/contracts.py`.

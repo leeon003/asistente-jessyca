@@ -110,3 +110,12 @@ class ISecurityManager(Protocol):
     def get_audit_log(self) -> list[Any]:
         """Obtiene la lista inmutable de auditoría."""
         ...
+
+
+@runtime_checkable
+class ISecurityEvaluator(Protocol):
+    """Protocolo/Interfaz abstracta para el evaluador central de seguridad (Subetapa 04.1)."""
+
+    def evaluate(self, request: Any) -> Any:
+        """Evalúa una solicitud de seguridad de herramienta."""
+        ...
