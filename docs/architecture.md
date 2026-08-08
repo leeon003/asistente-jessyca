@@ -17,8 +17,10 @@ graph TD
         Exceptions[exceptions.py]
         Types[types.py]
         Logger[logger.py]
-        Contracts[contracts.py - ISecurityEvaluator]
+        Contracts[contracts.py - ISecurityEvaluator & IPermissionManager]
         SecurityArch[security_architecture.py - Subetapa 04.1]
+        RiskEngine[risk_engine.py - Subetapa 04.2 RiskEngine]
+        PermManager[permission_manager.py - Subetapa 04.3 PermissionManager]
         Security[security.py - SecurityManager]
         Capability[capability.py - CapabilityManager]
         Context[context_manager.py - ContextManager]
@@ -61,7 +63,9 @@ graph TD
 ### 1. Capa `core/` (Núcleo de Dominio y Subsystems)
 - **Modelos y Contratos**: Modelos conceptuales, abstracciones, interfaces base (Protocols/ABCs), constantes globales, tipos compartidos y excepciones.
 - **Security Architecture Foundation (`security_architecture.py` - Subetapa 04.1)**: Definición de modelos de dominio de seguridad (`SecurityContext`, `ToolSecurityMetadata`, `SecurityRequest`, `SecurityDecision`, `SecurityResult`), niveles (`SecurityLevel`), tipos de decisión (`SecurityDecisionType`) e interfaz `ISecurityEvaluator`.
-- **SecurityManager (`security.py`)**: Control de acceso basado en listas blancas/negras, niveles de riesgo, permisos y auditoría inmutable.
+- **Risk Engine (`risk_engine.py` - Subetapa 04.2)**: Motor determinista desacoplado de evaluación de riesgo (`RiskEngine` & `IRiskEvaluator`) que mapea la jerarquía `SAFE < WARNING < DANGEROUS < CRITICAL` y factores `RiskFactor`.
+- **Permission Manager (`permission_manager.py` - Subetapa 04.3)**: Componente desacoplado de autorización (`PermissionManager` & `IPermissionManager`) que evalúa si una operación está autorizada (`ALLOW`, `DENY`, `REQUIRE_CONFIRMATION`, `ALLOW_ONCE`, `ALWAYS_ALLOW`) aplicando Fail-Safe `DEFAULT DENY`.
+- **SecurityManager (`security.py`)**: Control de acceso basado en listas blancas/negras, permisos y auditoría inmutable.
 - **CapabilityManager (`capability.py`)**: Desacopla la resolución de herramientas por capacidad declarada (ej. `Filesystem.copy`) y alias alternativos.
 - **ContextManager (`context_manager.py`)**: Estado temporal del escritorio y sesión (ventana activa, archivo actual, último OCR) con TTL opcional, independiente del LLM.
 - **SessionManager (`session_manager.py`)**: Seguimiento inmutable del ciclo de vida de sesiones, herramientas ejecutadas y exportación JSON/Markdown.
@@ -91,5 +95,5 @@ graph TD
 1. **Single Responsibility Principle (SRP)**: Cada módulo tiene un único motivo de cambio.
 2. **Open/Closed Principle (OCP)**: Se agregan herramientas automáticamente en `tools/` sin modificar el registro central.
 3. **Liskov Substitution Principle (LSP)**: Todos los componentes heredan de contratos base respetando la interfaz.
-4. **Interface Segregation Principle (ISP)**: Interfaces pequeñas y enfocadas (`IService`, `ITool`, `IToolRegistry`, `ISecurityEvaluator`).
+4. **Interface Segregation Principle (ISP)**: Interfaces pequeñas y enfocadas (`IService`, `ITool`, `IToolRegistry`, `ISecurityEvaluator`, `IRiskEvaluator`, `IPermissionManager`).
 5. **Dependency Inversion Principle (DIP)**: Inversión de dependencias basada en `core/contracts.py`.

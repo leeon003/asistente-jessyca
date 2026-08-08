@@ -8,7 +8,7 @@ Su objetivo es actuar como una capa de inspección e interceptación previa a la
 
 ---
 
-## Componentes y Modelos de Dominio (Subetapas 04.1 y 04.2)
+## Componentes y Modelos de Dominio (Subetapas 04.1, 04.2 y 04.3)
 
 ### 1. Niveles de Seguridad (`SecurityLevel`)
 Enum tipado para clasificar el nivel de riesgo de las herramientas:
@@ -17,77 +17,65 @@ Enum tipado para clasificar el nivel de riesgo de las herramientas:
 - **`DANGEROUS`**: Operaciones de alto impacto que requieren confirmación interactiva del usuario (ej. eliminar archivos, finalizar procesos, operaciones recursivas).
 - **`CRITICAL`**: Operaciones de riesgo crítico que exigen elevación de privilegios UAC/Admin en Windows o modifican el Registro de Windows (`HKLM`) o rutas de sistema (`C:\Windows\System32`).
 
-### 2. Decisiones de Autorización (`SecurityDecisionType`)
-Enum tipado con los tipos formales de resolución:
+### 2. Decisiones de Autorización (`PermissionDecision`)
+Enum tipado con los tipos formales de resolución de permisos (Subetapa 04.3):
 - **`ALLOW`**: Autorizado para ejecución inmediata.
-- **`DENY`**: Rechazado / Bloqueado.
-- **`REQUIRE_CONFIRMATION`**: Requiere confirmación previa del usuario.
-- **`REQUIRE_ELEVATED_AUTHORIZATION`**: Requiere elevación de privilegios de Administrador en Windows.
+- **`DENY`**: Rechazado / Denegado explícitamente con un motivo explicativo (`reason`).
+- **`REQUIRE_CONFIRMATION`**: Requiere confirmación previa antes de ejecutar.
+- **`ALLOW_ONCE`**: Concedido temporalmente únicamente para un único uso.
+- **`ALWAYS_ALLOW`**: Autorizado permanentemente.
 
-### 3. Subetapa 04.2 — Risk Engine (`RiskEngine` & `IRiskEvaluator`)
+### 3. Orígenes de Autorización (`PermissionSource`)
+Enum que documenta la fuente de la regla de permiso:
+- **`DEFAULT`**: Regla base por defecto del sistema.
+- **`TOOL`**: Regla basada en la especificación de la herramienta.
+- **`OPERATION`**: Regla basada en el tipo de operación.
+- **`SESSION`**: Permiso temporal activo en la sesión.
+- **`USER`**: Consentimiento directo del usuario.
+- **`SYSTEM`**: Regla de seguridad del sistema.
+
+### 4. Subetapa 04.2 — Risk Engine (`RiskEngine` & `IRiskEvaluator`)
 Motor de evaluación de riesgo **independiente, determinista, extensible y desacoplado**.
-
-#### Responsabilidad Única
 Responde exclusivamente a la pregunta:  
-`"¿Qué nivel de riesgo representa esta operación?"`
+`"¿Qué nivel de riesgo representa esta operación?"` -> Produce un `RiskAssessment`.
+
+### 5. Subetapa 04.3 — Permission Manager (`PermissionManager` & `IPermissionManager`)
+Componente desacoplado responsable exclusivamente de responder:  
+`"¿Esta operación está autorizada?"`
 
 > [!IMPORTANT]
-> El `RiskEngine` **NO** ejecuta herramientas, **NO** permite/deniega permisos (`ALLOW`/`DENY`/`ASK`), **NO** solicita confirmaciones, **NO** muestra diálogos, **NO** modifica el sistema ni registra auditorías. Se limita a producir un `RiskAssessment` puro.
+> El `PermissionManager` **NO** ejecuta herramientas y **NO** interactúa con el usuario (no abre ventanas, ni diálogos, ni usa `input()`, ni TTS/STT). Si determina `REQUIRE_CONFIRMATION`, devuelve dicho resultado de forma pasiva para que un futuro `ConfirmationManager` gestione la interacción.
 
-#### Factores de Riesgo (`RiskFactor`)
-Enum estructurado con los factores que influyen en el análisis:
-- `DESTRUCTIVE_OPERATION`
-- `SYSTEM_CONFIGURATION`
-- `ELEVATED_PRIVILEGES`
-- `PROCESS_CONTROL`
-- `FILE_MODIFICATION`
-- `NETWORK_OPERATION`
-- `CREDENTIAL_ACCESS`
-- `REGISTRY_MODIFICATION`
-- `BULK_OPERATION`
-- `UNKNOWN_OPERATION`
-
-#### Reglas Modulares de Riesgo (`IRiskRule`)
-- **`StaticMetadataRiskRule`**: Evalúa metadatos declarados por la herramienta.
-- **`PrivilegeRiskRule`**: Evalúa requerimientos UAC de administración.
-- **`SystemPathRiskRule`**: Inspecciona rutas críticas (`C:\Windows`, `System32`, `HKLM`).
-- **`FileOperationRiskRule`**: Clasifica lectura (`SAFE`), escritura (`WARNING`) y eliminación (`DANGEROUS`).
-- **`ProcessControlRiskRule`**: Clasifica inicio de proceso (`WARNING`) y terminación forzada (`DANGEROUS`).
-- **`BulkOperationRiskRule`**: Detecta operaciones recursivas/masivas (`DANGEROUS`).
-- **`UnknownOperationRiskRule`**: Estrategia Fail-Safe para acciones desconocidas o metadatos incompletos (`WARNING` + `UNKNOWN_OPERATION`).
-
-#### Agregación de Riesgo Máximo
-El `RiskEngine` combina todas las reglas modulares y calcula el **nivel de riesgo máximo**:
-$$\text{SAFE (1)} < \text{WARNING (2)} < \text{DANGEROUS (3)} < \text{CRITICAL (4)}$$
+#### Estrategia Fail-Safe / Default Deny
+Ante solicitudes con contexto incompleto, metadatos nulos o niveles de riesgo ambiguos/críticos sin permisos elevados previa elevación, el `PermissionManager` devuelve explícitamente `PermissionDecision.DENY` indicando un motivo detallado (`reason`).
 
 ---
 
-## Flujo Futuro de Autorización (Etapa 04)
+## Flujo de Autorización (Etapa 04)
 
 ```text
 Usuario / LLM
       ↓
-Task / Tool Request
+Task / Tool Request (SecurityRequest)
       ↓
 Security Manager (ISecurityEvaluator)
       ↓
 Risk Engine (04.2 IRiskEvaluator -> RiskAssessment)
       ↓
-Permission Check (04.3 Permission Manager)
+Permission Manager (04.3 IPermissionManager -> PermissionResult)
       ↓
-Confirmation (04.4 Confirmation Manager)
+[04.4 Confirmation Manager - Futuro]
       ↓
 Tool Execution
       ↓
-Audit Log (04.6 Audit Logger)
+[04.6 Audit Logger - Futuro]
 ```
 
 ---
 
 ## Extensiones en Subetapas Posteriores
 
-- **04.3 — Permission Manager**: Control de permisos jerárquicos y comodines.
-- **04.4 — Confirmation Manager**: Solicitudes interactivas estructuradas.
-- **04.5 — Security Policy**: Políticas configurables multi-dimensión.
+- **04.4 — Confirmation Manager**: Solicitudes interactivas estructuradas de confirmación.
+- **04.5 — Security Policy**: Políticas configurables multi-dimensión y persistencia.
 - **04.6 — Audit Logger**: Registro inmutable de auditoría.
 - **04.7 — Security Tests**: Suite completa de pruebas de seguridad end-to-end.

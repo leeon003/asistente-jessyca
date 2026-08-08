@@ -128,3 +128,12 @@ class IRiskEvaluator(Protocol):
     def evaluate_risk(self, request_or_profile: Any, arguments: dict[str, Any] | None = None) -> Any:
         """Calcula deterministamente el nivel de riesgo de una solicitud u operación."""
         ...
+
+
+@runtime_checkable
+class IPermissionManager(Protocol):
+    """Protocolo/Interfaz abstracta para el gestor de autorización y permisos (Subetapa 04.3)."""
+
+    def evaluate_permission(self, request: Any) -> Any:
+        """Evalúa una solicitud de autorización y devuelve el resultado de permiso."""
+        ...

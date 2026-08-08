@@ -10,6 +10,7 @@ from core.confirmation import (
 from core.constants import APP_NAME, APP_VERSION
 from core.context_manager import ContextItem, ContextManager
 from core.contracts import (
+    IPermissionManager,
     IRiskEvaluator,
     ISecurityEvaluator,
     ISecurityManager,
@@ -40,6 +41,13 @@ from core.executor import (
     TaskExecutor,
 )
 from core.logger import get_logger, setup_logger
+from core.permission_manager import (
+    PermissionDecision,
+    PermissionManager,
+    PermissionRequest,
+    PermissionResult,
+    PermissionSource,
+)
 from core.planner import AIPlanner, ExecutionPlan, SubTask
 from core.policy_rules import ConfigurablePolicyRule, PolicyManager
 from core.risk_engine import (
@@ -88,6 +96,7 @@ __all__ = [
     "ISecurityManager",
     "ISecurityEvaluator",
     "IRiskEvaluator",
+    "IPermissionManager",
     "JessycaError",
     "ConfigurationError",
     "WindowsPlatformError",
@@ -129,6 +138,11 @@ __all__ = [
     "UnknownOperationRiskRule",
     "RiskAssessment",
     "RiskEngine",
+    "PermissionDecision",
+    "PermissionSource",
+    "PermissionRequest",
+    "PermissionResult",
+    "PermissionManager",
     "AuditLogEntry",
     "AuditLogger",
     "get_audit_logger",
