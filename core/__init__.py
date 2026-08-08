@@ -38,6 +38,7 @@ from core.risk_engine import (
 )
 from core.security import (
     AuditRecord,
+    PermissionAction,
     RiskLevel,
     SecurityDecision,
     SecurityManager,
@@ -70,6 +71,7 @@ __all__ = [
     "Result",
     "WindowsVersion",
     "RiskLevel",
+    "PermissionAction",
     "SecurityStatus",
     "ToolSecurityProfile",
     "SecurityDecision",

@@ -2,7 +2,8 @@
 
 Proporciona evaluación de riesgos, control de acceso basado en listas blancas y negras,
 modelos de permisos jerárquicos con comodines (<dominio>.<acción>), políticas de seguridad
-configurables, verificación UAC/Admin en Windows y registro auditable de seguridad.
+configurables, decisiones de consentimiento (ALLOW, DENY, ASK, ALLOW_ONCE, ALWAYS_ALLOW),
+verificación UAC/Admin en Windows y registro auditable de seguridad.
 """
 
 from __future__ import annotations
@@ -38,6 +39,16 @@ RISK_HIERARCHY: dict[RiskLevel, int] = {
     RiskLevel.DANGEROUS: 4,
     RiskLevel.CRITICAL: 5,
 }
+
+
+class PermissionAction(StrEnum):
+    """Acciones formales de respuesta y consentimiento de permisos."""
+
+    ALLOW = "ALLOW"                 # Permitir ejecución inmediata
+    DENY = "DENY"                   # Denegar ejecución
+    ASK = "ASK"                     # Solicitar confirmación interactiva al usuario
+    ALLOW_ONCE = "ALLOW_ONCE"       # Permitir temporalmente para una sola llamada (un solo uso)
+    ALWAYS_ALLOW = "ALWAYS_ALLOW"   # Permitir siempre y añadir permanentemente a la lista autorizada
 
 
 class SecurityStatus(StrEnum):
@@ -82,6 +93,7 @@ class SecurityDecision:
     is_allowed: bool
     status: SecurityStatus
     reason: str
+    action: PermissionAction = PermissionAction.ALLOW
     requires_user_confirmation: bool = False
 
     def __bool__(self) -> bool:
@@ -98,6 +110,7 @@ class AuditRecord:
     allowed: bool
     user: str
     reason: str
+    action: PermissionAction = PermissionAction.ALLOW
     timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
     details: dict[str, Any] = field(default_factory=dict)
 
@@ -134,6 +147,7 @@ class SecurityManager:
         self._whitelist: set[str] = set()
         self._dynamically_blocked: set[str] = set()
         self._granted_permissions: set[str] = set()
+        self._one_time_grants: set[str] = set()
         self._audit_log: list[AuditRecord] = []
         self._strict_whitelist_mode: bool = strict_whitelist_mode
         self._risk_engine = risk_engine
@@ -199,24 +213,97 @@ class SecurityManager:
         self._granted_permissions.discard(perm)
         logger.info(f"Permiso '{perm}' revocado del sistema.")
 
+    def grant_one_time_permission(self, tool_name: str) -> None:
+        """Otorga un permiso de un solo uso (ALLOW_ONCE) a una herramienta."""
+        name = tool_name.strip()
+        self._one_time_grants.add(name)
+        logger.info(f"Permiso temporal de un solo uso (ALLOW_ONCE) otorgado a '{name}'.")
+
+    def process_user_action(
+        self,
+        profile: ToolSecurityProfile,
+        action: PermissionAction,
+        user: str = "user",
+    ) -> SecurityDecision:
+        """Procesa una respuesta explícita de consentimiento o acción del usuario.
+
+        Args:
+            profile: Perfil de la herramienta.
+            action: Acción seleccionada (ALLOW, DENY, ASK, ALLOW_ONCE, ALWAYS_ALLOW).
+            user: Nombre del usuario o agente.
+
+        Returns:
+            SecurityDecision según la acción seleccionada.
+        """
+        tool_name = profile.name.strip()
+
+        if action == PermissionAction.DENY:
+            logger.warning(f"Acción DENY seleccionada para '{tool_name}'.")
+            decision = SecurityDecision(
+                is_allowed=False,
+                status=SecurityStatus.BLOCKED_BY_BLACKLIST,
+                reason=f"Ejecución de '{tool_name}' denegada por acción del usuario (DENY).",
+                action=PermissionAction.DENY,
+            )
+        elif action == PermissionAction.ASK:
+            logger.info(f"Acción ASK seleccionada para '{tool_name}'.")
+            decision = SecurityDecision(
+                is_allowed=False,
+                status=SecurityStatus.REQUIRES_CONFIRMATION,
+                reason=f"Ejecución de '{tool_name}' requiere confirmación interactiva (ASK).",
+                action=PermissionAction.ASK,
+                requires_user_confirmation=True,
+            )
+        elif action == PermissionAction.ALLOW_ONCE:
+            self.grant_one_time_permission(tool_name)
+            decision = SecurityDecision(
+                is_allowed=True,
+                status=SecurityStatus.ALLOWED,
+                reason=f"Ejecución de '{tool_name}' autorizada por esta única ocasión (ALLOW_ONCE).",
+                action=PermissionAction.ALLOW_ONCE,
+            )
+        elif action == PermissionAction.ALWAYS_ALLOW:
+            self.add_to_whitelist(tool_name)
+            for perm in profile.required_permissions:
+                self.grant_permission(perm)
+            decision = SecurityDecision(
+                is_allowed=True,
+                status=SecurityStatus.ALLOWED,
+                reason=f"Ejecución de '{tool_name}' autorizada permanentemente (ALWAYS_ALLOW).",
+                action=PermissionAction.ALWAYS_ALLOW,
+            )
+        else:  # PermissionAction.ALLOW
+            decision = SecurityDecision(
+                is_allowed=True,
+                status=SecurityStatus.ALLOWED,
+                reason=f"Ejecución de '{tool_name}' autorizada (ALLOW).",
+                action=PermissionAction.ALLOW,
+            )
+
+        self._log_audit(profile, decision, user=user)
+        return decision
+
     def evaluate(
         self,
         profile: ToolSecurityProfile,
         user: str = "system",
         arguments: dict[str, Any] | None = None,
     ) -> SecurityDecision:
-        """Evalúa si una herramienta puede ejecutarse según las políticas, permisos y RiskEngine.
-
-        Args:
-            profile: Perfil de seguridad declarado por la herramienta.
-            user: Nombre del usuario o agente invocador.
-            arguments: Argumentos concretos pasados a la herramienta para evaluación paramétrica.
-
-        Returns:
-            SecurityDecision con el resultado y justificación.
-        """
+        """Evalúa si una herramienta puede ejecutarse según las políticas, permisos y RiskEngine."""
         tool_name = profile.name.strip()
         category = profile.category.strip().lower()
+
+        # 0. Comprobar Permiso Temporal de Un Solo Uso (ALLOW_ONCE)
+        if tool_name in self._one_time_grants:
+            self._one_time_grants.remove(tool_name)
+            decision = SecurityDecision(
+                is_allowed=True,
+                status=SecurityStatus.ALLOWED,
+                reason=f"Ejecución permitida para '{tool_name}' por permiso temporal consumido (ALLOW_ONCE).",
+                action=PermissionAction.ALLOW_ONCE,
+            )
+            self._log_audit(profile, decision, user)
+            return decision
 
         # 1. Comprobar Lista Negra
         if tool_name in self._blacklist:
@@ -224,6 +311,7 @@ class SecurityManager:
                 is_allowed=False,
                 status=SecurityStatus.BLOCKED_BY_BLACKLIST,
                 reason=f"Herramienta '{tool_name}' está explícitamente en la Lista Negra.",
+                action=PermissionAction.DENY,
             )
             self._log_audit(profile, decision, user)
             return decision
@@ -234,6 +322,7 @@ class SecurityManager:
                 is_allowed=False,
                 status=SecurityStatus.BLOCKED_DYNAMICALLY,
                 reason=f"Herramienta '{tool_name}' ha sido bloqueada dinámicamente.",
+                action=PermissionAction.DENY,
             )
             self._log_audit(profile, decision, user)
             return decision
@@ -244,6 +333,7 @@ class SecurityManager:
                 is_allowed=False,
                 status=SecurityStatus.BLOCKED_NOT_IN_WHITELIST,
                 reason=f"Herramienta '{tool_name}' no está en la Lista Blanca (Modo Estricto Activo).",
+                action=PermissionAction.DENY,
             )
             self._log_audit(profile, decision, user)
             return decision
@@ -254,6 +344,7 @@ class SecurityManager:
                 is_allowed=False,
                 status=SecurityStatus.BLOCKED_BY_DOMAIN_POLICY,
                 reason=f"El dominio/categoría '{category}' está bloqueado por la política de seguridad.",
+                action=PermissionAction.DENY,
             )
             self._log_audit(profile, decision, user)
             return decision
@@ -263,6 +354,7 @@ class SecurityManager:
                 is_allowed=False,
                 status=SecurityStatus.BLOCKED_BY_DOMAIN_POLICY,
                 reason=f"El dominio/categoría '{category}' no está en los dominios permitidos por la política.",
+                action=PermissionAction.DENY,
             )
             self._log_audit(profile, decision, user)
             return decision
@@ -280,6 +372,7 @@ class SecurityManager:
                 is_allowed=False,
                 status=SecurityStatus.BLOCKED_BY_POLICY_MAX_RISK,
                 reason=f"El riesgo calculado '{computed_risk.value}' excede el máximo permitido por la política ('{self._policy.max_allowed_risk.value}'). {risk_assessment.justification}",
+                action=PermissionAction.DENY,
             )
             self._log_audit(profile, decision, user)
             return decision
@@ -295,6 +388,7 @@ class SecurityManager:
                     is_allowed=False,
                     status=SecurityStatus.DENIED_REQUIRES_ADMIN,
                     reason=f"Herramienta crítica '{tool_name}' requiere privilegios de Administrador (UAC) en Windows.",
+                    action=PermissionAction.DENY,
                 )
                 self._log_audit(profile, decision, user)
                 return decision
@@ -309,6 +403,7 @@ class SecurityManager:
                 is_allowed=False,
                 status=SecurityStatus.DENIED_MISSING_PERMISSIONS,
                 reason=f"Faltan permisos requeridos: {missing_perms}",
+                action=PermissionAction.DENY,
             )
             self._log_audit(profile, decision, user)
             return decision
@@ -321,6 +416,7 @@ class SecurityManager:
                 is_allowed=False,
                 status=SecurityStatus.REQUIRES_CONFIRMATION,
                 reason=f"Herramienta '{tool_name}' [Riesgo Calculado: {computed_risk.value}] requiere confirmación.",
+                action=PermissionAction.ASK,
                 requires_user_confirmation=True,
             )
             self._log_audit(profile, decision, user)
@@ -331,6 +427,7 @@ class SecurityManager:
             is_allowed=True,
             status=SecurityStatus.ALLOWED,
             reason=f"Ejecución permitida para '{tool_name}' [Riesgo: {computed_risk.value}].",
+            action=PermissionAction.ALLOW,
         )
         self._log_audit(profile, decision, user)
         return decision
@@ -343,23 +440,8 @@ class SecurityManager:
     ) -> SecurityDecision:
         """Procesa la respuesta de confirmación del usuario para herramientas de alto riesgo."""
         approved = user_approved if user_approved is not None else user_confirmed
-        if not approved:
-            logger.warning(f"Ejecución de '{profile.name}' CANCELADA por el usuario.")
-            decision = SecurityDecision(
-                is_allowed=False,
-                status=SecurityStatus.REQUIRES_CONFIRMATION,
-                reason=f"Ejecución de '{profile.name}' rechazada por el usuario.",
-            )
-        else:
-            logger.info(f"Ejecución de '{profile.name}' CONFIRMADA explícitamente por el usuario.")
-            decision = SecurityDecision(
-                is_allowed=True,
-                status=SecurityStatus.ALLOWED,
-                reason=f"Ejecución de '{profile.name}' autorizada por confirmación del usuario.",
-            )
-
-        self._log_audit(profile, decision, user="user")
-        return decision
+        action = PermissionAction.ALLOW if approved else PermissionAction.DENY
+        return self.process_user_action(profile, action, user="user")
 
     def _log_audit(self, profile: ToolSecurityProfile, decision: SecurityDecision, user: str) -> None:
         """Registra un evento de evaluación en el historial inmutable de auditoría."""
@@ -370,9 +452,10 @@ class SecurityManager:
             allowed=decision.is_allowed,
             user=user,
             reason=decision.reason,
+            action=decision.action,
         )
         self._audit_log.append(record)
-        logger.debug(f"Auditoría registrada [{decision.status.value}] Tool: {profile.name} User: {user}")
+        logger.debug(f"Auditoría registrada [{decision.status.value} / {decision.action.value}] Tool: {profile.name} User: {user}")
 
     def get_audit_log(self) -> list[AuditRecord]:
         """Obtiene una copia inmutable del historial de auditoría de seguridad."""
