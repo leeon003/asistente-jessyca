@@ -119,3 +119,12 @@ class ISecurityEvaluator(Protocol):
     def evaluate(self, request: Any) -> Any:
         """Evalúa una solicitud de seguridad de herramienta."""
         ...
+
+
+@runtime_checkable
+class IRiskEvaluator(Protocol):
+    """Protocolo/Interfaz abstracta para el motor de evaluación de riesgo (Subetapa 04.2)."""
+
+    def evaluate_risk(self, request_or_profile: Any, arguments: dict[str, Any] | None = None) -> Any:
+        """Calcula deterministamente el nivel de riesgo de una solicitud u operación."""
+        ...

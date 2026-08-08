@@ -405,7 +405,8 @@ class SecurityManager:
         computed_risk = risk_assessment.risk_level
 
         # 6. Comprobar Nivel de Riesgo Máximo Permitido por Política
-        tool_risk_score = RISK_HIERARCHY.get(computed_risk, 2)
+        computed_risk_enum = RiskLevel(getattr(computed_risk, "value", computed_risk))
+        tool_risk_score = RISK_HIERARCHY.get(computed_risk_enum, 2)
         max_risk_score = RISK_HIERARCHY.get(self._policy.max_allowed_risk, 5)
 
         if tool_risk_score > max_risk_score:

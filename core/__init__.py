@@ -9,7 +9,14 @@ from core.confirmation import (
 )
 from core.constants import APP_NAME, APP_VERSION
 from core.context_manager import ContextItem, ContextManager
-from core.contracts import ISecurityEvaluator, ISecurityManager, IService, ITool, IToolRegistry
+from core.contracts import (
+    IRiskEvaluator,
+    ISecurityEvaluator,
+    ISecurityManager,
+    IService,
+    ITool,
+    IToolRegistry,
+)
 from core.event_bus import (
     Event,
     EventBus,
@@ -37,11 +44,17 @@ from core.planner import AIPlanner, ExecutionPlan, SubTask
 from core.policy_rules import ConfigurablePolicyRule, PolicyManager
 from core.risk_engine import (
     BulkOperationRiskRule,
+    FileOperationRiskRule,
+    IRiskRule,
+    PrivilegeRiskRule,
+    ProcessControlRiskRule,
     RiskAssessment,
     RiskEngine,
+    RiskFactor,
     RiskRule,
     StaticMetadataRiskRule,
     SystemPathRiskRule,
+    UnknownOperationRiskRule,
 )
 from core.security import (
     AuditRecord,
@@ -74,6 +87,7 @@ __all__ = [
     "IToolRegistry",
     "ISecurityManager",
     "ISecurityEvaluator",
+    "IRiskEvaluator",
     "JessycaError",
     "ConfigurationError",
     "WindowsPlatformError",
@@ -103,17 +117,23 @@ __all__ = [
     "SecurityRequest",
     "SecurityResult",
     "BaseSecurityManager",
+    "RiskFactor",
+    "IRiskRule",
+    "RiskRule",
+    "StaticMetadataRiskRule",
+    "PrivilegeRiskRule",
+    "SystemPathRiskRule",
+    "FileOperationRiskRule",
+    "ProcessControlRiskRule",
+    "BulkOperationRiskRule",
+    "UnknownOperationRiskRule",
+    "RiskAssessment",
+    "RiskEngine",
     "AuditLogEntry",
     "AuditLogger",
     "get_audit_logger",
     "ConfigurablePolicyRule",
     "PolicyManager",
-    "RiskAssessment",
-    "RiskRule",
-    "StaticMetadataRiskRule",
-    "SystemPathRiskRule",
-    "BulkOperationRiskRule",
-    "RiskEngine",
     "ConfirmationRequest",
     "ConfirmationResponse",
     "ConfirmationManager",
