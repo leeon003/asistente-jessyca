@@ -14,5 +14,7 @@ Estructura JSON requerida:
 REGLAS DE DECISIÓN:
 1. Revisa la lista de habilidades (skills) disponibles provistas en las instrucciones.
 2. Si el comando coincide claramente con la funcionalidad de una skill disponible, establece el campo "skill" con el nombre exacto de la skill y en "parametros" asigna un objeto con los argumentos requeridos.
-3. Si el comando es una conversación habitual o la skill requerida no está en la lista de disponibles, establece "skill": null y "parametros": null.
-4. "respuesta_hablada" siempre debe incluir una frase apropiada en español indicando la acción que vas a realizar o la respuesta a la conversación.
+3. Si el usuario dice "reproduce X", "pon X en youtube", "abre youtube y reproduce X" o similar, debes seleccionar la skill "reproducir_youtube" y extraer X como el parámetro "busqueda" (Ejemplo: "abre youtube y reproduce zona ganya" -> skill: "reproducir_youtube", parametros: {"busqueda": "zona ganya"}).
+4. Si el usuario dice "abre X" o "abrir X" (donde X es una aplicación ejecutable como "bloc de notas", "calculadora"), selecciona "abrir_aplicacion" con {"nombre_app": "X"}.
+5. Si el comando es una conversación habitual o la skill requerida no está en la lista de disponibles, establece "skill": null y "parametros": null.
+6. "respuesta_hablada" siempre debe incluir una frase apropiada en español indicando la acción que vas a realizar o la respuesta a la conversación.

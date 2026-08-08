@@ -1,30 +1,37 @@
-# Byte-compiled / optimized / DLL files
-__pycache__/
-*.py[cod]
-*$py.class
-
-# Virtual Environment
+# Entornos virtuales de Python
 venv/
 .venv/
 env/
 ENV/
 
-# Environment Variables
+# Caches y compilación
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Caches de herramientas de calidad y testing
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Logs del sistema
+logs/*.log
+*.log
+
+# Archivos de entorno local con datos sensibles
 .env
 !.env.example
 
-# Logs
-logs/*
-!logs/.gitkeep
-*.log
-
-# IDE & OS files
+# IDEs y Editores de Código
 .vscode/
 .idea/
-.ds_store
-Thumbs.db
+*.swp
+*.swo
 
-# Testing & Coverage
-.pytest_cache/
-.coverage
-htmlcov/
+# Distribución y Builds
+build/
+dist/
+*.egg-info/

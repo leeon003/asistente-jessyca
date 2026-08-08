@@ -22,6 +22,11 @@ audio:
   sample_rate: 16000
   channels: 1
 
+browser:
+  use_real_profile: true
+  edge_user_data_dir: ""  # Vacío = C:\Users\<usuario>\AppData\Local\Microsoft\Edge\User Data
+  edge_profile_directory: "Default"
+
 logging:
   level: "INFO"
   console_output: true
