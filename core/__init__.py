@@ -33,6 +33,7 @@ from core.executor import (
 )
 from core.logger import get_logger, setup_logger
 from core.planner import AIPlanner, ExecutionPlan, SubTask
+from core.policy_rules import ConfigurablePolicyRule, PolicyManager
 from core.risk_engine import (
     BulkOperationRiskRule,
     RiskAssessment,
@@ -84,6 +85,8 @@ __all__ = [
     "check_hierarchical_permission",
     "AuditRecord",
     "SecurityManager",
+    "ConfigurablePolicyRule",
+    "PolicyManager",
     "RiskAssessment",
     "RiskRule",
     "StaticMetadataRiskRule",

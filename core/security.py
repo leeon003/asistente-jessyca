@@ -17,6 +17,7 @@ from core.logger import get_logger
 from utils.platform import check_windows_compatibility, is_admin
 
 if TYPE_CHECKING:
+    from core.policy_rules import PolicyManager
     from core.risk_engine import RiskEngine
 
 logger = get_logger("jessyca.security")
@@ -142,6 +143,7 @@ class SecurityManager:
         policy: SecurityPolicy | None = None,
         strict_whitelist_mode: bool = False,
         risk_engine: RiskEngine | None = None,
+        policy_manager: PolicyManager | None = None,
     ) -> None:
         self._policy = policy or SecurityPolicy()
         self._blacklist: set[str] = set()
@@ -152,6 +154,7 @@ class SecurityManager:
         self._audit_log: list[AuditRecord] = []
         self._strict_whitelist_mode: bool = strict_whitelist_mode
         self._risk_engine = risk_engine
+        self._policy_manager = policy_manager
 
     @property
     def risk_engine(self) -> RiskEngine:
@@ -160,6 +163,15 @@ class SecurityManager:
             from core.risk_engine import RiskEngine
             self._risk_engine = RiskEngine()
         return self._risk_engine
+
+    @property
+    def policy_manager(self) -> PolicyManager | None:
+        """Obtiene el gestor de políticas multi-dimensión."""
+        return self._policy_manager
+
+    def set_policy_manager(self, policy_manager: PolicyManager) -> None:
+        """Establece el gestor de políticas multi-dimensión."""
+        self._policy_manager = policy_manager
 
     def set_policy(self, policy: SecurityPolicy) -> None:
         """Establece o actualiza la política global de seguridad."""
@@ -289,10 +301,12 @@ class SecurityManager:
         profile: ToolSecurityProfile,
         user: str = "system",
         arguments: dict[str, Any] | None = None,
+        action: str = "execute",
     ) -> SecurityDecision:
         """Evalúa si una herramienta puede ejecutarse según las políticas, permisos y RiskEngine."""
         tool_name = profile.name.strip()
         category = profile.category.strip().lower()
+        args = arguments or {}
 
         # 0. Comprobar Permiso Temporal de Un Solo Uso (ALLOW_ONCE)
         if tool_name in self._one_time_grants:
@@ -305,6 +319,32 @@ class SecurityManager:
             )
             self._log_audit(profile, decision, user)
             return decision
+
+        # 0.1 Comprobar Reglas del PolicyManager (Multi-Dimensión: usuario, herramienta, categoría, riesgo, acción, ruta)
+        if self._policy_manager is not None:
+            rule_effect = self._policy_manager.evaluate_rules(profile, user, action, args)
+            if rule_effect is not None:
+                if rule_effect == PermissionAction.DENY:
+                    decision = SecurityDecision(
+                        is_allowed=False,
+                        status=SecurityStatus.BLOCKED_BY_DOMAIN_POLICY,
+                        reason=f"Ejecución de '{tool_name}' denegada por regla de política multi-dimensión.",
+                        action=PermissionAction.DENY,
+                    )
+                    self._log_audit(profile, decision, user)
+                    return decision
+                elif rule_effect == PermissionAction.ASK:
+                    decision = SecurityDecision(
+                        is_allowed=False,
+                        status=SecurityStatus.REQUIRES_CONFIRMATION,
+                        reason=f"Ejecución de '{tool_name}' exige confirmación por regla de política multi-dimensión.",
+                        action=PermissionAction.ASK,
+                        requires_user_confirmation=True,
+                    )
+                    self._log_audit(profile, decision, user)
+                    return decision
+                elif rule_effect in (PermissionAction.ALLOW, PermissionAction.ALLOW_ONCE, PermissionAction.ALWAYS_ALLOW):
+                    return self.process_user_action(profile, rule_effect, user=user)
 
         # 1. Comprobar Lista Negra
         if tool_name in self._blacklist:
@@ -361,7 +401,7 @@ class SecurityManager:
             return decision
 
         # 5. Evaluación Dinámica con RiskEngine
-        risk_assessment = self.risk_engine.evaluate_risk(profile, arguments)
+        risk_assessment = self.risk_engine.evaluate_risk(profile, args)
         computed_risk = risk_assessment.risk_level
 
         # 6. Comprobar Nivel de Riesgo Máximo Permitido por Política
