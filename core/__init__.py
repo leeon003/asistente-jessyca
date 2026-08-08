@@ -1,5 +1,6 @@
 """Módulo core de Jessyca Windows MCP."""
 
+from core.audit_logger import AuditLogEntry, AuditLogger, get_audit_logger
 from core.capability import CapabilityManager, ToolCapabilitySpec
 from core.confirmation import (
     ConfirmationManager,
@@ -85,6 +86,9 @@ __all__ = [
     "check_hierarchical_permission",
     "AuditRecord",
     "SecurityManager",
+    "AuditLogEntry",
+    "AuditLogger",
+    "get_audit_logger",
     "ConfigurablePolicyRule",
     "PolicyManager",
     "RiskAssessment",

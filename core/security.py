@@ -496,6 +496,20 @@ class SecurityManager:
             action=decision.action,
         )
         self._audit_log.append(record)
+
+        # Registrar también en el AuditLogger global estructurado
+        from core.audit_logger import get_audit_logger
+        res_str = "SUCCESS" if decision.is_allowed else decision.status.value
+        get_audit_logger().log_event(
+            usuario=user,
+            accion="evaluate",
+            herramienta=profile.name,
+            riesgo=profile.risk_level,
+            resultado=res_str,
+            duracion_ms=0.0,
+            autorizacion=decision.action,
+            details={"reason": decision.reason},
+        )
         logger.debug(f"Auditoría registrada [{decision.status.value} / {decision.action.value}] Tool: {profile.name} User: {user}")
 
     def get_audit_log(self) -> list[AuditRecord]:
