@@ -1,7 +1,8 @@
 """Motor de autodescubrimiento e integración de herramientas MCP para Jessyca Windows MCP.
 
-Conecta el ToolRegistry desacoplado con la instancia de FastMCP, permitiendo
-registrar dinámicamente tanto subclases de BaseMCPTool como funciones decoradas con @mcp_tool.
+Proporciona capacidad de escaneo independiente de la carpeta tools/ y sus subcarpetas temáticas,
+validando metadatos, detectando clases derivantes de BaseMCPTool y registrándolas en ToolRegistry
+y CapabilityManager de forma desacoplada de FastMCP.
 """
 
 from __future__ import annotations
@@ -10,8 +11,8 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from fastmcp import FastMCP
-
+from core.capability import CapabilityManager
+from core.contracts import ITool
 from core.logger import get_logger
 from tools.registry import ToolRegistry
 
@@ -24,13 +25,13 @@ _DECORATED_MCP_TOOLS: list[dict[str, Any]] = []
 def mcp_tool(
     func: Callable[..., Any] | None = None,
     *,
-    capability: str = "General",
+    capability: str = "general",
     action: str = "execute",
     aliases: list[str] | None = None,
 ) -> Any:
     """Decorador para registrar automáticamente una función como herramienta MCP.
 
-    Soporta uso directo `@mcp_tool` o parametrizado `@mcp_tool(capability='Filesystem', action='copy', aliases=['copiar'])`.
+    Soporta uso directo `@mcp_tool` o parametrizado `@mcp_tool(capability='filesystem', action='copy', aliases=['copiar'])`.
     """
     def decorator(fn: Callable[..., Any]) -> Callable[..., Any]:
         tool_entry = {
@@ -40,7 +41,7 @@ def mcp_tool(
             "action": action,
             "aliases": aliases or [],
         }
-        # Evitar duplicados
+        # Evitar duplicados por función
         if not any(item["func"] is fn for item in _DECORATED_MCP_TOOLS):
             _DECORATED_MCP_TOOLS.append(tool_entry)
         return fn
@@ -51,51 +52,86 @@ def mcp_tool(
 
 
 class ToolDiscoveryEngine:
-    """Motor de exploración e integración de herramientas MCP en FastMCP."""
+    """Motor de exploración e integración desacoplado de herramientas MCP."""
 
-    def __init__(self, registry: ToolRegistry | None = None, tools_base_dir: Path | str | None = None) -> None:
+    def __init__(
+        self,
+        registry: ToolRegistry | None = None,
+        capability_manager: CapabilityManager | None = None,
+        tools_base_dir: Path | str | None = None,
+    ) -> None:
         self.registry = registry or ToolRegistry()
+        self.capability_manager = capability_manager or CapabilityManager()
+
         if tools_base_dir is None:
             self.tools_dir = Path(__file__).resolve().parent
         else:
             self.tools_dir = Path(tools_base_dir)
 
-    def discover_and_register(self, mcp_server: FastMCP) -> int:
-        """Escanea el directorio tools/, registra en el ToolRegistry y vincula las herramientas en FastMCP.
+    def discover_tools(self) -> list[ITool]:
+        """Escanea recursivamente el directorio de herramientas y subdirectorios temáticos.
+
+        Descubre clases que implementan BaseMCPTool o ITool, las valida, previene duplicados
+        y las registra en el ToolRegistry y CapabilityManager de forma totalmente independiente a FastMCP.
 
         Returns:
-            int: Cantidad total de herramientas registradas en FastMCP.
+            list[ITool]: Lista de herramientas descubiertas y registradas con éxito.
         """
-        logger.info("Ejecutando autodescubrimiento desacoplado a través de ToolRegistry...")
-        # 1. Ejecutar escaneo dinámico y fault-tolerant en ToolRegistry
+        logger.info(f"Iniciando autodescubrimiento independiente en: {self.tools_dir}")
+        if not self.tools_dir.exists():
+            logger.warning(f"Directorio de herramientas no encontrado: {self.tools_dir}")
+            return []
+
+        # 1. Escaneo vía ToolRegistry (File-based Fault-Tolerant Dynamic Import)
         self.registry.discover(tools_dir=self.tools_dir)
 
+        # 2. Indexar en CapabilityManager
+        self.capability_manager.discover_capabilities(self.registry)
+
+        discovered = self.registry.list_tools()
+        logger.info(f"Autodescubrimiento independiente finalizado. Total herramientas activas: {len(discovered)}")
+        return discovered
+
+    def discover_and_register(self, mcp_server: Any) -> int:
+        """Escanea el directorio, registra en ToolRegistry/CapabilityManager y vincula las herramientas en FastMCP.
+
+        Args:
+            mcp_server: Instancia de FastMCP u objeto servidor equivalente.
+
+        Returns:
+            int: Cantidad total de herramientas registradas en el servidor MCP.
+        """
+        tools = self.discover_tools()
         registered_names: set[str] = set()
 
-        # 2. Registrar cada herramienta de BaseMCPTool del registro en el servidor FastMCP
-        for tool in self.registry.list_tools():
+        # Registrar herramientas registradas en FastMCP
+        for tool in tools:
             if tool.name not in registered_names:
-                self._bind_tool_to_fastmcp(mcp_server, tool)
-                registered_names.add(tool.name)
+                try:
+                    self._bind_tool_to_mcp(mcp_server, tool)
+                    registered_names.add(tool.name)
+                except Exception as e:
+                    logger.error(f"Error al vincular herramienta '{tool.name}' al servidor MCP: {e}")
 
-        # 3. Registrar funciones decoradas con @mcp_tool
+        # Registrar funciones decoradas con @mcp_tool
         for entry in _DECORATED_MCP_TOOLS:
             decorated_func = entry["func"]
             func_name = entry["name"]
             if func_name not in registered_names:
                 try:
-                    mcp_server.add_tool(decorated_func)
+                    if hasattr(mcp_server, "add_tool"):
+                        mcp_server.add_tool(decorated_func)
                     registered_names.add(func_name)
-                    logger.info(f"Herramienta decorada vinculada a FastMCP: '{func_name}'")
+                    logger.info(f"Herramienta decorada vinculada a servidor MCP: '{func_name}'")
                 except Exception as e:
                     logger.error(f"Error al vincular función decorada '{func_name}': {e}")
 
-        total = len(registered_names)
-        logger.info(f"Autodescubrimiento e integración completados. Total herramientas activas: {total}")
-        return total
+        return len(registered_names)
 
-    def _bind_tool_to_fastmcp(self, mcp_server: FastMCP, tool: Any) -> None:
-        """Vincula una herramienta del ToolRegistry a la instancia FastMCP."""
+    def _bind_tool_to_mcp(self, mcp_server: Any, tool: ITool) -> None:
+        """Vincula una herramienta ITool al servidor MCP."""
+        if not hasattr(mcp_server, "add_tool"):
+            return
 
         async def _wrapper(arguments: dict[str, Any] | None = None) -> Any:
             args = arguments or {}

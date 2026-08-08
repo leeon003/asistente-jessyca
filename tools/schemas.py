@@ -23,10 +23,12 @@ class ToolSchema(BaseModel):
 
     name: str = Field(..., description="Nombre único identificador de la herramienta MCP.")
     description: str = Field(..., description="Descripción funcional de la herramienta.")
-    category: str = Field(default="General", description="Categoría de la herramienta.")
-    capability: str = Field(default="General", description="Dominio de capacidad.")
+    version: str = Field(default="1.0.0", description="Versión de la herramienta.")
+    author: str = Field(default="Jessyca Core Team", description="Autor o creador de la herramienta.")
+    category: str = Field(default="general", description="Categoría temática de la herramienta.")
+    capability: str = Field(default="general", description="Dominio de capacidad.")
     action: str = Field(default="execute", description="Nombre de la acción realizada.")
-    version: str = Field(default="0.1.0", description="Versión de la herramienta.")
+    aliases: list[str] = Field(default_factory=list, description="Lista de alias o palabras clave alternativos.")
     risk_level: RiskLevel = Field(default=RiskLevel.SAFE, description="Nivel de riesgo asignado.")
     required_permissions: list[str] = Field(default_factory=list, description="Permisos requeridos.")
     input_schema: JSONDict = Field(
@@ -38,6 +40,7 @@ class ToolSchema(BaseModel):
         description="JSON Schema formal de los datos de salida.",
     )
     timeout_seconds: float = Field(default=30.0, description="Tiempo máximo de ejecución en segundos.")
+    supports_rollback: bool = Field(default=False, description="Indica si la herramienta soporta reversión compensatoria.")
 
 
 class ToolCallRequest(BaseModel):
