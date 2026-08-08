@@ -137,3 +137,25 @@ class IPermissionManager(Protocol):
     def evaluate_permission(self, request: Any) -> Any:
         """Evalúa una solicitud de autorización y devuelve el resultado de permiso."""
         ...
+
+
+@runtime_checkable
+class IConfirmationProvider(Protocol):
+    """Protocolo/Interfaz abstracta para el proveedor de confirmaciones (Subetapa 04.4)."""
+
+    def request_confirmation(self, request: Any) -> Any:
+        """Solicita la respuesta del proveedor de confirmación."""
+        ...
+
+
+@runtime_checkable
+class IConfirmationManager(Protocol):
+    """Protocolo/Interfaz abstracta para el gestor de confirmaciones (Subetapa 04.4)."""
+
+    def submit_request(self, request: Any, provider: Any = None) -> Any:
+        """Envía una solicitud de confirmación al proveedor."""
+        ...
+
+    def consume_confirmation(self, request_id: str, tool_name: str, operation: str, parameters: dict[str, Any]) -> bool:
+        """Consume una confirmación verificando binding de fingerprint y expiración."""
+        ...
