@@ -95,6 +95,7 @@ class SecurityDecision:
     reason: str
     action: PermissionAction = PermissionAction.ALLOW
     requires_user_confirmation: bool = False
+    confirmation_request: Any | None = None
 
     def __bool__(self) -> bool:
         return self.is_allowed

@@ -1,6 +1,11 @@
 """Módulo core de Jessyca Windows MCP."""
 
 from core.capability import CapabilityManager, ToolCapabilitySpec
+from core.confirmation import (
+    ConfirmationManager,
+    ConfirmationRequest,
+    ConfirmationResponse,
+)
 from core.constants import APP_NAME, APP_VERSION
 from core.context_manager import ContextItem, ContextManager
 from core.contracts import ISecurityManager, IService, ITool, IToolRegistry
@@ -85,6 +90,9 @@ __all__ = [
     "SystemPathRiskRule",
     "BulkOperationRiskRule",
     "RiskEngine",
+    "ConfirmationRequest",
+    "ConfirmationResponse",
+    "ConfirmationManager",
     "ToolCapabilitySpec",
     "CapabilityManager",
     "ContextItem",
