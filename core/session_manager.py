@@ -1,265 +1,389 @@
-"""Session Manager para Jessyca Windows MCP.
+"""Servicio de orquestación y gestión de ciclo de vida de sesiones (SessionManager - Subetapa 10.1).
 
-Administra el ciclo de vida de cada sesión de ejecución (ID único, inicio/fin, usuario,
-herramientas utilizadas, registro de errores, duración) y exportación a JSON o Markdown.
-Totalmente independiente de cualquier Tool o LLM específico.
+GARANTÍA ABSOLUTA DE PRIVACIDAD Y SEGURIDAD:
+Thread-safe. El AuditLogger y el EventBus reciben ÚNICAMENTE METADATOS (session_id_hash, status, counts, duration_ms).
+INVARIANTE CRÍTICO: NUNCA registran mensajes crudos, hechos, preferencias ni credenciales en auditoría.
 """
 
 from __future__ import annotations
 
-import getpass
-import json
+import hashlib
+import threading
 import uuid
-from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from pathlib import Path
-from typing import Any
 
+from core.audit_logger import AuditEvent, AuditEventType, get_audit_logger
+from core.event_bus import get_event_bus
 from core.logger import get_logger
+from core.session_models import (
+    SessionFact,
+    SessionId,
+    SessionMessage,
+    SessionMetadata,
+    SessionPreference,
+    SessionRole,
+    SessionSnapshot,
+    SessionState,
+    SessionStatus,
+)
+from core.session_security import (
+    SessionSecurityError,
+    SessionSecurityManager,
+)
+from core.session_store import (
+    InMemorySessionStore,
+    ISessionStore,
+    SQLiteSessionStore,
+)
 
-logger = get_logger("jessyca.session")
-
-
-@dataclass
-class ToolExecutionLog:
-    """Registro inmutable de la ejecución de una herramienta dentro de una sesión."""
-
-    tool_name: str
-    arguments: dict[str, Any]
-    is_success: bool
-    error: str | None = None
-    timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
-
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "tool_name": self.tool_name,
-            "arguments": self.arguments,
-            "is_success": self.is_success,
-            "error": self.error,
-            "timestamp": self.timestamp.isoformat(),
-        }
-
-
-@dataclass
-class Session:
-    """Registro completo del ciclo de vida y métricas de una sesión de ejecución."""
-
-    session_id: str = field(default_factory=lambda: str(uuid.uuid4()))
-    start_time: datetime = field(default_factory=lambda: datetime.now(UTC))
-    end_time: datetime | None = None
-    user: str = field(default_factory=getpass.getuser)
-    tools_used: list[ToolExecutionLog] = field(default_factory=list)
-    errors: list[dict[str, Any]] = field(default_factory=list)
-    duration_seconds: float = 0.0
-    is_active: bool = True
-    metadata: dict[str, Any] = field(default_factory=dict)
-
-    def end(self) -> Session:
-        """Finaliza la sesión activa calculando la hora de fin y la duración total."""
-        if not self.is_active:
-            return self
-
-        self.end_time = datetime.now(UTC)
-        self.duration_seconds = round((self.end_time - self.start_time).total_seconds(), 2)
-        self.is_active = False
-        return self
-
-    def to_dict(self) -> dict[str, Any]:
-        """Convierte la sesión en un diccionario serializable."""
-        return {
-            "session_id": self.session_id,
-            "user": self.user,
-            "start_time": self.start_time.isoformat(),
-            "end_time": self.end_time.isoformat() if self.end_time else None,
-            "duration_seconds": self.duration_seconds,
-            "is_active": self.is_active,
-            "tools_used_count": len(self.tools_used),
-            "errors_count": len(self.errors),
-            "tools_used": [t.to_dict() for t in self.tools_used],
-            "errors": self.errors,
-            "metadata": self.metadata,
-        }
-
-    def export_json(self, file_path: Path | str | None = None) -> str:
-        """Exporta la sesión en formato JSON estandarizado.
-
-        Args:
-            file_path: Ruta opcional para guardar el archivo JSON. Si es None, solo devuelve el string JSON.
-
-        Returns:
-            String JSON generado.
-        """
-        content = json.dumps(self.to_dict(), indent=2, ensure_ascii=False)
-        if file_path:
-            p = Path(file_path)
-            p.parent.mkdir(parents=True, exist_ok=True)
-            p.write_text(content, encoding="utf-8")
-        return content
-
-    def export_markdown(self, file_path: Path | str | None = None) -> str:
-        """Exporta un informe legible de la sesión en formato Markdown.
-
-        Args:
-            file_path: Ruta opcional donde guardar el informe Markdown.
-
-        Returns:
-            String Markdown generado.
-        """
-        end_str = self.end_time.isoformat() if self.end_time else "En ejecución"
-        lines = [
-            f"# Reporte de Sesión MCP - ID: `{self.session_id}`",
-            "",
-            f"- **Usuario**: {self.user}",
-            f"- **Hora de Inicio**: {self.start_time.isoformat()}",
-            f"- **Hora de Fin**: {end_str}",
-            f"- **Duración Total**: {self.duration_seconds} segundos",
-            f"- **Estado**: {'Activa' if self.is_active else 'Finalizada'}",
-            f"- **Herramientas Ejecutadas**: {len(self.tools_used)}",
-            f"- **Errores Registrados**: {len(self.errors)}",
-            "",
-            "## Herramientas Utilizadas",
-        ]
-
-        if not self.tools_used:
-            lines.append("_No se ejecutó ninguna herramienta durante esta sesión._")
-        else:
-            for idx, log in enumerate(self.tools_used, 1):
-                status = "✅ Éxito" if log.is_success else "❌ Fallo"
-                lines.append(f"### {idx}. `{log.tool_name}` ({status})")
-                lines.append(f"- **Hora**: {log.timestamp.isoformat()}")
-                lines.append(f"- **Argumentos**: `{log.arguments}`")
-                if log.error:
-                    lines.append(f"- **Error**: `{log.error}`")
-                lines.append("")
-
-        if self.errors:
-            lines.append("## Registro de Errores")
-            for idx, err in enumerate(self.errors, 1):
-                lines.append(f"- **{idx}**. `{err.get('message')}` ({err.get('timestamp')})")
-
-        content = "\n".join(lines)
-        if file_path:
-            p = Path(file_path)
-            p.parent.mkdir(parents=True, exist_ok=True)
-            p.write_text(content, encoding="utf-8")
-        return content
+logger = get_logger("jessyca.core.session_manager")
 
 
 class SessionManager:
-    """Gestor del ciclo de vida y auditoría de sesiones para Jessyca Windows MCP."""
+    """Gestor principal de estado de sesión y memoria de usuario."""
 
-    def __init__(self) -> None:
-        self._sessions: dict[str, Session] = {}
-        self._active_session: Session | None = None
-
-    def start_session(self, user: str | None = None, metadata: dict[str, Any] | None = None) -> Session:
-        """Inicia una nueva sesión de ejecución finalizando cualquier sesión previa en curso.
-
-        Args:
-            user: Nombre del usuario opcional. Si es None, utiliza el usuario del sistema operativo.
-            metadata: Metadatos adicionales asociados a la sesión.
-
-        Returns:
-            Instancia de la nueva Session activa.
-        """
-        if self._active_session and self._active_session.is_active:
-            logger.info(f"Finalizando sesión activa previa '{self._active_session.session_id}'...")
-            self.end_session()
-
-        session = Session(
-            user=user or getpass.getuser(),
-            metadata=metadata or {},
-        )
-        self._sessions[session.session_id] = session
-        self._active_session = session
-        logger.info(f"Nueva sesión iniciada ID: '{session.session_id}' por usuario: '{session.user}'")
-        return session
-
-    def get_active_session(self) -> Session | None:
-        """Obtiene la sesión actualmente en curso."""
-        return self._active_session
-
-    def record_tool_usage(
+    def __init__(
         self,
-        tool_name: str,
-        arguments: dict[str, Any],
-        is_success: bool,
-        error: str | None = None,
+        store: ISessionStore | None = None,
+        security_manager: SessionSecurityManager | None = None,
     ) -> None:
-        """Registra el uso de una herramienta MCP dentro de la sesión activa."""
-        session = self.get_active_session()
-        if not session or not session.is_active:
-            # Si no hay sesión activa, inicia una sesión por defecto
-            session = self.start_session(metadata={"auto_started": True})
+        from config.settings import AppSettings
+        settings = AppSettings()
 
-        log_entry = ToolExecutionLog(
-            tool_name=tool_name,
-            arguments=arguments,
-            is_success=is_success,
-            error=error,
-        )
-        session.tools_used.append(log_entry)
-        logger.info(f"Sesión [{session.session_id}]: Herramienta registrada '{tool_name}' (Éxito: {is_success})")
-
-    def record_error(self, error_message: str, details: dict[str, Any] | None = None) -> None:
-        """Registra un error o excepción dentro de la sesión activa."""
-        session = self.get_active_session()
-        if not session or not session.is_active:
-            session = self.start_session(metadata={"auto_started": True})
-
-        err_entry = {
-            "message": error_message,
-            "details": details or {},
-            "timestamp": datetime.now(UTC).isoformat(),
-        }
-        session.errors.append(err_entry)
-        logger.warning(f"Sesión [{session.session_id}]: Error registrado - {error_message}")
-
-    def end_session(self) -> Session | None:
-        """Finaliza la sesión activa calculando la hora de fin y duración."""
-        if not self._active_session or not self._active_session.is_active:
-            logger.warning("No hay ninguna sesión activa para finalizar.")
-            return self._active_session
-
-        session = self._active_session.end()
-        logger.info(
-            f"Sesión finalizada ID: '{session.session_id}' [Duración: {session.duration_seconds}s, Herramientas: {len(session.tools_used)}]"
-        )
-        self._active_session = None
-        return session
-
-    def get_session(self, session_id: str) -> Session | None:
-        """Obtiene una sesión registrada por su ID."""
-        return self._sessions.get(session_id)
-
-    def list_sessions(self) -> list[Session]:
-        """Devuelve la lista completa de sesiones registradas."""
-        return list(self._sessions.values())
-
-    def export_session(
-        self,
-        session_id: str,
-        format: str = "json",
-        file_path: Path | str | None = None,
-    ) -> str:
-        """Exporta los datos de una sesión por ID en formato JSON o Markdown.
-
-        Args:
-            session_id: ID único de la sesión.
-            format: 'json' o 'markdown'.
-            file_path: Ruta opcional donde guardar el archivo.
-
-        Returns:
-            Contenido exportado.
-        """
-        session = self.get_session(session_id)
-        if not session:
-            raise ValueError(f"Sesión con ID '{session_id}' no encontrada.")
-
-        fmt = format.lower().strip()
-        if fmt == "json":
-            return session.export_json(file_path=file_path)
-        elif fmt in ("markdown", "md"):
-            return session.export_markdown(file_path=file_path)
+        if store is not None:
+            self.store = store
+        elif settings.SESSION_PERSISTENCE_ENABLED:
+            self.store = SQLiteSessionStore()
         else:
-            raise ValueError(f"Formato de exportación '{format}' no soportado. Usar 'json' o 'markdown'.")
+            self.store = InMemorySessionStore()
+
+        self.security_manager = security_manager or SessionSecurityManager()
+        self.audit_logger = get_audit_logger()
+        self.event_bus = get_event_bus()
+        self._lock = threading.RLock()
+
+    def _hash_sid(self, sid_str: str) -> str:
+        """Genera un hash SHA-256 anónimo del SessionId para trazabilidad en auditoría."""
+        return hashlib.sha256(sid_str.encode("utf-8")).hexdigest()[:16]
+
+    def create_session(
+        self,
+        user_id: str,
+        client_id: str = "desktop_client",
+        session_id: str | None = None,
+    ) -> SessionState:
+        """Crea una nueva sesión de usuario con estado inmutable inicial. FAIL-SAFE DENY."""
+        sid_raw = session_id or str(uuid.uuid4())
+        sid = self.security_manager.validate_session_id(sid_raw)
+        now = datetime.now(UTC)
+
+        clean_user = self.security_manager.sanitize_text(user_id) or "anonymous_user"
+        clean_client = self.security_manager.sanitize_text(client_id) or "desktop_client"
+
+        meta = SessionMetadata(
+            user_id=clean_user,
+            client_id=clean_client,
+            client_version="3.0",
+        )
+
+        state = SessionState(
+            session_id=sid,
+            status=SessionStatus.ACTIVE,
+            created_at=now,
+            updated_at=now,
+            messages=(),
+            facts=(),
+            preferences=(),
+            metadata=meta,
+        )
+
+        self.store.save_session(state)
+        sid_hash = self._hash_sid(str(sid))
+
+        audit_meta = {
+            "session_id_hash": sid_hash,
+            "status": str(SessionStatus.ACTIVE),
+            "user_id": clean_user,
+        }
+
+        self.audit_logger.log_audit_event(
+            AuditEvent(
+                event_type=AuditEventType.SESSION_CREATED,
+                request_id=f"session-create-{sid_hash}",
+                tool_name="system.session",
+                operation="create_session",
+                duration_ms=0.0,
+                reason="Sesión creada exitosamente.",
+                metadata=audit_meta,
+            )
+        )
+
+        self.event_bus.publish("session:created", audit_meta)
+        return state
+
+    def get_session(self, session_id: str | SessionId) -> SessionState:
+        """Recupera el estado inmutable de una sesión existente."""
+        sid = self.security_manager.validate_session_id(session_id)
+        state = self.store.get_session(sid)
+
+        if not state:
+            raise SessionSecurityError(f"Sesión no encontrada: '{sid}'")
+
+        sid_hash = self._hash_sid(str(sid))
+
+        # Verificar si la sesión expiró por timeout
+        from config.settings import AppSettings
+        settings = AppSettings()
+
+        elapsed = (datetime.now(UTC) - state.updated_at).total_seconds()
+        if elapsed > settings.SESSION_TIMEOUT and state.status == SessionStatus.ACTIVE:
+            logger.info(f"[SESSION] Sesión [{sid_hash}] expirada por timeout ({elapsed:.1f}s > {settings.SESSION_TIMEOUT}s)")
+            return self.expire_session(sid)
+
+        self.event_bus.publish("session:accessed", {"session_id_hash": sid_hash, "status": str(state.status)})
+        return state
+
+    def append_message(self, session_id: str | SessionId, role: SessionRole, content: str) -> SessionState:
+        """Sanitiza y añade un nuevo mensaje al historial inmutable de la sesión."""
+        with self._lock:
+            current_state = self.get_session(session_id)
+            self.security_manager.validate_status_transition(current_state.status, current_state.status)
+
+
+        if current_state.status not in (SessionStatus.ACTIVE, SessionStatus.WAITING_INPUT, SessionStatus.WAITING_CONFIRMATION):
+            raise SessionSecurityError(f"No se pueden agregar mensajes a una sesión en estado '{current_state.status}'.")
+
+        clean_content = self.security_manager.validate_message(content)
+        now = datetime.now(UTC)
+
+        msg = SessionMessage(
+            message_id=str(uuid.uuid4()),
+            role=role,
+            content=clean_content,
+            timestamp=now,
+        )
+
+        new_messages = current_state.messages + (msg,)
+        new_state = SessionState(
+            session_id=current_state.session_id,
+            status=SessionStatus.ACTIVE,
+            created_at=current_state.created_at,
+            updated_at=now,
+            messages=new_messages,
+            facts=current_state.facts,
+            preferences=current_state.preferences,
+            metadata=current_state.metadata,
+            current_task_id=current_state.current_task_id,
+        )
+
+        self.security_manager.validate_state_limits(new_state)
+        self.store.save_session(new_state)
+
+        sid_hash = self._hash_sid(str(current_state.session_id))
+        audit_meta = {
+            "session_id_hash": sid_hash,
+            "role": str(role),
+            "message_count": len(new_messages),
+        }
+
+        self.audit_logger.log_audit_event(
+            AuditEvent(
+                event_type=AuditEventType.SESSION_MESSAGE_ADDED,
+                request_id=f"session-msg-{sid_hash}",
+                tool_name="system.session",
+                operation="append_message",
+                duration_ms=0.0,
+                reason="Mensaje añadido a la sesión exitosamente.",
+                metadata=audit_meta,
+            )
+        )
+
+        self.event_bus.publish("session:message_added", audit_meta)
+        return new_state
+
+    def add_fact(self, session_id: str | SessionId, key: str, value: str, confidence: float = 1.0) -> SessionState:
+        """Añade un nuevo hecho (fact) sanitizado a la memoria de sesión."""
+        with self._lock:
+            current_state = self.get_session(session_id)
+            clean_k, clean_v, conf = self.security_manager.validate_fact(key, value, confidence)
+
+        now = datetime.now(UTC)
+
+        fact = SessionFact(
+            fact_id=str(uuid.uuid4()),
+            key=clean_k,
+            value=clean_v,
+            confidence=conf,
+            timestamp=now,
+        )
+
+        new_facts = current_state.facts + (fact,)
+        new_state = SessionState(
+            session_id=current_state.session_id,
+            status=current_state.status,
+            created_at=current_state.created_at,
+            updated_at=now,
+            messages=current_state.messages,
+            facts=new_facts,
+            preferences=current_state.preferences,
+            metadata=current_state.metadata,
+            current_task_id=current_state.current_task_id,
+        )
+
+        self.security_manager.validate_state_limits(new_state)
+        self.store.save_session(new_state)
+
+        sid_hash = self._hash_sid(str(current_state.session_id))
+        audit_meta = {
+            "session_id_hash": sid_hash,
+            "fact_count": len(new_facts),
+        }
+
+        self.event_bus.publish("session:fact_added", audit_meta)
+        return new_state
+
+    def add_preference(self, session_id: str | SessionId, key: str, value: str) -> SessionState:
+        """Añade una nueva preferencia sanitizada a la sesión."""
+        current_state = self.get_session(session_id)
+        clean_k, clean_v = self.security_manager.validate_preference(key, value)
+        now = datetime.now(UTC)
+
+        pref = SessionPreference(
+            preference_id=str(uuid.uuid4()),
+            key=clean_k,
+            value=clean_v,
+            timestamp=now,
+        )
+
+        new_prefs = current_state.preferences + (pref,)
+        new_state = SessionState(
+            session_id=current_state.session_id,
+            status=current_state.status,
+            created_at=current_state.created_at,
+            updated_at=now,
+            messages=current_state.messages,
+            facts=current_state.facts,
+            preferences=new_prefs,
+            metadata=current_state.metadata,
+            current_task_id=current_state.current_task_id,
+        )
+
+        self.security_manager.validate_state_limits(new_state)
+        self.store.save_session(new_state)
+
+        sid_hash = self._hash_sid(str(current_state.session_id))
+        audit_meta = {
+            "session_id_hash": sid_hash,
+            "preference_count": len(new_prefs),
+        }
+
+        self.event_bus.publish("session:preference_added", audit_meta)
+        return new_state
+
+    def update_status(self, session_id: str | SessionId, new_status: SessionStatus) -> SessionState:
+        """Actualiza el estado de la sesión aplicando validaciones de transición."""
+        current_state = self.get_session(session_id)
+        self.security_manager.validate_status_transition(current_state.status, new_status)
+        now = datetime.now(UTC)
+
+        new_state = SessionState(
+            session_id=current_state.session_id,
+            status=new_status,
+            created_at=current_state.created_at,
+            updated_at=now,
+            messages=current_state.messages,
+            facts=current_state.facts,
+            preferences=current_state.preferences,
+            metadata=current_state.metadata,
+            current_task_id=current_state.current_task_id,
+        )
+
+        self.store.save_session(new_state)
+        sid_hash = self._hash_sid(str(current_state.session_id))
+
+        audit_meta = {
+            "session_id_hash": sid_hash,
+            "previous_status": str(current_state.status),
+            "new_status": str(new_status),
+        }
+
+        self.audit_logger.log_audit_event(
+            AuditEvent(
+                event_type=AuditEventType.SESSION_UPDATED,
+                request_id=f"session-update-{sid_hash}",
+                tool_name="system.session",
+                operation="update_status",
+                duration_ms=0.0,
+                reason=f"Estado de sesión actualizado de '{current_state.status}' a '{new_status}'.",
+                metadata=audit_meta,
+            )
+        )
+
+        self.event_bus.publish("session:updated", audit_meta)
+        return new_state
+
+    def create_snapshot(self, session_id: str | SessionId) -> SessionSnapshot:
+        """Crea una captura puntual inmutable del estado de sesión."""
+        state = self.get_session(session_id)
+        now = datetime.now(UTC)
+        snap_id = str(uuid.uuid4())
+
+        summary = {
+            "message_count": len(state.messages),
+            "fact_count": len(state.facts),
+            "preference_count": len(state.preferences),
+            "status": str(state.status),
+        }
+
+        snapshot = SessionSnapshot(
+            snapshot_id=snap_id,
+            session_id=str(state.session_id),
+            timestamp=now,
+            status=state.status,
+            message_count=len(state.messages),
+            fact_count=len(state.facts),
+            preference_count=len(state.preferences),
+            state_summary=summary,
+        )
+
+        sid_hash = self._hash_sid(str(state.session_id))
+        self.event_bus.publish("session:snapshot_created", {"session_id_hash": sid_hash, "snapshot_id": snap_id})
+        return snapshot
+
+    def pause_session(self, session_id: str | SessionId) -> SessionState:
+        """Pausa una sesión activa."""
+        return self.update_status(session_id, SessionStatus.PAUSED)
+
+    def resume_session(self, session_id: str | SessionId) -> SessionState:
+        """Reanuda una sesión pausada o en espera."""
+        return self.update_status(session_id, SessionStatus.ACTIVE)
+
+    def cancel_session(self, session_id: str | SessionId) -> SessionState:
+        """Cancela una sesión moviéndola a estado terminal CANCELLED."""
+        return self.update_status(session_id, SessionStatus.CANCELLED)
+
+    def expire_session(self, session_id: str | SessionId) -> SessionState:
+        """Expira una sesión moviéndola a estado terminal EXPIRED."""
+        sid_str = str(session_id)
+        current_state = self.store.get_session(SessionId(value=sid_str))
+
+        if not current_state:
+            raise SessionSecurityError(f"Sesión no encontrada: '{sid_str}'")
+
+        now = datetime.now(UTC)
+        new_state = SessionState(
+            session_id=current_state.session_id,
+            status=SessionStatus.EXPIRED,
+            created_at=current_state.created_at,
+            updated_at=now,
+            messages=current_state.messages,
+            facts=current_state.facts,
+            preferences=current_state.preferences,
+            metadata=current_state.metadata,
+            current_task_id=current_state.current_task_id,
+        )
+        self.store.save_session(new_state)
+        sid_hash = self._hash_sid(sid_str)
+        self.event_bus.publish("session:expired", {"session_id_hash": sid_hash})
+        return new_state
+

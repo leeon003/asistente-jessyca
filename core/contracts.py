@@ -159,3 +159,47 @@ class IConfirmationManager(Protocol):
     def consume_confirmation(self, request_id: str, tool_name: str, operation: str, parameters: dict[str, Any]) -> bool:
         """Consume una confirmación verificando binding de fingerprint y expiración."""
         ...
+
+
+@runtime_checkable
+class IPolicyEvaluator(Protocol):
+    """Protocolo/Interfaz abstracta para el evaluador de políticas de seguridad (Subetapa 04.5)."""
+
+    def evaluate_policy(
+        self,
+        context: Any,
+        metadata: Any,
+        risk_assessment: Any,
+        policy: Any = None,
+    ) -> Any:
+        """Evalúa una solicitud con respecto a una Security Policy y un RiskAssessment."""
+        ...
+
+
+@runtime_checkable
+class IPolicyProvider(Protocol):
+    """Protocolo/Interfaz abstracta para los proveedores de Security Policy (Subetapa 04.5)."""
+
+    def get_policy(self) -> Any:
+        """Obtiene la Security Policy declarada para la aplicación."""
+        ...
+
+
+@runtime_checkable
+class IAuditSink(Protocol):
+    """Protocolo/Interfaz abstracta para la persistencia desacoplada de auditoría (Subetapa 04.6)."""
+
+    def emit(self, event: Any) -> None:
+        """Persiste o emite un evento de auditoría sanitizado."""
+        ...
+
+
+@runtime_checkable
+class IAuditLogger(Protocol):
+    """Protocolo/Interfaz abstracta para el gestor central de auditoría (Subetapa 04.6)."""
+
+    def log_event(self, event: Any) -> Any:
+        """Recibe, sanitiza y emite un evento de auditoría a través de sus sinks."""
+        ...
+
+

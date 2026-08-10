@@ -72,3 +72,10 @@ class ValidationError(JessycaError):
     """Excepción lanzada cuando los datos de entrada o argumentos no cumplen con las especificaciones o esquemas."""
 
     pass
+
+
+class SecurityValidationError(ValidationError):
+    """Excepción lanzada cuando falla una validación de seguridad."""
+
+    pass
+

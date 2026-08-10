@@ -1,7 +1,45 @@
 """Módulo core de Jessyca Windows MCP."""
 
-from core.audit_logger import AuditLogEntry, AuditLogger, get_audit_logger
+from core.audit_logger import (
+    AuditEvent,
+    AuditEventType,
+    AuditFailureMode,
+    AuditLogEntry,
+    AuditLogger,
+    FileAuditSink,
+    MemoryAuditSink,
+    get_audit_logger,
+    sanitize_audit_data,
+)
+from core.builtin_capabilities import (
+    get_builtin_capabilities,
+    register_builtin_capabilities,
+)
+from core.capabilities import (
+    CapabilityDecision,
+    CapabilityOperation,
+    CapabilityRiskLevel,
+    CapabilitySource,
+    CapabilityStatus,
+    ToolCapability,
+    compute_capability_fingerprint,
+)
 from core.capability import CapabilityManager, ToolCapabilitySpec
+from core.capability_registry import (
+    CapabilityRegistry,
+    ICapabilityRegistry,
+    get_capability_registry,
+)
+from core.capability_resolver import (
+    CapabilityResolution,
+    CapabilityResolver,
+)
+from core.capability_validator import (
+    check_and_assert_capability,
+    validate_capability,
+    validate_operation,
+    validate_registry,
+)
 from core.confirmation import (
     ConfirmationManager,
     ConfirmationRequest,
@@ -16,8 +54,13 @@ from core.confirmation import (
 from core.constants import APP_NAME, APP_VERSION
 from core.context_manager import ContextItem, ContextManager
 from core.contracts import (
+    IAuditLogger,
+    IAuditSink,
     IConfirmationManager,
+    IConfirmationProvider,
     IPermissionManager,
+    IPolicyEvaluator,
+    IPolicyProvider,
     IRiskEvaluator,
     ISecurityEvaluator,
     ISecurityManager,
@@ -48,6 +91,13 @@ from core.executor import (
     TaskExecutor,
 )
 from core.logger import get_logger, setup_logger
+from core.memory_consolidation import (
+    ConsolidationReport,
+    MemoryCompactionPolicy,
+    MemoryRetentionPolicy,
+    RetentionDecision,
+    SessionConsolidator,
+)
 from core.permission_manager import (
     PermissionDecision,
     PermissionManager,
@@ -91,12 +141,184 @@ from core.security_architecture import (
     SecurityResult,
     ToolSecurityMetadata,
 )
-from core.session_manager import Session, SessionManager, ToolExecutionLog
+from core.autonomy_policy import (
+    AutonomyConfirmationRequiredError,
+    AutonomyEvaluationResult,
+    AutonomyPermissionDeniedError,
+    AutonomyPolicy,
+    AutonomySecurityError,
+    AutonomousTaskRequest,
+    ScheduledActionPolicy,
+    TaskActionRisk,
+    TaskRiskClassifier,
+)
+from core.task_scheduler import (
+    CronLikeTrigger,
+    DirectToolExecutionBypassError,
+    EventTrigger,
+    ITaskTrigger,
+    IntervalTrigger,
+    ScheduledTaskDefinition,
+    ScheduledTaskManager,
+    ScheduledTaskResult,
+    SchedulerSecurityError,
+)
+from core.wake_word_detector import (
+    WakeWordDetector,
+    WakeWordDisabledError,
+    WakeWordSecurityError,
+    WakeWordState,
+)
+from core.notification_dispatcher import (
+    NotificationChannel,
+    NotificationDispatcher,
+    NotificationError,
+    NotificationItem,
+    NotificationPriority,
+    NotificationResult,
+    NotificationStatus,
+)
+from core.plugin_security import (
+    PluginCapability,
+    PluginCapabilityViolationError,
+    PluginDeclaredCapability,
+    PluginPermission,
+    PluginPrivilegeElevationError,
+    PluginRiskProfile,
+    PluginSecurityError,
+    PluginSecurityPolicy,
+)
+from core.plugin_manifest import (
+    PluginManifest,
+    PluginManifestError,
+    PluginManifestValidator,
+    PluginMetadata,
+    PluginPathSecurityError,
+    PluginValidationError,
+    PluginVersionError,
+)
+from core.plugin_loader import (
+    FakePluginLoader,
+    IPluginLoader,
+    LoadedPlugin,
+    PluginCapacityExceededError,
+    PluginIntegrityError,
+    PluginLoader,
+    PluginLoaderSecurityError,
+)
+from core.plugin_sandbox import (
+    PluginExecutionResult,
+    PluginExecutionSandbox,
+    PluginSandboxError,
+    PluginSandboxTimeoutError,
+    PluginSandboxViolationError,
+)
+from core.plugin_execution_pipeline import (
+    PluginExecutionPipeline,
+    PluginExecutionPipelineBypassError,
+    PluginExecutionPipelineError,
+)
+from core.change_transaction import (
+    ChangeResult,
+    ChangeSnapshot,
+    ChangeTransaction,
+    ChangeTransactionManager,
+    FakeTransactionProvider,
+    IChangeTransactionProvider,
+    Reversibility,
+    RollbackResult,
+    TransactionConfirmationRequiredError,
+    TransactionError,
+    TransactionRollbackFailedError,
+    TransactionState,
+    TransactionVerificationError,
+)
+from core.registry_boundary import (
+    RegistryBoundaryError,
+    RegistrySecurityViolationError,
+    RegistryWriteBoundary,
+    RegistryWriteDisabledError,
+    RegistryWriteRequest,
+)
+from core.service_boundary import (
+    ProtectedServiceViolationError,
+    ServiceBoundaryError,
+    ServiceControlBoundary,
+    ServiceControlRequest,
+    ServiceWriteDisabledError,
+    UnknownServiceError,
+)
+from core.software_boundary import (
+    ArbitraryInstallerError,
+    PackageAllowlistViolationError,
+    PackageIdentityMismatchError,
+    SoftwareInstallBoundary,
+    SoftwareInstallDisabledError,
+    SoftwareInstallError,
+    SoftwareInstallRequest,
+    UntrustedSourceError,
+)
+from core.security_policy import (
+
+
+
+
+
+
+
+
+
+
+
+
+
+    DefaultPolicyProvider,
+    GenericPolicyRule,
+    InvalidPolicyError,
+    OperationPolicyRule,
+    PathPolicyRule,
+    PolicyDecision,
+    PolicyRule,
+    PolicyRuleBase,
+    PolicyRuleCondition,
+    PolicySource,
+    PrivilegePolicyRule,
+    RiskPolicyRule,
+    SecurityPolicyEvaluator,
+    ToolPolicyRule,
+    create_default_security_policy,
+    validate_security_policy,
+)
+from core.semantic_retriever import (
+    RelevanceScorer,
+    SemanticMemoryResult,
+    SemanticMemoryRetriever,
+    SemanticMemoryType,
+)
+from core.session_manager import SessionManager
 from core.types import EnvironmentMode, LogLevel, Result, WindowsVersion
 
 __all__ = [
     "APP_NAME",
     "APP_VERSION",
+    "CapabilitySource",
+    "CapabilityRiskLevel",
+    "CapabilityDecision",
+    "CapabilityStatus",
+    "CapabilityOperation",
+    "ToolCapability",
+    "compute_capability_fingerprint",
+    "ICapabilityRegistry",
+    "CapabilityRegistry",
+    "get_capability_registry",
+    "CapabilityResolution",
+    "CapabilityResolver",
+    "validate_capability",
+    "validate_operation",
+    "validate_registry",
+    "check_and_assert_capability",
+    "get_builtin_capabilities",
+    "register_builtin_capabilities",
     "IService",
     "ITool",
     "IToolRegistry",
@@ -104,8 +326,26 @@ __all__ = [
     "ISecurityEvaluator",
     "IRiskEvaluator",
     "IPermissionManager",
+    "IPolicyEvaluator",
+    "IPolicyProvider",
     "IConfirmationManager",
     "IConfirmationProvider",
+    "PolicySource",
+    "InvalidPolicyError",
+    "PolicyRuleCondition",
+    "PolicyRule",
+    "PolicyDecision",
+    "PolicyRuleBase",
+    "ToolPolicyRule",
+    "OperationPolicyRule",
+    "RiskPolicyRule",
+    "PathPolicyRule",
+    "PrivilegePolicyRule",
+    "GenericPolicyRule",
+    "SecurityPolicyEvaluator",
+    "validate_security_policy",
+    "create_default_security_policy",
+    "DefaultPolicyProvider",
     "JessycaError",
     "ConfigurationError",
     "WindowsPlatformError",
@@ -161,23 +401,144 @@ __all__ = [
     "compute_action_fingerprint",
     "sanitize_sensitive_parameters",
     "AuditLogEntry",
+    "AuditEvent",
+    "AuditEventType",
+    "AuditFailureMode",
     "AuditLogger",
+    "FileAuditSink",
+    "MemoryAuditSink",
+    "IAuditLogger",
+    "IAuditSink",
     "get_audit_logger",
+    "sanitize_audit_data",
     "ConfigurablePolicyRule",
     "PolicyManager",
     "ToolCapabilitySpec",
     "CapabilityManager",
     "ContextItem",
     "ContextManager",
-    "ToolExecutionLog",
-    "Session",
     "SessionManager",
+
     "Event",
     "EventPriority",
     "Subscription",
     "EventBus",
     "get_event_bus",
+    "RelevanceScorer",
+    "SemanticMemoryType",
+    "SemanticMemoryResult",
+    "SemanticMemoryRetriever",
+    "RetentionDecision",
+    "MemoryRetentionPolicy",
+    "MemoryCompactionPolicy",
+    "SessionConsolidator",
+    "ConsolidationReport",
+    "AutonomyPolicy",
+    "TaskRiskClassifier",
+    "ScheduledActionPolicy",
+    "TaskActionRisk",
+    "AutonomousTaskRequest",
+    "AutonomyEvaluationResult",
+    "AutonomySecurityError",
+    "AutonomyPermissionDeniedError",
+    "AutonomyConfirmationRequiredError",
+    "ScheduledTaskManager",
+    "ITaskTrigger",
+    "IntervalTrigger",
+    "CronLikeTrigger",
+    "EventTrigger",
+    "ScheduledTaskDefinition",
+    "ScheduledTaskResult",
+    "SchedulerSecurityError",
+    "DirectToolExecutionBypassError",
+    "WakeWordDetector",
+    "WakeWordState",
+    "WakeWordSecurityError",
+    "WakeWordDisabledError",
+    "NotificationDispatcher",
+    "NotificationItem",
+    "NotificationResult",
+    "NotificationPriority",
+    "NotificationChannel",
+    "NotificationStatus",
+    "NotificationError",
+    "PluginSecurityPolicy",
+    "PluginCapability",
+    "PluginRiskProfile",
+    "PluginPermission",
+    "PluginDeclaredCapability",
+    "PluginSecurityError",
+    "PluginCapabilityViolationError",
+    "PluginPrivilegeElevationError",
+    "PluginManifest",
+    "PluginMetadata",
+    "PluginManifestValidator",
+    "PluginManifestError",
+    "PluginValidationError",
+    "PluginPathSecurityError",
+    "PluginVersionError",
+    "PluginLoader",
+    "LoadedPlugin",
+    "IPluginLoader",
+    "FakePluginLoader",
+    "PluginLoaderSecurityError",
+    "PluginIntegrityError",
+    "PluginCapacityExceededError",
+    "PluginExecutionSandbox",
+    "PluginExecutionResult",
+    "PluginSandboxError",
+    "PluginSandboxViolationError",
+    "PluginSandboxTimeoutError",
+    "PluginExecutionPipeline",
+    "PluginExecutionPipelineBypassError",
+    "PluginExecutionPipelineError",
+    "ChangeTransaction",
+    "ChangeSnapshot",
+    "ChangeResult",
+    "RollbackResult",
+    "Reversibility",
+    "TransactionState",
+    "ChangeTransactionManager",
+    "FakeTransactionProvider",
+    "IChangeTransactionProvider",
+    "TransactionError",
+    "TransactionConfirmationRequiredError",
+    "TransactionRollbackFailedError",
+    "TransactionVerificationError",
+    "RegistryWriteBoundary",
+    "RegistryWriteRequest",
+    "RegistryBoundaryError",
+    "RegistryWriteDisabledError",
+    "RegistrySecurityViolationError",
+    "ServiceControlBoundary",
+    "ServiceControlRequest",
+    "ServiceBoundaryError",
+    "ServiceWriteDisabledError",
+    "ProtectedServiceViolationError",
+    "UnknownServiceError",
+    "SoftwareInstallBoundary",
+    "SoftwareInstallRequest",
+    "SoftwareInstallError",
+    "SoftwareInstallDisabledError",
+    "ArbitraryInstallerError",
+    "UntrustedSourceError",
+    "PackageIdentityMismatchError",
+    "PackageAllowlistViolationError",
     "SubTask",
+
+
+
+
+
+
+
+
+
+
+
+
+
+
     "ExecutionPlan",
     "AIPlanner",
     "RollbackAction",
@@ -185,3 +546,4 @@ __all__ = [
     "PlanExecutionResult",
     "TaskExecutor",
 ]
+
