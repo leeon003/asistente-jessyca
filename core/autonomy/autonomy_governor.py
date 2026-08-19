@@ -80,6 +80,11 @@ class AutonomyGovernor:
         with self._lock:
             return self._current_level
 
+    @property
+    def policy(self) -> AutonomyPolicy:
+        """Obtiene la política de autonomía asociada."""
+        return self._policy
+
     def set_autonomy_level(self, new_level: AutonomyLevel, actor: str = "user") -> None:
         """Establece un nuevo nivel de autonomía.
 
