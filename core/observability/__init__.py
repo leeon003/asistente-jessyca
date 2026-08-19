@@ -1,15 +1,16 @@
-"""Subsistema de Observabilidad para JESSYCA 3.0 (Etapa 17.0).
+"""Subsistema de Observabilidad para JESSYCA 3.0 (Etapa 17.0 / 17.1).
 
 Proporciona los seis canales de observabilidad separados:
-  LOG          — diagnóstico técnico (usa core.logger existente)
-  METRIC       — magnitudes numéricas (Counter, Histogram, Gauge)
-  TRACE        — árbol de spans por solicitud (TraceManager)
-  AUDIT EVENT  — registro inmutable de decisiones (AuditLogger existente, extendido)
+  LOG            — diagnóstico técnico (usa core.logger existente)
+  METRIC         — magnitudes numéricas (Counter, Histogram, Gauge)
+  TRACE          — árbol de spans por solicitud (TraceManager)
+  AUDIT EVENT    — registro inmutable de decisiones (AuditLogger existente, extendido)
   SECURITY EVENT — violaciones y alertas de seguridad (SecurityEventEmitter)
-  ERROR        — fallos estructurados con contexto completo (ErrorRecorder)
+  ERROR          — fallos estructurados con contexto completo (ErrorRecorder)
 
-Identificadores de correlación propagados mediante ContextVar:
-  CorrelationId · SessionId · TaskId · ActionId · PluginId
+Telemetría estructurada (Etapa 17.1):
+  CorrelationId · ActionId · TraceContext · StructuredEvent · EventSeverity · EventCategory
+  Sanitización Bounded y Redacción de Secretos con SecretRedactor.
 """
 
 from __future__ import annotations
@@ -22,6 +23,13 @@ from core.observability.context import (
 )
 from core.observability.error_models import ErrorCategory, ErrorRecord
 from core.observability.error_recorder import ErrorRecorder, get_error_recorder
+from core.observability.exporters import (
+    JsonlErrorExporter,
+    JsonlMetricExporter,
+    JsonlSecurityEventExporter,
+    JsonlStructuredEventExporter,
+    JsonlTraceExporter,
+)
 from core.observability.manager import ObservabilityManager, get_observability_manager
 from core.observability.metric_collector import MetricCollector, get_metric_collector
 from core.observability.metric_models import Counter, Gauge, Histogram
@@ -31,14 +39,41 @@ from core.observability.security_event_emitter import (
 )
 from core.observability.security_event_models import SecurityEvent, SecurityEventType, SecuritySeverity
 from core.observability.span_models import Span, SpanEvent, SpanStatus
+from core.observability.structured_event import (
+    ActionId,
+    CorrelationId,
+    EventCategory,
+    EventSeverity,
+    StructuredEvent,
+    StructuredEventEmitter,
+    StructuredEventSink,
+    StructuredTelemetryEmitter,
+    TraceContext,
+    get_structured_event_emitter,
+    get_structured_telemetry_emitter,
+    sanitize_bounded_metadata,
+)
 from core.observability.trace_manager import TraceManager, get_trace_manager
 
 __all__ = [
-    # Context
+    # Context & Identifiers
     "ObservabilityContext",
     "get_current_context",
     "set_current_context",
     "run_with_context",
+    "CorrelationId",
+    "ActionId",
+    "TraceContext",
+    # Structured Telemetry (Etapa 17.1)
+    "StructuredEvent",
+    "EventSeverity",
+    "EventCategory",
+    "sanitize_bounded_metadata",
+    "StructuredEventEmitter",
+    "StructuredTelemetryEmitter",
+    "StructuredEventSink",
+    "get_structured_telemetry_emitter",
+    "get_structured_event_emitter",
     # Trace
     "TraceManager",
     "get_trace_manager",
@@ -62,6 +97,12 @@ __all__ = [
     "get_error_recorder",
     "ErrorRecord",
     "ErrorCategory",
+    # Exporters
+    "JsonlTraceExporter",
+    "JsonlMetricExporter",
+    "JsonlSecurityEventExporter",
+    "JsonlErrorExporter",
+    "JsonlStructuredEventExporter",
     # Manager
     "ObservabilityManager",
     "get_observability_manager",
