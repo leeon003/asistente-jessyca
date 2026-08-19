@@ -11,6 +11,17 @@ from core.audit_logger import (
     get_audit_logger,
     sanitize_audit_data,
 )
+from core.autonomy_policy import (
+    AutonomousTaskRequest,
+    AutonomyConfirmationRequiredError,
+    AutonomyEvaluationResult,
+    AutonomyPermissionDeniedError,
+    AutonomyPolicy,
+    AutonomySecurityError,
+    ScheduledActionPolicy,
+    TaskActionRisk,
+    TaskRiskClassifier,
+)
 from core.builtin_capabilities import (
     get_builtin_capabilities,
     register_builtin_capabilities,
@@ -39,6 +50,21 @@ from core.capability_validator import (
     validate_capability,
     validate_operation,
     validate_registry,
+)
+from core.change_transaction import (
+    ChangeResult,
+    ChangeSnapshot,
+    ChangeTransaction,
+    ChangeTransactionManager,
+    FakeTransactionProvider,
+    IChangeTransactionProvider,
+    Reversibility,
+    RollbackResult,
+    TransactionConfirmationRequiredError,
+    TransactionError,
+    TransactionRollbackFailedError,
+    TransactionState,
+    TransactionVerificationError,
 )
 from core.confirmation import (
     ConfirmationManager,
@@ -98,6 +124,15 @@ from core.memory_consolidation import (
     RetentionDecision,
     SessionConsolidator,
 )
+from core.notification_dispatcher import (
+    NotificationChannel,
+    NotificationDispatcher,
+    NotificationError,
+    NotificationItem,
+    NotificationPriority,
+    NotificationResult,
+    NotificationStatus,
+)
 from core.permission_manager import (
     PermissionDecision,
     PermissionManager,
@@ -106,7 +141,54 @@ from core.permission_manager import (
     PermissionSource,
 )
 from core.planner import AIPlanner, ExecutionPlan, SubTask
+from core.plugin_execution_pipeline import (
+    PluginExecutionPipeline,
+    PluginExecutionPipelineBypassError,
+    PluginExecutionPipelineError,
+)
+from core.plugin_loader import (
+    FakePluginLoader,
+    IPluginLoader,
+    LoadedPlugin,
+    PluginCapacityExceededError,
+    PluginIntegrityError,
+    PluginLoader,
+    PluginLoaderSecurityError,
+)
+from core.plugin_manifest import (
+    PluginManifest,
+    PluginManifestError,
+    PluginManifestValidator,
+    PluginMetadata,
+    PluginPathSecurityError,
+    PluginValidationError,
+    PluginVersionError,
+)
+from core.plugin_sandbox import (
+    PluginExecutionResult,
+    PluginExecutionSandbox,
+    PluginSandboxError,
+    PluginSandboxTimeoutError,
+    PluginSandboxViolationError,
+)
+from core.plugin_security import (
+    PluginCapability,
+    PluginCapabilityViolationError,
+    PluginDeclaredCapability,
+    PluginPermission,
+    PluginPrivilegeElevationError,
+    PluginRiskProfile,
+    PluginSecurityError,
+    PluginSecurityPolicy,
+)
 from core.policy_rules import ConfigurablePolicyRule, PolicyManager
+from core.registry_boundary import (
+    RegistryBoundaryError,
+    RegistrySecurityViolationError,
+    RegistryWriteBoundary,
+    RegistryWriteDisabledError,
+    RegistryWriteRequest,
+)
 from core.risk_engine import (
     BulkOperationRiskRule,
     FileOperationRiskRule,
@@ -141,137 +223,7 @@ from core.security_architecture import (
     SecurityResult,
     ToolSecurityMetadata,
 )
-from core.autonomy_policy import (
-    AutonomyConfirmationRequiredError,
-    AutonomyEvaluationResult,
-    AutonomyPermissionDeniedError,
-    AutonomyPolicy,
-    AutonomySecurityError,
-    AutonomousTaskRequest,
-    ScheduledActionPolicy,
-    TaskActionRisk,
-    TaskRiskClassifier,
-)
-from core.task_scheduler import (
-    CronLikeTrigger,
-    DirectToolExecutionBypassError,
-    EventTrigger,
-    ITaskTrigger,
-    IntervalTrigger,
-    ScheduledTaskDefinition,
-    ScheduledTaskManager,
-    ScheduledTaskResult,
-    SchedulerSecurityError,
-)
-from core.wake_word_detector import (
-    WakeWordDetector,
-    WakeWordDisabledError,
-    WakeWordSecurityError,
-    WakeWordState,
-)
-from core.notification_dispatcher import (
-    NotificationChannel,
-    NotificationDispatcher,
-    NotificationError,
-    NotificationItem,
-    NotificationPriority,
-    NotificationResult,
-    NotificationStatus,
-)
-from core.plugin_security import (
-    PluginCapability,
-    PluginCapabilityViolationError,
-    PluginDeclaredCapability,
-    PluginPermission,
-    PluginPrivilegeElevationError,
-    PluginRiskProfile,
-    PluginSecurityError,
-    PluginSecurityPolicy,
-)
-from core.plugin_manifest import (
-    PluginManifest,
-    PluginManifestError,
-    PluginManifestValidator,
-    PluginMetadata,
-    PluginPathSecurityError,
-    PluginValidationError,
-    PluginVersionError,
-)
-from core.plugin_loader import (
-    FakePluginLoader,
-    IPluginLoader,
-    LoadedPlugin,
-    PluginCapacityExceededError,
-    PluginIntegrityError,
-    PluginLoader,
-    PluginLoaderSecurityError,
-)
-from core.plugin_sandbox import (
-    PluginExecutionResult,
-    PluginExecutionSandbox,
-    PluginSandboxError,
-    PluginSandboxTimeoutError,
-    PluginSandboxViolationError,
-)
-from core.plugin_execution_pipeline import (
-    PluginExecutionPipeline,
-    PluginExecutionPipelineBypassError,
-    PluginExecutionPipelineError,
-)
-from core.change_transaction import (
-    ChangeResult,
-    ChangeSnapshot,
-    ChangeTransaction,
-    ChangeTransactionManager,
-    FakeTransactionProvider,
-    IChangeTransactionProvider,
-    Reversibility,
-    RollbackResult,
-    TransactionConfirmationRequiredError,
-    TransactionError,
-    TransactionRollbackFailedError,
-    TransactionState,
-    TransactionVerificationError,
-)
-from core.registry_boundary import (
-    RegistryBoundaryError,
-    RegistrySecurityViolationError,
-    RegistryWriteBoundary,
-    RegistryWriteDisabledError,
-    RegistryWriteRequest,
-)
-from core.service_boundary import (
-    ProtectedServiceViolationError,
-    ServiceBoundaryError,
-    ServiceControlBoundary,
-    ServiceControlRequest,
-    ServiceWriteDisabledError,
-    UnknownServiceError,
-)
-from core.software_boundary import (
-    ArbitraryInstallerError,
-    PackageAllowlistViolationError,
-    PackageIdentityMismatchError,
-    SoftwareInstallBoundary,
-    SoftwareInstallDisabledError,
-    SoftwareInstallError,
-    SoftwareInstallRequest,
-    UntrustedSourceError,
-)
 from core.security_policy import (
-
-
-
-
-
-
-
-
-
-
-
-
-
     DefaultPolicyProvider,
     GenericPolicyRule,
     InvalidPolicyError,
@@ -295,8 +247,43 @@ from core.semantic_retriever import (
     SemanticMemoryRetriever,
     SemanticMemoryType,
 )
+from core.service_boundary import (
+    ProtectedServiceViolationError,
+    ServiceBoundaryError,
+    ServiceControlBoundary,
+    ServiceControlRequest,
+    ServiceWriteDisabledError,
+    UnknownServiceError,
+)
 from core.session_manager import SessionManager
+from core.software_boundary import (
+    ArbitraryInstallerError,
+    PackageAllowlistViolationError,
+    PackageIdentityMismatchError,
+    SoftwareInstallBoundary,
+    SoftwareInstallDisabledError,
+    SoftwareInstallError,
+    SoftwareInstallRequest,
+    UntrustedSourceError,
+)
+from core.task_scheduler import (
+    CronLikeTrigger,
+    DirectToolExecutionBypassError,
+    EventTrigger,
+    IntervalTrigger,
+    ITaskTrigger,
+    ScheduledTaskDefinition,
+    ScheduledTaskManager,
+    ScheduledTaskResult,
+    SchedulerSecurityError,
+)
 from core.types import EnvironmentMode, LogLevel, Result, WindowsVersion
+from core.wake_word_detector import (
+    WakeWordDetector,
+    WakeWordDisabledError,
+    WakeWordSecurityError,
+    WakeWordState,
+)
 
 __all__ = [
     "APP_NAME",

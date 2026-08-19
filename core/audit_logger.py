@@ -12,6 +12,7 @@ import csv
 import hashlib
 import io
 import json
+import re
 import threading
 import uuid
 from dataclasses import dataclass, field
@@ -231,6 +232,13 @@ class AuditEventType(StrEnum):
     EMERGENCY_STOP_DEACTIVATED = "EMERGENCY_STOP_DEACTIVATED"
     EMERGENCY_STOP_CHECKED = "EMERGENCY_STOP_CHECKED"
     ACTION_ABORTED_BY_EMERGENCY_STOP = "ACTION_ABORTED_BY_EMERGENCY_STOP"
+    # Etapa 17.0 — Observability
+    OBSERVABILITY_TRACE_STARTED = "OBSERVABILITY_TRACE_STARTED"
+    OBSERVABILITY_TRACE_COMPLETED = "OBSERVABILITY_TRACE_COMPLETED"
+    PLUGIN_SANDBOX_ENTERED = "PLUGIN_SANDBOX_ENTERED"
+    PLUGIN_SANDBOX_EXITED = "PLUGIN_SANDBOX_EXITED"
+    WAKE_WORD_DETECTED = "WAKE_WORD_DETECTED"
+    AUTONOMY_LEVEL_APPLIED = "AUTONOMY_LEVEL_APPLIED"
 
 
 class AuditFailureMode(StrEnum):
@@ -238,6 +246,14 @@ class AuditFailureMode(StrEnum):
 
     BEST_EFFORT = "BEST_EFFORT"
     FAIL_CLOSED = "FAIL_CLOSED"
+
+
+def _is_sensitive_key(key: str) -> bool:
+    k = key.lower()
+    if k in SENSITIVE_KEY_PATTERNS:
+        return True
+    words = set(re.split(r"[_\-\s]+", k))
+    return bool(words & SENSITIVE_KEY_PATTERNS)
 
 
 def sanitize_audit_data(data: Any, max_str_len: int = 1000) -> Any:
@@ -249,8 +265,8 @@ def sanitize_audit_data(data: Any, max_str_len: int = 1000) -> Any:
     if isinstance(data, dict):
         sanitized_dict: JSONDict = {}
         for k, v in data.items():
-            key_str = str(k).lower()
-            if any(p in key_str for p in SENSITIVE_KEY_PATTERNS):
+            key_str = str(k)
+            if _is_sensitive_key(key_str):
                 sanitized_dict[k] = "[REDACTED]"
             else:
                 sanitized_dict[k] = sanitize_audit_data(v, max_str_len)
@@ -311,6 +327,10 @@ class AuditEvent:
     session_id: str = ""
     correlation_id: str = ""
     request_id: str = ""
+    # Etapa 17.0 — Identificadores de correlación extendidos
+    action_id: str = ""
+    task_id: str = ""
+    plugin_id: str = ""
     event_id: str = field(default_factory=lambda: str(uuid.uuid4()))
     timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
     event_hash: str = ""
@@ -355,6 +375,10 @@ class AuditEvent:
             "session_id": self.session_id,
             "correlation_id": self.correlation_id,
             "request_id": self.request_id,
+            # Etapa 17.0 — extended correlation IDs
+            "action_id": self.action_id,
+            "task_id": self.task_id,
+            "plugin_id": self.plugin_id,
             "user": self.user,
             "tool_name": self.tool_name,
             "operation": self.operation,

@@ -21,7 +21,7 @@ class ExecutionRequest:
 
     tool_name: str
     operation: str
-    context: RequestContext
+    context: RequestContext | None = None
     parameters: JSONDict = field(default_factory=dict)
     metadata: JSONDict = field(default_factory=dict)
     session_id: str = "default_session"
@@ -31,6 +31,20 @@ class ExecutionRequest:
     status: str = "PENDING"
 
     def __post_init__(self) -> None:
+        # Auto-crear context si no se proporcionó
+        if self.context is None:
+            ctx = create_request_context(
+                tool_name=self.tool_name,
+                operation=self.operation,
+                parameters=dict(self.parameters),
+                metadata=dict(self.metadata),
+            )
+            object.__setattr__(self, "context", ctx)
+            object.__setattr__(self, "request_id", ctx.request_id)
+            object.__setattr__(self, "correlation_id", ctx.correlation_id)
+            object.__setattr__(self, "session_id", ctx.session_id)
+            object.__setattr__(self, "timestamp", ctx.timestamp)
+            return
         if not self.request_id or not str(self.request_id).strip():
             object.__setattr__(self, "request_id", self.context.request_id)
         if not self.correlation_id or not str(self.correlation_id).strip():

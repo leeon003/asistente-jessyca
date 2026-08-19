@@ -11,7 +11,7 @@ from datetime import UTC, datetime
 from enum import StrEnum
 
 from server.lifecycle import LifecycleState, ServerLifecycleManager
-from tools.registry import ToolRegistry, get_tool_registry
+from tools.tool_registry import ToolRegistry, get_tool_registry
 
 
 class HealthStatus(StrEnum):

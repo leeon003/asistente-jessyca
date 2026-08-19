@@ -7,14 +7,16 @@ from server import JessycaMCPServer, ServerLifecycleState, create_mcp_server, ge
 
 def test_server_creation_and_defaults() -> None:
     server = JessycaMCPServer()
-    assert server.state == ServerLifecycleState.STARTING
-    assert server.uptime_seconds >= 0.0
+    # Estado inicial es STOPPED (antes de initialize/start)
+    assert server.state == ServerLifecycleState.STOPPED
+    assert server.lifecycle_manager.uptime_seconds >= 0.0
     assert server.settings.MCP_SERVER_NAME == "jessyca-windows-mcp"
 
 
 def test_create_mcp_server_factory() -> None:
     server = create_mcp_server(server_name="test-server-instance")
-    assert server.state == ServerLifecycleState.READY
+    # create_mcp_server llama a initialize(), que queda en STOPPED
+    assert server.state == ServerLifecycleState.STOPPED
     assert server.settings.MCP_SERVER_NAME == "test-server-instance"
 
 

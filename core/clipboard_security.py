@@ -100,7 +100,13 @@ class ClipboardSecurityManager:
         self.event_bus = get_event_bus()
 
     def read_clipboard(self, request_id: str = "clip-read-req") -> str:
-        """Lee el contenido del portapapeles aplicando validación de tamaño, redacción de secretos y auditoría limpia."""
+        """Lee el portapapeles aplicando validación de tamaño, redacción de secretos y auditoría limpia.
+
+        FIX MEDIUM-001 (Etapa 17.0):
+        - sanitize_text() retorna tuple[str, int]; se desempaqueta correctamente.
+        - is_sanitized se calcula sobre el texto limpio vs el crudo.
+        - Si hay redacciones (redaction_count > 0), se emite un SecurityEvent de privacidad.
+        """
         if not self.enabled:
             raise ClipboardDisabledError("Acceso denegado: El portapapeles está deshabilitado globalmente.")
 
@@ -112,15 +118,35 @@ class ClipboardSecurityManager:
                 f"Acceso denegado: El tamaño del portapapeles ({byte_len} bytes) excede el máximo permitido ({self.max_size} bytes)."
             )
 
-        # 1. Sanitización de secretos (passwords, tokens, API keys)
-        sanitized_text = self.sanitizer.sanitize_text(raw_text)
+        # FIX MEDIUM-001: desempaquetar correctamente el tuple retornado por sanitize_text()
+        sanitized_text, redaction_count = self.sanitizer.sanitize_text(raw_text)
         text_hash = hashlib.sha256(raw_text.encode("utf-8")).hexdigest()[:16]
+        is_sanitized = redaction_count > 0
+
+        # Emitir SecurityEvent si se detectaron y redactaron secretos (privacidad)
+        if is_sanitized:
+            try:
+                from core.observability.security_event_emitter import get_security_event_emitter
+                from core.observability.security_event_models import SecurityEventType, SecuritySeverity
+                get_security_event_emitter().emit_violation(
+                    event_type=SecurityEventType.SENSITIVE_DATA_IN_CLIPBOARD,
+                    severity=SecuritySeverity.LOW,
+                    component="boundary.clipboard",
+                    description=f"Clipboard content contained {redaction_count} secret(s) — redacted before use.",
+                    blocked=False,
+                    tool_name="windows.clipboard",
+                    operation="read",
+                    metadata={"redaction_count": redaction_count, "clip_hash": text_hash},
+                )
+            except ImportError:
+                pass  # Observability no inicializada aún
 
         # 2. Auditoría con METADATOS EXCLUSIVOS (CERO contenido crudo en logs)
         audit_meta = {
             "clip_bytes": byte_len,
             "clip_hash": text_hash,
-            "is_sanitized": (sanitized_text != raw_text),
+            "is_sanitized": is_sanitized,
+            "redaction_count": redaction_count,
         }
 
         self.audit_logger.log_audit_event(

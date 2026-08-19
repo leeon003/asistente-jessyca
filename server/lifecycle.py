@@ -54,7 +54,7 @@ class ServerLifecycleManager:
                 return (datetime.now(UTC) - self._start_time).total_seconds()
             return 0.0
 
-    def initialize(() -> None:
+    def initialize(self) -> None:
         """Transición a INITIALIZING -> STOPPED (listo para iniciar). Idempotente si ya está listo."""
         with self._lock:
             if self._state == LifecycleState.RUNNING:

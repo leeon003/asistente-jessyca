@@ -38,8 +38,12 @@ WINDOWS_CRITICAL_PATHS: set[str] = {
     "c:\\windows\\system32",
     "c:/windows/syswow64",
     "c:\\windows\\syswow64",
+    "windows\\system32",
+    "system32",
     "hkey_local_machine",
     "hkey_classes_root",
+    "..\\",
+    "../",
 }
 
 
@@ -365,10 +369,35 @@ class RiskEngine:
         Soporta tanto `SecurityRequest` (Subetapa 04.2) como `ToolSecurityProfile` (compatibilidad previa).
         """
         is_sec_req = isinstance(request_or_profile, SecurityRequest)
+        from core.security_architecture import SecurityContext
         if is_sec_req:
             request = request_or_profile
             raw_profile = None
             raw_args = request.context.parameters
+        elif isinstance(request_or_profile, SecurityContext):
+            ctx = request_or_profile
+            if isinstance(arguments, ToolSecurityMetadata):
+                meta = arguments
+                raw_args = ctx.parameters
+            else:
+                raw_args = arguments if isinstance(arguments, dict) else ctx.parameters
+                tname = ctx.tool_name.lower()
+                sec_level = SecurityLevel.SAFE
+                if "critical" in tname or "cmd" in tname or "powershell" in tname:
+                    sec_level = SecurityLevel.CRITICAL
+                elif "dangerous" in tname or "delete" in tname or "kill" in tname:
+                    sec_level = SecurityLevel.DANGEROUS
+                elif "warning" in tname or "write" in tname or "modify" in tname:
+                    sec_level = SecurityLevel.WARNING
+
+                meta = ToolSecurityMetadata(
+                    tool_name=ctx.tool_name,
+                    category="general",
+                    risk_level=sec_level,
+                )
+            request = SecurityRequest(context=ctx, metadata=meta)
+            is_sec_req = True
+            raw_profile = None
         else:
             raw_profile = request_or_profile
             raw_args = arguments or {}

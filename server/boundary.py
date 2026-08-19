@@ -19,10 +19,6 @@ from server.context import RequestContext
 from server.errors import InvalidAuthorizationEvidenceError
 from server.evidence import AuthorizationEvidence
 from server.execution_request import ExecutionRequest
-from server.executor import DisabledToolExecutor, IToolExecutor
-
-logger = get_logger("jessyca.server.boundary")
-
 
 class ExecutionStatus(StrEnum):
     """Estados del resultado de la frontera de ejecución."""
@@ -59,6 +55,9 @@ class ExecutionResult:
             "duration_ms": self.duration_ms,
             "timestamp": self.timestamp.isoformat(),
         }
+
+
+from server.executor import IToolExecutor
 
 
 class IExecutionBoundary(Protocol):
@@ -100,7 +99,10 @@ class SecureExecutionBoundary:
     """Frontera de ejecución segura que exige y valida AuthorizationEvidence (Subetapa 05.2 & 06.2)."""
 
     def __init__(self, executor: IToolExecutor | None = None) -> None:
-        self.default_executor: IToolExecutor = executor or DisabledToolExecutor()
+        if executor is None:
+            from server.executor import DisabledToolExecutor
+            executor = DisabledToolExecutor()
+        self.default_executor: IToolExecutor = executor
         self.domain_executors: dict[str, IToolExecutor] = {}
 
     def register_executor(self, tool_domain: str, executor: IToolExecutor) -> None:

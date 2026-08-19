@@ -153,6 +153,13 @@ def get_builtin_capabilities() -> list[ToolCapability]:
                     decision=CapabilityDecision.ALLOW,
                 ),
                 CapabilityOperation(
+                    operation_id="op_services_get",
+                    name="get_service",
+                    description="Obtener información completa de un servicio específico.",
+                    risk_level=CapabilityRiskLevel.SAFE,
+                    decision=CapabilityDecision.ALLOW,
+                ),
+                CapabilityOperation(
                     operation_id="op_services_status",
                     name="get_service_status",
                     description="Obtener estado de un servicio.",
@@ -274,11 +281,15 @@ def get_builtin_capabilities() -> list[ToolCapability]:
                 ),
             ),
         ),
-        Capability(
+        ToolCapability(
+            capability_id="cap_windows_network_v1",
             tool_name="windows.network",
+            display_name="Windows Network Capability",
             description="Inspección segura de diagnóstico de adaptadores e interfaces de red en Windows.",
-            category=CapabilityCategory.SYSTEM,
-            risk_level=CapabilityRiskLevel.SAFE,
+            version="1.0.0",
+            source=CapabilitySource.BUILTIN,
+            status=CapabilityStatus.ENABLED,
+            is_immutable=True,
             operations=(
                 CapabilityOperation(
                     operation_id="op_net_get_interfaces",

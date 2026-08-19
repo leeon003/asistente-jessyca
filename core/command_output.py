@@ -80,6 +80,22 @@ SECRET_PATTERNS: list[tuple[re.Pattern[str], str]] = [
         re.compile(r"\bAKIA[0-9A-Z]{16}\b", re.IGNORECASE),
         "[REDACTED_AWS_KEY]",
     ),
+    # 8. FIX MEDIUM-001 (Etapa 17.0): password/pwd seguido de dígitos como valor standalone
+    # Captura: "password123", "pwd456", "pass789" (valores de contraseña sin key=)
+    (
+        re.compile(r"\b(password|passwd|pwd|pass)\d+\b", re.IGNORECASE),
+        "[REDACTED_PASSWORD]",
+    ),
+    # 9. Valores de token/key en texto libre (token seguido de valor alfanumérico largo)
+    (
+        re.compile(r"\b(token|key|apikey|api_key)\s*[=:]\s*([A-Za-z0-9\-_]{16,})", re.IGNORECASE),
+        r"\1=[REDACTED]",
+    ),
+    # 10. Hashes hexadecimales largos (32+ chars) — posibles API keys o tokens en texto libre
+    (
+        re.compile(r"\b[0-9a-f]{32,64}\b", re.IGNORECASE),
+        "[REDACTED_HEX_SECRET]",
+    ),
 ]
 
 

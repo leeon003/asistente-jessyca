@@ -156,6 +156,28 @@ class EmergencyStopManager(IEmergencyStopController):
 
             self.event_bus.publish("desktop:emergency_stop_activated", audit_meta)
 
+            # Etapa 17.0 — emit SecurityEvent CRITICAL + update metric
+            try:
+                from core.observability.security_event_emitter import get_security_event_emitter
+                from core.observability.security_event_models import SecurityEventType, SecuritySeverity
+                get_security_event_emitter().emit_violation(
+                    event_type=SecurityEventType.EMERGENCY_STOP_ACTIVATED,
+                    severity=SecuritySeverity.CRITICAL,
+                    component="emergency_stop",
+                    description=f"Emergency Stop activated by {source}: {reason[:200]}",
+                    blocked=True,
+                    tool_name="system.emergency_stop",
+                    operation="trigger_stop",
+                    metadata={"source": source, "activation_count": self._activation_count},
+                )
+            except ImportError:
+                pass
+            try:
+                from core.observability.metric_collector import get_metric_collector
+                get_metric_collector().record_emergency_stop()
+            except ImportError:
+                pass
+
     def reset(self, reason: str = "manual_reset") -> None:
         """Restablece el estado de Parada de Emergencia a RUNNING permitiendo reanudar operaciones de forma segura."""
         with self._state_lock:
@@ -179,6 +201,27 @@ class EmergencyStopManager(IEmergencyStopController):
             )
 
             self.event_bus.publish("desktop:emergency_stop_deactivated", audit_meta)
+
+            # Etapa 17.0 — emit SecurityEvent + update metric gauge
+            try:
+                from core.observability.security_event_emitter import get_security_event_emitter
+                from core.observability.security_event_models import SecurityEventType, SecuritySeverity
+                get_security_event_emitter().emit_violation(
+                    event_type=SecurityEventType.EMERGENCY_STOP_RESET,
+                    severity=SecuritySeverity.HIGH,
+                    component="emergency_stop",
+                    description=f"Emergency Stop reset: {reason[:200]}",
+                    blocked=False,
+                    tool_name="system.emergency_stop",
+                    operation="reset",
+                )
+            except ImportError:
+                pass
+            try:
+                from core.observability.metric_collector import get_metric_collector
+                get_metric_collector().record_emergency_stop_reset()
+            except ImportError:
+                pass
 
     def is_stopped(self) -> bool:
         """Consulta de forma thread-safe si la Parada de Emergencia está activa."""

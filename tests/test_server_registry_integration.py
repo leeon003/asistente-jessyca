@@ -31,15 +31,15 @@ def test_registry_integration_with_fastmcp() -> None:
     mock_tool = CustomMockTool()
     registry.register(mock_tool)
 
-    server = JessycaMCPServer(registry=registry)
+    server = JessycaMCPServer(tool_registry=registry)
     server.initialize()
 
     # Verificar que la herramienta esté en el catálogo de ToolRegistry
-    tool = server.registry.get_tool("mock_test_tool")
+    tool = server.tool_registry.get_tool("mock_test_tool")
     assert tool is not None
     assert tool.name == "mock_test_tool"
 
     # Verificar que la herramienta ejecute correctamente a través de la integración
-    exec_res = asyncio.run(server.registry.execute_tool("mock_test_tool", {}))
+    exec_res = asyncio.run(server.tool_registry.execute_tool("mock_test_tool", {}))
     assert exec_res.is_success is True
     assert exec_res.value == {"result": "success_from_mock"}

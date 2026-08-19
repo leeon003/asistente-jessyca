@@ -54,8 +54,10 @@ def test_fuzzing_policy_evaluator_unhandled_inputs() -> None:
     policy = create_default_security_policy()
 
     for inp in fuzz_inputs:
-        ctx = SecurityContext(user=inp or "system", tool_name=inp or "tool", parameters={"operation": inp})
-        meta = ToolSecurityMetadata(tool_name=inp or "tool", risk_level=SecurityLevel.SAFE)
+        u_val = inp.strip() if inp and inp.strip() else "system"
+        t_val = inp.strip() if inp and inp.strip() else "tool"
+        ctx = SecurityContext(user=u_val, tool_name=t_val, parameters={"operation": inp})
+        meta = ToolSecurityMetadata(tool_name=t_val, risk_level=SecurityLevel.SAFE)
         risk_eng = RiskEngine()
 
         try:

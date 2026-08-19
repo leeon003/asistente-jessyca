@@ -8,14 +8,17 @@ from server import JessycaMCPServer, ServerLifecycleState
 def test_server_lifecycle_transitions() -> None:
     server = JessycaMCPServer()
 
-    # Estado inicial: STARTING
-    assert server.state == ServerLifecycleState.STARTING
+    # Estado inicial: STOPPED (antes de initialize/start)
+    assert server.state == ServerLifecycleState.STOPPED
 
-    # Inicializar -> Transiciona a READY
-    initialized = server.initialize()
-    assert initialized is True
-    assert server.state == ServerLifecycleState.READY
+    # Inicializar -> queda en STOPPED (listo para iniciar)
+    server.initialize()
+    assert server.state == ServerLifecycleState.STOPPED
 
-    # Apagado -> Transiciona a STOPPED
+    # Iniciar -> RUNNING
+    server.start()
+    assert server.state == ServerLifecycleState.RUNNING
+
+    # Apagado -> STOPPED
     server.shutdown()
     assert server.state == ServerLifecycleState.STOPPED

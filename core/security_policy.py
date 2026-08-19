@@ -12,6 +12,7 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import StrEnum
+from typing import Any
 
 from core.logger import get_logger
 from core.risk_engine import (
@@ -104,7 +105,13 @@ class SecurityPolicy:
         if not self.version or not self.version.strip():
             raise InvalidPolicyError("El campo 'version' no puede estar vacío.")
         # Ordenar reglas deterministamente por prioridad descendente
-        self.rules = sorted(self.rules, key=lambda r: r.priority, reverse=True)
+        object.__setattr__(self, "rules", sorted(self.rules, key=lambda r: r.priority, reverse=True))
+        object.__setattr__(self, "_initialized", True)
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        if getattr(self, "_initialized", False) and getattr(self, "is_immutable", False):
+            raise InvalidPolicyError(f"SecurityPolicy '{self.policy_id}' es inmutable y no permite modificación.")
+        super().__setattr__(name, value)
 
 
 @dataclass

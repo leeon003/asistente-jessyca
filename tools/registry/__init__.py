@@ -34,6 +34,7 @@ from tools.registry.value_tool import (
     WindowsGetRegistryValueTool,
     WindowsListRegistryValuesTool,
 )
+from tools.tool_registry import ToolRegistry, get_tool_registry
 
 __all__ = [
     "RegistryError",
@@ -60,4 +61,6 @@ __all__ = [
     "WindowsGetRegistryKeyTool",
     "WindowsListRegistryValuesTool",
     "WindowsGetRegistryValueTool",
+    "ToolRegistry",
+    "get_tool_registry",
 ]

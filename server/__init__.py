@@ -32,12 +32,32 @@ from server.execution_request import ExecutionRequest, create_execution_request
 from server.executor import DisabledToolExecutor, IToolExecutor
 from server.health import HealthChecker, HealthCheckResult, HealthStatus
 from server.lifecycle import LifecycleState, ServerLifecycleManager
+
+ServerLifecycleState = LifecycleState
 from server.pipeline import SecureExecutionPipeline
+
+
+def create_mcp_server(
+    server_name: str | None = None,
+    tools_dir: str | None = None,
+) -> JessycaMCPServer:
+    """Factory function que crea e inicializa un JessycaMCPServer."""
+    from config.settings import AppSettings
+
+    settings = AppSettings()
+    if server_name:
+        settings.MCP_SERVER_NAME = server_name
+
+    server = JessycaMCPServer(settings=settings)
+    server.initialize()
+    return server
 
 __all__ = [
     "JessycaMCPServer",
+    "create_mcp_server",
     "get_mcp_server",
     "LifecycleState",
+    "ServerLifecycleState",
     "ServerLifecycleManager",
     "RequestContext",
     "create_request_context",

@@ -11,47 +11,43 @@ GARANTÍA ABSOLUTA DE SEGURIDAD EN ETAPA 13.0:
 
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from enum import StrEnum
 from typing import Any
 
 from core.audit_logger import AuditEvent, AuditEventType, get_audit_logger
+from core.autonomy.autonomy_decision import AutonomyDecision, AutonomyDecisionValue
+from core.autonomy.autonomy_level import AutonomyLevel, TaskActionRisk
+from core.autonomy.autonomy_policy import (
+    AutonomyConfirmationRequiredError,
+    AutonomyEscalationError,
+    AutonomyPermissionDeniedError,
+    AutonomyPolicyError,
+    AutonomySecurityError,
+    TaskRiskClassifier,
+)
 from core.event_bus import get_event_bus
-from core.exceptions import MCPError
 from core.logger import get_logger
 from core.permission_manager import PermissionDecision, PermissionManager
 
+__all__ = [
+    "TaskActionRisk",
+    "TaskRiskClassifier",
+    "AutonomousTaskRequest",
+    "AutonomyEvaluationResult",
+    "ScheduledActionPolicy",
+    "AutonomyPolicy",
+    "AutonomySecurityError",
+    "AutonomyPermissionDeniedError",
+    "AutonomyConfirmationRequiredError",
+    "AutonomyPolicyError",
+    "AutonomyEscalationError",
+    "AutonomyLevel",
+    "AutonomyDecision",
+    "AutonomyDecisionValue",
+]
+
 logger = get_logger("jessyca.core.autonomy")
-
-
-class TaskActionRisk(StrEnum):
-    """Clasificación formal de nivel de riesgo para acciones y tareas autónomas."""
-
-    READ_ONLY = "READ_ONLY"
-    LOW_RISK = "LOW_RISK"
-    MEDIUM_RISK = "MEDIUM_RISK"
-    DANGEROUS = "DANGEROUS"
-    CRITICAL = "CRITICAL"
-
-
-class AutonomySecurityError(MCPError):
-    """Error base de violaciones de política de autonomía."""
-
-    pass
-
-
-class AutonomyPermissionDeniedError(AutonomySecurityError):
-    """Error emitido cuando una tarea autónoma intenta ejecutarse sin permisos suficientes."""
-
-    pass
-
-
-class AutonomyConfirmationRequiredError(AutonomySecurityError):
-    """Error emitido cuando una tarea autónoma/programada requiere confirmación humana en tiempo real."""
-
-    pass
 
 
 @dataclass(frozen=True)
@@ -99,75 +95,7 @@ class AutonomyEvaluationResult:
         }
 
 
-class TaskRiskClassifier:
-    """Clasificador determinista del nivel de riesgo de acciones y tareas autónomas."""
 
-    # Mapeo de patrones de herramientas/operaciones a niveles de riesgo
-    CRITICAL_PATTERNS: tuple[str, ...] = (
-        r"cmd\.",
-        r"powershell\.",
-        r"system\.shutdown",
-        r"system\.reboot",
-        r"format\.disk",
-        r"registry\.delete",
-        r"user\.create",
-        r"privilege\.elevate",
-    )
-
-    DANGEROUS_PATTERNS: tuple[str, ...] = (
-        r"file\.delete",
-        r"file\.remove",
-        r"process\.kill",
-        r"process\.terminate",
-        r"registry\.write",
-        r"service\.stop",
-        r"network\.route_modify",
-    )
-
-    MEDIUM_RISK_PATTERNS: tuple[str, ...] = (
-        r"file\.write",
-        r"file\.modify",
-        r"process\.list",
-        r"network\.inspect",
-        r"service\.query",
-    )
-
-    LOW_RISK_PATTERNS: tuple[str, ...] = (
-        r"temp\.write",
-        r"log\.write",
-        r"cache\.clear",
-    )
-
-    def classify_task(self, tool_name: str, operation: str, parameters: dict[str, Any] | None = None) -> TaskActionRisk:
-        """Clasifica una acción/tarea en uno de los 5 niveles de riesgo formales."""
-        target = f"{tool_name}.{operation}".lower()
-        param_str = str(parameters or {}).lower()
-
-        # 1. CRITICAL
-        for pat in self.CRITICAL_PATTERNS:
-            if re.search(pat, target) or ("format" in param_str and "c:" in param_str):
-                return TaskActionRisk.CRITICAL
-
-        # 2. DANGEROUS
-        for pat in self.DANGEROUS_PATTERNS:
-            if re.search(pat, target) or "delete" in target or "kill" in target:
-                return TaskActionRisk.DANGEROUS
-
-        # 3. LOW_RISK
-        for pat in self.LOW_RISK_PATTERNS:
-            if re.search(pat, target):
-                return TaskActionRisk.LOW_RISK
-
-        # 4. MEDIUM_RISK
-        for pat in self.MEDIUM_RISK_PATTERNS:
-            if re.search(pat, target) or "write" in target or "modify" in target:
-                return TaskActionRisk.MEDIUM_RISK
-
-        # 5. READ_ONLY por defecto si es consulta o lectura
-        if "read" in target or "get" in target or "list" in target or "inspect" in target or "query" in target:
-            return TaskActionRisk.READ_ONLY
-
-        return TaskActionRisk.MEDIUM_RISK
 
 
 

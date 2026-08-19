@@ -387,3 +387,180 @@ class SessionManager:
         self.event_bus.publish("session:expired", {"session_id_hash": sid_hash})
         return new_state
 
+    # ------------------------------------------------------------------ #
+    # API de compatibilidad simplificada (Subetapa 10.x / legado tests)   #
+    # ------------------------------------------------------------------ #
+
+    def start_session(
+        self,
+        user: str = "anonymous",
+        metadata: dict | None = None,
+    ) -> "SimpleSession":
+        """Inicia una sesión nueva con una API simplificada.
+
+        Proporciona compatibilidad con tests que usan la interfaz de alto nivel.
+        Internamente delega a create_session().
+        """
+        state = self.create_session(user_id=user)
+        simple = SimpleSession(session_id=str(state.session_id), user=user)
+        self._active_simple_session = simple
+        if not hasattr(self, "_session_history"):
+            self._session_history: dict[str, "SimpleSession"] = {}
+        return simple
+
+    def record_tool_usage(
+        self,
+        tool_name: str,
+        parameters: dict | None = None,
+        arguments: dict | None = None,
+        is_success: bool = True,
+        error: str | None = None,
+    ) -> None:
+        """Registra el uso de una herramienta en la sesión activa.
+
+        Acepta `parameters` o `arguments` (alias para compatibilidad con executor.py).
+        """
+        if not hasattr(self, "_active_simple_session") or self._active_simple_session is None:
+            return
+        params = parameters or arguments or {}
+        record = {
+            "tool": tool_name,
+            "parameters": params,
+            "success": is_success,
+            "error": error,
+        }
+        self._active_simple_session._tools_used.append(record)
+
+    def record_error(self, message: str, details: dict | None = None) -> None:
+        """Registra un error en la sesión activa."""
+        if not hasattr(self, "_active_simple_session") or self._active_simple_session is None:
+            return
+        self._active_simple_session._errors.append({"message": message, "details": details or {}})
+
+    def end_session(self) -> "SimpleSession | None":
+        """Finaliza la sesión simplificada activa."""
+        if not hasattr(self, "_active_simple_session") or self._active_simple_session is None:
+            return None
+        simple = self._active_simple_session
+        simple._ended_at = datetime.now(UTC)
+        self._active_simple_session = None
+        # Guardar en historial para export posterior
+        if not hasattr(self, "_session_history"):
+            self._session_history: dict[str, "SimpleSession"] = {}
+        self._session_history[simple.session_id] = simple
+        return simple
+
+    def export_session(
+        self,
+        session_id: str,
+        format: str = "json",
+        file_path: object = None,
+    ) -> str:
+        """Exporta la sesión como JSON o Markdown."""
+        import json as _json
+        from pathlib import Path
+
+        # Buscar en simple sessions (activa o historial)
+        simple: SimpleSession | None = None
+        if hasattr(self, "_active_simple_session") and self._active_simple_session:
+            if self._active_simple_session.session_id == session_id:
+                simple = self._active_simple_session
+        if simple is None and hasattr(self, "_session_history"):
+            simple = self._session_history.get(session_id)
+
+        if simple is None:
+            # Intentar recuperar desde el store
+            try:
+                state = self.get_session(session_id)
+                user = state.metadata.user_id
+                tools: list[dict] = []
+                errors: list[dict] = []
+                duration = (state.updated_at - state.created_at).total_seconds()
+                if format.lower() == "json":
+                    data = {
+                        "session_id": session_id,
+                        "user": user,
+                        "tools_used_count": len(tools),
+                        "errors_count": len(errors),
+                        "duration_seconds": duration,
+                    }
+                    result = _json.dumps(data, ensure_ascii=False, indent=2)
+                else:
+                    result = f"# Reporte de Sesión MCP\n\n- **Usuario**: {user}\n"
+                if file_path:
+                    Path(file_path).write_text(result, encoding="utf-8")
+                return result
+            except Exception:
+                pass
+            return "{}"
+
+        user = simple.user
+        tools = simple._tools_used
+        errors = simple._errors
+        started = simple._started_at
+        ended = simple._ended_at or datetime.now(UTC)
+        duration = (ended - started).total_seconds()
+
+        if format.lower() == "json":
+            data = {
+                "session_id": session_id,
+                "user": user,
+                "tools_used_count": len(tools),
+                "errors_count": len(errors),
+                "duration_seconds": duration,
+                "tools": tools,
+                "errors": errors,
+            }
+            result = _json.dumps(data, ensure_ascii=False, indent=2)
+        else:
+            lines = [
+                "# Reporte de Sesión MCP",
+                "",
+                f"- **Usuario**: {user}",
+                f"- **Duración**: {duration:.2f}s",
+                "",
+                "## Herramientas Utilizadas",
+                "",
+            ]
+            for t in tools:
+                lines.append(f"- `{t['tool']}` — éxito: {t['success']}")
+            if errors:
+                lines.append("\n## Errores\n")
+                for e in errors:
+                    lines.append(f"- {e['message']}")
+            result = "\n".join(lines)
+
+        if file_path:
+            from pathlib import Path as _Path
+            _Path(file_path).write_text(result, encoding="utf-8")
+
+        return result
+
+
+class SimpleSession:
+    """Objeto de sesión simplificado para la API de compatibilidad de tests heredados."""
+
+    def __init__(self, session_id: str, user: str) -> None:
+        self.session_id = session_id
+        self.user = user
+        self._started_at = datetime.now(UTC)
+        self._ended_at: datetime | None = None
+        self._tools_used: list[dict] = []
+        self._errors: list[dict] = []
+
+    @property
+    def is_active(self) -> bool:
+        return self._ended_at is None
+
+    @property
+    def tools_used(self) -> list[dict]:
+        return list(self._tools_used)
+
+    @property
+    def errors(self) -> list[dict]:
+        return list(self._errors)
+
+    @property
+    def duration_seconds(self) -> float:
+        end = self._ended_at or datetime.now(UTC)
+        return (end - self._started_at).total_seconds()

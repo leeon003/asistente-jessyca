@@ -157,15 +157,16 @@ def test_emergency_stop_blocks_service_execution() -> None:
     try:
         with pytest.raises(Exception) as exc_info:
             dummy_ev = AuthorizationEvidence(
-                evidence_id="ev-em",
                 request_id="req-em",
-                decision=PermissionDecision.ALLOW,
-                policy_rules_evaluated=(),
-                user_confirmed=True,
-                evaluation_timestamp=datetime.now(UTC),
-                risk_level=SecurityLevel.DANGEROUS,
+                correlation_id="corr-em",
+                tool_name="windows.desktop",
+                operation="click_element",
+                risk_assessment=None,
+                policy_result=None,
+                permission_result=None,
+                confirmation_result=None,
                 action_fingerprint="dummy",
-                is_valid=True,
+                evidence_id="ev-em",
             )
             service.execute_action(req, dummy_ev, request_id="req-em")
 

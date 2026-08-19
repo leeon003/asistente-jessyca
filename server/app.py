@@ -16,7 +16,7 @@ from server.context import RequestContext, create_request_context
 from server.errors import MCPServerNotInitializedError, MCPToolNotFoundError, MCPValidationError
 from server.health import HealthChecker, HealthCheckResult
 from server.lifecycle import LifecycleState, ServerLifecycleManager
-from tools.registry import ToolRegistry, get_tool_registry
+from tools.tool_registry import ToolRegistry, get_tool_registry
 
 from server.execution_request import ExecutionRequest, create_execution_request
 from server.pipeline import SecureExecutionPipeline
@@ -154,7 +154,16 @@ class JessycaMCPServer:
             raise MCPValidationError("La solicitud MCP debe especificar 'tool_name'.")
 
         if not self.tool_registry.has_tool(tool_name):
-            raise MCPToolNotFoundError(tool_name)
+            # Fallback: verificar si el pipeline boundary tiene un ejecutor registrado para este tool
+            has_pipeline_executor = False
+            if hasattr(self.pipeline, "boundary") and hasattr(self.pipeline.boundary, "domain_executors"):
+                tool_clean = tool_name.strip().lower()
+                has_pipeline_executor = (
+                    tool_clean in self.pipeline.boundary.domain_executors
+                    or any(tool_clean.startswith(d) for d in self.pipeline.boundary.domain_executors)
+                )
+            if not has_pipeline_executor:
+                raise MCPToolNotFoundError(tool_name)
 
         operation = str(payload.get("operation") or "execute").strip()
         parameters = payload.get("parameters") if isinstance(payload.get("parameters"), dict) else {}

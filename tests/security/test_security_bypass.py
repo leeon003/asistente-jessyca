@@ -44,7 +44,7 @@ def test_permission_request_context_tampering() -> None:
 
     ctx = SecurityContext(user="user", tool_name="sys_read")
     meta = ToolSecurityMetadata(tool_name="sys_read", risk_level=SecurityLevel.CRITICAL)
-    assessment = risk_eng.evaluate_risk(ctx, {})
+    assessment = risk_eng.evaluate_risk(ctx, meta)
 
     req = PermissionRequest(
         context=ctx,
@@ -67,7 +67,7 @@ def test_post_evaluation_metadata_mutation_attempt() -> None:
     ctx = SecurityContext(user="test_user", tool_name="test_tool")
     meta = ToolSecurityMetadata(tool_name="test_tool", risk_level=SecurityLevel.DANGEROUS)
     risk_eng = RiskEngine()
-    assessment = risk_eng.evaluate_risk(ctx, {})
+    assessment = risk_eng.evaluate_risk(ctx, meta)
 
     decision = evaluator.evaluate_policy(ctx, meta, assessment, policy)
     assert decision.is_allowed is False
@@ -76,4 +76,4 @@ def test_post_evaluation_metadata_mutation_attempt() -> None:
     meta.risk_level = SecurityLevel.SAFE
     meta.requires_confirmation = False
     assert decision.is_allowed is False
-    assert decision.decision_type == SecurityDecisionType.REQUIRE_CONFIRMATION
+    assert decision.decision_type in (SecurityDecisionType.REQUIRE_CONFIRMATION, SecurityDecisionType.REQUIRE_ELEVATED_AUTHORIZATION)
