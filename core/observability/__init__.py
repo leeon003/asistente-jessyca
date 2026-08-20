@@ -37,7 +37,11 @@ from core.observability.security_event_emitter import (
     SecurityEventEmitter,
     get_security_event_emitter,
 )
-from core.observability.security_event_models import SecurityEvent, SecurityEventType, SecuritySeverity
+from core.observability.security_event_models import (
+    SecurityEvent,
+    SecurityEventType,
+    SecuritySeverity,
+)
 from core.observability.span_models import Span, SpanEvent, SpanStatus
 from core.observability.structured_event import (
     ActionId,

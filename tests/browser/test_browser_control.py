@@ -4,12 +4,10 @@ from __future__ import annotations
 
 import pytest
 
-from core.browser_boundary import BrowserControlBoundary
 from core.browser_models import (
     AllowedJSSnippet,
     ArbitraryJSExecutionError,
     DOMElementNotFoundError,
-    MediaState,
     PageStateTimeoutError,
     PageStateWaiter,
     URLAccessDeniedError,

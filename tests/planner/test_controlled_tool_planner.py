@@ -20,13 +20,12 @@ from typing import Any
 import pytest
 
 from core.autonomy.autonomy_governor import get_autonomy_governor
-from core.diagnostics.models import HealthCheck, HealthReport, HealthStatus
+from core.diagnostics.models import HealthCheck, HealthStatus
 from core.diagnostics.monitor import HealthMonitor
 from core.tool_planner import (
     ControlledToolPlanner,
     MemoryEvidence,
     PlannerAuthorityViolationError,
-    ToolCandidate,
     ToolDiscoveryService,
     ToolPlanProposal,
 )

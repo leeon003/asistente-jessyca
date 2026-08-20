@@ -4,8 +4,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
-
 from tools.filesystem.errors import FilesystemError, PathSecurityError
 from tools.filesystem.path_security import PathSecurityManager
 

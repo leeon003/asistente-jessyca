@@ -105,8 +105,8 @@ class TestDesktopTargetConfusion:
 
     def test_emergency_stop_blocks_desktop_action(self) -> None:
         """Emergency stop activo debe bloquear cualquier acción de desktop."""
-        from core.emergency_stop import EmergencyStopManager, EmergencyStopTriggeredError
         from core.desktop_automation_security import DesktopAutomationSecurity
+        from core.emergency_stop import EmergencyStopManager, EmergencyStopTriggeredError
 
         manager = EmergencyStopManager()
         manager.trigger_stop(reason="audit_test", source="test")
@@ -213,7 +213,7 @@ class TestAuditLeakage:
 
     def test_sensitive_key_false_positive_H03(self) -> None:
         """H-03 AUDIT: 'author' no debe ser redactado como 'auth'."""
-        from core.audit_logger import sanitize_audit_data, _is_sensitive_key
+        from core.audit_logger import _is_sensitive_key
 
         # 'author' contiene 'auth' como prefijo pero NO es una clave sensible
         is_sensitive = _is_sensitive_key("author")

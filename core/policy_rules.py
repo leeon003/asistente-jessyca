@@ -26,16 +26,27 @@ logger = get_logger("jessyca.security.policy_rules")
 class ConfigurablePolicyRule:
     """Regla declarativa de política de seguridad multi-dimensión."""
 
-    name: str
-    effect: PermissionAction
+    name: str = ""
+    effect: PermissionAction = PermissionAction.ALLOW
     rule_id: str = field(default_factory=lambda: str(uuid.uuid4()))
     users: set[str] = field(default_factory=lambda: {"*"})
     tools: set[str] = field(default_factory=lambda: {"*"})
+    tool_name: str | None = None
     categories: set[str] = field(default_factory=lambda: {"*"})
     min_risk_level: RiskLevel | None = None
     actions: set[str] = field(default_factory=lambda: {"*"})
     path_patterns: set[str] = field(default_factory=set)
     priority: int = 100  # Menor número representa mayor prioridad
+
+    def __post_init__(self) -> None:
+        if self.tool_name:
+            self.tools = {self.tool_name}
+        if not self.name and self.rule_id:
+            self.name = self.rule_id
+
+
+# Alias retrocompatible
+PolicyRule = ConfigurablePolicyRule
 
 
 class PolicyManager:

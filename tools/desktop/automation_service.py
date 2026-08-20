@@ -13,7 +13,6 @@ from datetime import UTC, datetime
 from config.settings import AppSettings
 from core.audit_logger import AuditEvent, AuditEventType, get_audit_logger
 from core.desktop_automation_models import (
-    DesktopActionMetadata,
     DesktopActionRequest,
     DesktopActionResult,
 )
@@ -23,7 +22,6 @@ from core.event_bus import get_event_bus
 from core.logger import get_logger
 from server.evidence import AuthorizationEvidence
 from tools.desktop.automation_backend import (
-    FakeDesktopAutomationBackend,
     IDesktopAutomationBackend,
     WindowsDesktopAutomationBackend,
 )

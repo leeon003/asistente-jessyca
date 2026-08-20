@@ -15,6 +15,7 @@ import threading
 
 import pytest
 
+from core.autonomy.autonomy_decision import AutonomyDecisionValue
 from core.autonomy.autonomy_governor import AutonomyGovernor
 from core.autonomy.autonomy_level import AutonomyLevel, TaskActionRisk
 from core.autonomy.autonomy_policy import (
@@ -32,10 +33,7 @@ from core.autonomy.capability_autonomy_registry import (
     CapabilityAutonomyRegistry,
     CapabilityProfileNotFoundError,
     CapabilityRegistryLockedError,
-    get_capability_autonomy_registry,
 )
-from core.autonomy.autonomy_decision import AutonomyDecisionValue
-
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Helpers

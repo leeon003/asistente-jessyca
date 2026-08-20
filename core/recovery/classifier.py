@@ -10,9 +10,7 @@ Clasifica excepciones y códigos de error en:
 from __future__ import annotations
 
 import asyncio
-from typing import Any
 
-from core.exceptions import MCPError
 from core.recovery.models import FailureClassification
 
 

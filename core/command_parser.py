@@ -197,9 +197,9 @@ class SecureCommandParser:
         self.audit_logger = get_audit_logger()
         self.event_bus = get_event_bus()
 
-    def parse(self, raw_input: str) -> StructuredCommand:
+    def parse(self, raw_input: str, request_id: str | None = None) -> StructuredCommand:
         """Parsea una cadena de comando no confiable y retorna un StructuredCommand inmutable."""
-        self.event_bus.publish("command:parse_started", {"raw_input_length": len(raw_input) if raw_input else 0})
+        self.event_bus.publish("command:parse_started", {"raw_input_length": len(raw_input) if raw_input else 0, "request_id": request_id})
 
         raw_str = raw_input.strip() if raw_input else ""
         raw_hash = hashlib.sha256(raw_str.encode("utf-8")).hexdigest()

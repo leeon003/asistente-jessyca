@@ -16,7 +16,7 @@ import sqlite3
 import threading
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Protocol
 
 from core.autonomy.autonomy_level import TaskActionRisk
 from core.command_output import SecretRedactor

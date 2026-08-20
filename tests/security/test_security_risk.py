@@ -3,7 +3,12 @@
 from __future__ import annotations
 
 from core.risk_engine import RiskEngine, RiskFactor
-from core.security_architecture import SecurityContext, SecurityLevel, SecurityRequest, ToolSecurityMetadata
+from core.security_architecture import (
+    SecurityContext,
+    SecurityLevel,
+    SecurityRequest,
+    ToolSecurityMetadata,
+)
 
 
 def test_path_traversal_detection_dot_dot_slash() -> None:

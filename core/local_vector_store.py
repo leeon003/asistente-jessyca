@@ -247,8 +247,10 @@ class LocalVectorStore(IVectorStore):
 
         with self._lock:
             results: list[VectorSearchResult] = []
+            emb_vals = embedding.values if hasattr(embedding, "values") else tuple(embedding)
             for doc in self._documents.values():
-                score = compute_cosine_similarity(embedding.values, doc.embedding.values)
+                doc_vals = doc.embedding.values if hasattr(doc.embedding, "values") else tuple(doc.embedding)
+                score = compute_cosine_similarity(emb_vals, doc_vals)
                 if score >= min_score:
                     results.append(VectorSearchResult(document=doc, similarity_score=score))
 
@@ -428,7 +430,15 @@ class ChromaVectorStore(IVectorStore):
         return self._fallback_store.clear()
 
 
+_vector_store_instance: LocalVectorStore | None = None
 
+
+def get_local_vector_store() -> LocalVectorStore:
+    """Obtiene la instancia singleton del LocalVectorStore."""
+    global _vector_store_instance
+    if _vector_store_instance is None:
+        _vector_store_instance = LocalVectorStore()
+    return _vector_store_instance
 
 
 __all__ = [
@@ -440,6 +450,7 @@ __all__ = [
     "LocalVectorStore",
     "FakeVectorStore",
     "ChromaVectorStore",
+    "get_local_vector_store",
 ]
 
 

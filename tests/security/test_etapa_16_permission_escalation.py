@@ -14,15 +14,13 @@ import threading
 import pytest
 
 from core.permission_manager import PermissionDecision, PermissionManager, PermissionRequest
-from core.risk_engine import RiskAssessment, RiskEngine
+from core.risk_engine import RiskAssessment
 from core.security import (
     PermissionAction,
-    SecurityDecision,
+    RiskLevel,
     SecurityManager,
-    SecurityPolicy,
     ToolSecurityProfile,
 )
-from core.security import RiskLevel
 from core.security_architecture import SecurityContext, SecurityLevel, ToolSecurityMetadata
 
 
@@ -133,7 +131,7 @@ class TestPermissionEscalationRaceConditionH05:
         sm = SecurityManager()
         sm.grant_one_time_permission("race_tool")
 
-        profile = _make_profile("race_tool")
+        profile = _make_profile("race_tool", perms=["system.admin"])
         results: list[bool] = []
         lock = threading.Lock()
 

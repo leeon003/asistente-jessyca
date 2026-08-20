@@ -20,6 +20,8 @@ from server.errors import InvalidAuthorizationEvidenceError
 from server.evidence import AuthorizationEvidence
 from server.execution_request import ExecutionRequest
 
+logger = get_logger("jessyca.server.boundary")
+
 class ExecutionStatus(StrEnum):
     """Estados del resultado de la frontera de ejecución."""
 

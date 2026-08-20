@@ -71,15 +71,20 @@ class CapabilityStatus(StrEnum):
 class CapabilityOperation:
     """Modelo inmutable para representar una operación expuesta por una Capability."""
 
-    operation_id: str
-    name: str
-    description: str
+    operation_id: str = ""
+    name: str = ""
+    description: str = ""
     risk_level: CapabilityRiskLevel = CapabilityRiskLevel.SAFE
     decision: CapabilityDecision = CapabilityDecision.ALLOW
     requires_confirmation: bool = False
     requires_elevation: bool = False
     allowed_parameters: tuple[str, ...] = field(default_factory=tuple)
     required_parameters: tuple[str, ...] = field(default_factory=tuple)
+
+    def __post_init__(self) -> None:
+        if not self.operation_id:
+            op_id = f"op_{self.name.lower().replace('.', '_')}" if self.name else f"op_{uuid.uuid4().hex[:8]}"
+            object.__setattr__(self, "operation_id", op_id)
 
     def to_dict(self) -> dict[str, Any]:
         """Devuelve un diccionario estructurado de la operación."""
@@ -135,10 +140,10 @@ class ToolCapability:
 
     capability_id: str
     tool_name: str
-    display_name: str
-    description: str
-    version: str
-    source: CapabilitySource
+    display_name: str = ""
+    description: str = ""
+    version: str = "1.0.0"
+    source: CapabilitySource = CapabilitySource.BUILTIN
     status: CapabilityStatus = CapabilityStatus.ENABLED
     operations: tuple[CapabilityOperation, ...] = field(default_factory=tuple)
     metadata: JSONDict = field(default_factory=dict)

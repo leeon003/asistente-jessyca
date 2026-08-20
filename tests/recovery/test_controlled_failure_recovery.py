@@ -12,7 +12,6 @@ Verifica:
 from __future__ import annotations
 
 import time
-from typing import Any
 
 import pytest
 
@@ -23,7 +22,6 @@ from core.recovery import (
     ControlledFailureRecovery,
     FailureClassification,
     FailureClassifier,
-    RecoveryResult,
     RetryPolicy,
     get_recovery_coordinator,
 )
@@ -119,7 +117,7 @@ class TestCircuitBreaker:
         assert cb.allow_request() is True
 
     def test_circuit_breaker_reopens_on_half_open_failure(self) -> None:
-        cb = CircuitBreaker(name="fragile_tool", failure_threshold=1, cooldown_seconds=0.05)
+        cb = CircuitBreaker(name="fragile_tool", failure_threshold=1, cooldown_seconds=0.03)
 
         cb.record_failure()
         assert cb.state == CircuitState.OPEN

@@ -25,6 +25,9 @@ class SecurityLevel(StrEnum):
     WARNING = "WARNING"       # Operaciones de modificación moderada que requieren atención
     DANGEROUS = "DANGEROUS"   # Operaciones de alto impacto que requieren confirmación interactiva
     CRITICAL = "CRITICAL"     # Operaciones críticas que exigen elevación de privilegios UAC/Admin
+    LOW = "SAFE"
+    MEDIUM = "WARNING"
+    HIGH = "DANGEROUS"
 
 
 class SecurityDecisionType(StrEnum):

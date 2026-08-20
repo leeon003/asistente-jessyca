@@ -6,7 +6,13 @@ import tempfile
 import threading
 from pathlib import Path
 
-from core.audit_logger import AuditEvent, AuditEventType, AuditLogger, FileAuditSink, MemoryAuditSink
+from core.audit_logger import (
+    AuditEvent,
+    AuditEventType,
+    AuditLogger,
+    FileAuditSink,
+    MemoryAuditSink,
+)
 from core.confirmation import ConfirmationManager, ConfirmationStatus, MockConfirmationProvider
 from core.permission_manager import PermissionManager, PermissionRequest
 from core.risk_engine import RiskEngine

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+
 import pytest
 
 from core.document_bridge import (
@@ -132,7 +133,7 @@ def test_document_generation_regression(tmp_path: Path) -> None:
     )
 
     res = bridge.generate_document(req_json)
-    with open(res.canonical_path, "r", encoding="utf-8") as f:
+    with open(res.canonical_path, encoding="utf-8") as f:
         data = f.read()
     assert '"title": "Datos"' in data
     assert '"body": "hello world"' in data

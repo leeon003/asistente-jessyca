@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from core.audit_logger import AuditEventType, MemoryAuditSink
+from core.audit_logger import MemoryAuditSink
 from core.desktop_automation_models import (
     DesktopActionRequest,
     DesktopActionTarget,

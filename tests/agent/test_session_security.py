@@ -6,7 +6,6 @@ import pytest
 
 from core.session_models import SessionStatus
 from core.session_security import (
-    SessionLimitExceededError,
     SessionSecurityError,
     SessionSecurityManager,
 )

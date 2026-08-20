@@ -6,7 +6,6 @@ Garantiza persistencia segura, thread-safe y formato machine-readable.
 
 from __future__ import annotations
 
-import json
 import threading
 from pathlib import Path
 

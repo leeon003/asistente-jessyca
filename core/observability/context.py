@@ -52,7 +52,7 @@ class ObservabilityContext:
         task_id: str | None = None,
         action_id: str | None = None,
         plugin_id: str | None = None,
-    ) -> "ObservabilityContext":
+    ) -> ObservabilityContext:
         """Crea un contexto hijo heredando los IDs del padre y sobreescribiendo los indicados."""
         return ObservabilityContext(
             correlation_id=self.correlation_id,
@@ -88,7 +88,7 @@ class ObservabilityContext:
         task_id: str | None = None,
         action_id: str | None = None,
         plugin_id: str | None = None,
-    ) -> "ObservabilityContext":
+    ) -> ObservabilityContext:
         """Crea un nuevo contexto de observabilidad generando un CorrelationId fresco."""
         return cls(
             correlation_id=correlation_id or str(uuid.uuid4()),
@@ -106,7 +106,7 @@ class ObservabilityContext:
         session_id: str | None = None,
         component: str = "system",
         user_id: str = "system",
-    ) -> "ObservabilityContext":
+    ) -> ObservabilityContext:
         """Crea un contexto raíz de observabilidad generando todos los IDs necesarios."""
         return cls.create(
             session_id=session_id or str(uuid.uuid4()),

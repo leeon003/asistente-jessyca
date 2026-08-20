@@ -93,7 +93,9 @@ class ObservabilityManager:
                 self._jsonl_exporters.append(trace_exporter)
 
             if enable_jsonl_security_events:
-                from core.observability.exporters.jsonl_security_event import JsonlSecurityEventExporter
+                from core.observability.exporters.jsonl_security_event import (
+                    JsonlSecurityEventExporter,
+                )
                 sec_exporter = JsonlSecurityEventExporter(resolved_logs / "jessyca_security.jsonl")
                 self._security_emitter.register_sink(sec_exporter)
                 self._jsonl_exporters.append(sec_exporter)

@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
 import os
 import tempfile
-import pytest
+from datetime import UTC, datetime
 
 from core.session_models import (
     SessionId,

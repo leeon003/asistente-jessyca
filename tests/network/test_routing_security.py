@@ -6,7 +6,6 @@ import pytest
 
 from core.network_routing_models import RoutingTableRequest
 from core.network_routing_security import (
-    NetworkRoutingLimitExceededError,
     NetworkRoutingSecurityError,
     NetworkRoutingSecurityManager,
 )

@@ -54,9 +54,11 @@ class RegistryPathSecurityManager:
 
         # 2. Validación de Tipo y Caracteres Nulos en key_path
         if key_path is None:
-            clean_sub_key = ""
+            raise RegistryPathError("La ruta de subclave 'key_path' no puede ser None.")
         elif isinstance(key_path, str):
             clean_sub_key = key_path.strip()
+            if not clean_sub_key:
+                raise RegistryPathError("La ruta de subclave 'key_path' no puede estar vacía.")
         else:
             raise RegistryPathError("La ruta de subclave debe ser una cadena de texto válida.")
 
@@ -66,6 +68,9 @@ class RegistryPathSecurityManager:
         # 3. Normalización de Separadores y Barras Intermedias
         clean_sub_key = clean_sub_key.replace("/", "\\")
         parts = [p.strip() for p in clean_sub_key.split("\\") if p.strip()]
+
+        if any(p in (".", "..") for p in parts):
+            raise RegistryPathError("Secuencias de path traversal relativas (..) prohibidas en rutas del Registro.")
 
         # 4. Verificación de Límite de Profundidad
         if len(parts) > self.max_depth:

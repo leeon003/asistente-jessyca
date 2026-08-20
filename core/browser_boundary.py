@@ -7,6 +7,7 @@ URLAllowlistPolicy (Deny-by-Default), EmergencyStopManager, AuditLogger y EventB
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
@@ -152,3 +153,61 @@ class BrowserControlBoundary:
             "tab": res_dict,
             "message": msg,
         }
+
+
+@dataclass(frozen=True)
+class BrowserValidationResult:
+    """Resultado inmutable de la validación de URL para el navegador."""
+
+    is_allowed: bool
+    url: str
+    reason: str = ""
+
+
+class BrowserBoundary:
+    """Frontera declarativa de validación y control de URLs para el navegador."""
+
+    def __init__(
+        self,
+        allowed_domains: set[str] | list[str] | None = None,
+        allowed_schemes: set[str] | None = None,
+        blocked_schemes: set[str] | None = None,
+    ) -> None:
+        from urllib.parse import urlparse
+        self._urlparse = urlparse
+        self.allowed_domains = set(allowed_domains) if allowed_domains is not None else {"youtube.com", "google.com", "github.com", "microsoft.com"}
+        self.allowed_schemes = allowed_schemes or {"http", "https"}
+        self.blocked_schemes = blocked_schemes or {"javascript", "data", "file", "chrome", "edge", "about"}
+
+    def validate_url(self, url: str) -> BrowserValidationResult:
+        """Valida deterministamente si una URL cumple con los esquemas y lista blanca de dominios."""
+        if not url or not isinstance(url, str):
+            return BrowserValidationResult(is_allowed=False, url=url, reason="URL vacía o no válida.")
+
+        clean_url = url.strip()
+        scheme_check = clean_url.split(":")[0].lower()
+        if scheme_check in self.blocked_schemes or scheme_check not in self.allowed_schemes:
+            return BrowserValidationResult(is_allowed=False, url=url, reason=f"Esquema no permitido '{scheme_check}'.")
+
+        try:
+            parsed = self._urlparse(clean_url)
+            domain = (parsed.hostname or "").lower()
+            if not domain:
+                return BrowserValidationResult(is_allowed=False, url=url, reason="Host no encontrado en URL.")
+
+            if not self.allowed_domains:
+                return BrowserValidationResult(is_allowed=False, url=url, reason="Allowlist de dominios vacía.")
+
+            is_match = False
+            for allowed in self.allowed_domains:
+                allowed_clean = allowed.lower()
+                if domain == allowed_clean or domain.endswith("." + allowed_clean):
+                    is_match = True
+                    break
+
+            if not is_match:
+                return BrowserValidationResult(is_allowed=False, url=url, reason=f"Dominio '{domain}' fuera de allowlist.")
+
+            return BrowserValidationResult(is_allowed=True, url=url, reason="URL autorizada por allowlist.")
+        except Exception as e:
+            return BrowserValidationResult(is_allowed=False, url=url, reason=f"Error validando URL: {e}")

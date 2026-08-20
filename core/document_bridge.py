@@ -203,7 +203,7 @@ class DocumentGenerationBridge:
         # 2. Validación y canonicalización de ruta dentro de FILESYSTEM_SANDBOX_ROOT (Protección Anti-Traversal)
         try:
             val_res = self.path_security.validate_and_canonicalize(request.file_path)
-            target_path = val_res.canonical_path
+            target_path = Path(val_res.canonical_path)
         except PathSecurityError as e:
             raise DocumentTraversalError(f"Ruta de documento denegada por violación de sandbox o traversal: {e}")
 

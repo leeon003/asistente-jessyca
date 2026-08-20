@@ -152,6 +152,12 @@ class ConfirmationResult:
     is_consumed: bool = False
     expires_at: datetime | None = None
 
+    @property
+    def is_approved(self) -> bool:
+        """Determina si la confirmación fue aprobada."""
+        st_str = getattr(self.status, "value", str(self.status)).upper()
+        return st_str == "APPROVED"
+
 
 @runtime_checkable
 class IConfirmationProvider(Protocol):
@@ -285,6 +291,22 @@ class ConfirmationManager:
             reason=f"Respuesta del proveedor: {res_status}",
             expires_at=request.expires_at,
         )
+
+    def get_result(self, request_id: str) -> ConfirmationResult | None:
+        """Obtiene el resultado de confirmación para una solicitud por su ID."""
+        with self._lock:
+            req = self._resolved_requests.get(request_id) or self._pending_requests.get(request_id)
+            if not req:
+                return None
+            res_status = getattr(req.status, "value", str(req.status))
+            return ConfirmationResult(
+                status=req.status,
+                request_id=req.request_id,
+                correlation_id=req.correlation_id,
+                fingerprint=req.fingerprint,
+                reason=f"Estado de solicitud: {res_status}",
+                expires_at=req.expires_at,
+            )
 
     def cancel_request(self, request_id: str) -> bool:
         """Cancela una solicitud de confirmación pendiente."""

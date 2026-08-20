@@ -9,7 +9,6 @@ from core.network_connection_models import (
     NetworkEndpoint,
 )
 from core.network_connection_security import (
-    NetworkConnectionLimitExceededError,
     NetworkConnectionSecurityError,
     NetworkConnectionSecurityManager,
 )

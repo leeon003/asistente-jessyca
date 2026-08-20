@@ -259,6 +259,7 @@ class ScheduledTaskManager:
         self._tasks: dict[str, ScheduledTaskDefinition] = {}
         self._triggers: dict[str, Any] = {}
         self._running_task_ids: set[str] = set()
+        self._running: bool = False
         self._lock = threading.RLock()
 
         self._executor = ThreadPoolExecutor(
@@ -269,6 +270,35 @@ class ScheduledTaskManager:
         self.event_bus = get_event_bus()
 
         self._load_tasks_from_storage()
+
+    def schedule_task(
+        self,
+        task_id: str,
+        tool_name: str,
+        operation: str,
+        trigger: ITaskTrigger | None = None,
+        parameters: dict[str, Any] | None = None,
+        max_retries: int = 3,
+        timeout_seconds: float = 30.0,
+        **kwargs: Any,
+    ) -> ScheduledTaskDefinition:
+        """Alias para register_task con validación de ID duplicado."""
+        with self._lock:
+            if not hasattr(self, "_scheduled_ids"):
+                self._scheduled_ids: set[str] = set()
+            if task_id in self._scheduled_ids:
+                raise ValueError(f"Task with id '{task_id}' already exists.")
+            self._scheduled_ids.add(task_id)
+            trig = trigger or IntervalTrigger(interval_seconds=60.0)
+            return self.register_task(
+                task_id=task_id,
+                tool_name=tool_name,
+                operation=operation,
+                trigger=trig,
+                parameters=parameters,
+                max_retries=max_retries,
+                timeout_seconds=timeout_seconds,
+            )
 
     def register_task(
         self,
@@ -498,3 +528,14 @@ class ScheduledTaskManager:
             )
         )
         self.event_bus.publish("scheduler:task_completed", {"task_id": task_def.task_id, "success": success})
+
+
+_task_scheduler_instance: ScheduledTaskManager | None = None
+
+
+def get_task_scheduler() -> ScheduledTaskManager:
+    """Obtiene la instancia singleton del ScheduledTaskManager."""
+    global _task_scheduler_instance
+    if _task_scheduler_instance is None:
+        _task_scheduler_instance = ScheduledTaskManager()
+    return _task_scheduler_instance

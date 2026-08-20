@@ -16,7 +16,6 @@ import collections
 import threading
 from collections.abc import Callable
 from datetime import UTC, datetime
-from typing import Any
 
 from core.diagnostics.models import (
     ComponentCategory,

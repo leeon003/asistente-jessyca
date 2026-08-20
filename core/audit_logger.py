@@ -44,7 +44,7 @@ SENSITIVE_KEY_PATTERNS: set[str] = {
     "session_cookie",
     "private_key",
     "certificate_private_key",
-    "auth",
+    "auth_token",
 }
 
 
@@ -74,6 +74,8 @@ class AuditEventType(StrEnum):
     FILESYSTEM_OPERATION_FAILED = "FILESYSTEM_OPERATION_FAILED"
     FILESYSTEM_OPERATION_DENIED = "FILESYSTEM_OPERATION_DENIED"
     FILESYSTEM_OPERATION_CONFIRMATION_REQUIRED = "FILESYSTEM_OPERATION_CONFIRMATION_REQUIRED"
+    FILE_ACTION_SUCCEEDED = "FILE_ACTION_SUCCEEDED"
+    FILE_ACTION_FAILED = "FILE_ACTION_FAILED"
     PROCESS_QUERY_STARTED = "PROCESS_QUERY_STARTED"
     PROCESS_QUERY_SUCCEEDED = "PROCESS_QUERY_SUCCEEDED"
     PROCESS_QUERY_FAILED = "PROCESS_QUERY_FAILED"
@@ -587,7 +589,14 @@ class AuditLogger:
 
         # Notificación asíncrona al EventBus
         try:
-            self.event_bus.publish("audit:logged", event.to_dict())
+            payload = event.to_dict()
+            if event.user:
+                payload["usuario"] = event.user
+            if event.tool_name:
+                payload["herramienta"] = event.tool_name
+            if event.operation:
+                payload["accion"] = event.operation
+            self.event_bus.publish("audit:logged", payload)
         except Exception as e:
             logger.warning(f"Error notificando al EventBus: {e}")
 

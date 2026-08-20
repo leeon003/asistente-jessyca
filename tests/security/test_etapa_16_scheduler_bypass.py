@@ -12,7 +12,7 @@ from __future__ import annotations
 import pytest
 
 from core.autonomy_policy import AutonomousTaskRequest, AutonomyPolicy, TaskActionRisk
-from core.task_scheduler import DirectToolExecutionBypassError, ScheduledTaskManager
+from core.task_scheduler import ScheduledTaskManager
 
 
 class TestSchedulerBypassInvariant:
@@ -20,7 +20,6 @@ class TestSchedulerBypassInvariant:
 
     def test_scheduled_task_is_not_user_authorization(self) -> None:
         """Una tarea programada NO otorga autorización de usuario por sí sola."""
-        from core.autonomy_policy import AutonomyPolicy, TaskActionRisk
 
         policy = AutonomyPolicy()
         req = AutonomousTaskRequest(
@@ -42,7 +41,6 @@ class TestSchedulerBypassInvariant:
 
     def test_scheduler_cannot_grant_dangerous_authority(self) -> None:
         """Tarea programada DANGEROUS debe requerir confirmación, nunca auto-ejecutarse."""
-        from core.autonomy_policy import AutonomyPolicy
 
         policy = AutonomyPolicy()
         req = AutonomousTaskRequest(
@@ -61,7 +59,6 @@ class TestSchedulerBypassInvariant:
 
     def test_scheduler_cannot_grant_critical_authority(self) -> None:
         """Tarea programada CRITICAL debe ser DENY sin excepción."""
-        from core.autonomy_policy import AutonomyPolicy
 
         policy = AutonomyPolicy()
         req = AutonomousTaskRequest(
@@ -80,7 +77,6 @@ class TestSchedulerBypassInvariant:
 
     def test_wake_word_cannot_grant_critical_authority(self) -> None:
         """Detección de wake word tampoco puede otorgar autoridad CRITICAL."""
-        from core.autonomy_policy import AutonomyPolicy
 
         policy = AutonomyPolicy()
         req = AutonomousTaskRequest(
@@ -187,6 +183,7 @@ class TestIntervalTriggerSafety:
     def test_trigger_fires_at_most_once_per_interval(self) -> None:
         """M-05 AUDIT: Trigger no debe dispararse múltiples veces por el mismo período."""
         from datetime import UTC, datetime, timedelta
+
         from core.task_scheduler import IntervalTrigger
 
         trigger = IntervalTrigger(interval_seconds=60)

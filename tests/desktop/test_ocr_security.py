@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from core.desktop_models import OCRBoundingBox, OCRRequest
-from core.ocr_security import OCRLimitExceededError, OCRSecurityError, OCRSecurityManager
+from core.ocr_security import OCRSecurityError, OCRSecurityManager
 
 
 def test_ocr_security_manager_validates_correct_request() -> None:

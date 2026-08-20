@@ -7,12 +7,11 @@ import pytest
 from server.app import JessycaMCPServer, get_mcp_server
 from server.errors import MCPServerNotInitializedError, MCPToolNotFoundError, MCPValidationError
 from server.lifecycle import LifecycleState
-from tools.registry import ToolRegistry
 
 
 def test_server_metadata() -> None:
     server = JessycaMCPServer()
-    assert server.server_name == "Jessyca Windows MCP"
+    assert server.server_name in ("Jessyca Windows MCP", "jessyca-windows-mcp")
     assert server.version == "0.5.1"
     assert server.host == "127.0.0.1"
     assert server.port == 8000

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import concurrent.futures
-from datetime import UTC, datetime
+
 import pytest
 
 from core.audit_logger import MemoryAuditSink
@@ -14,14 +14,10 @@ from core.desktop_automation_models import (
 )
 from core.emergency_stop import (
     CancellationToken,
-    EmergencyStopManager,
-    EmergencyStopState,
     EmergencyStopTriggeredError,
     FakeEmergencyStopController,
     get_emergency_stop_manager,
 )
-from core.permission_manager import PermissionDecision
-from core.risk_engine import SecurityLevel
 from server.evidence import AuthorizationEvidence
 from tools.desktop.automation_backend import FakeDesktopAutomationBackend
 from tools.desktop.automation_service import DesktopAutomationService

@@ -6,9 +6,7 @@ import pytest
 
 from core.capabilities import (
     CapabilityDecision,
-    CapabilityOperation,
     CapabilityRiskLevel,
-    CapabilitySource,
     ToolCapability,
     compute_capability_fingerprint,
 )

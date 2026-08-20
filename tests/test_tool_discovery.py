@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from core.capability import CapabilityManager
 from tools.discovery import ToolDiscoveryEngine
-from tools.registry import ToolRegistry
+from tools.tool_registry import ToolRegistry
 
 
 def test_standalone_tool_discovery() -> None:

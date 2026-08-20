@@ -14,7 +14,10 @@ from core.desktop_models import ScreenshotRequest, ScreenshotResult
 from core.desktop_security import DesktopSecurityManager
 from core.event_bus import get_event_bus
 from core.logger import get_logger
-from tools.desktop.backend import FakeDesktopCaptureBackend, IDesktopCaptureBackend, WindowsDesktopCaptureBackend
+from tools.desktop.backend import (
+    IDesktopCaptureBackend,
+    WindowsDesktopCaptureBackend,
+)
 
 logger = get_logger("jessyca.tools.desktop.service")
 

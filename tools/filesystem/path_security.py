@@ -1,4 +1,4 @@
-"""Path Security Layer y Protección de Sandbox (Subetapa 06.2).
+r"""Path Security Layer y Protección de Sandbox (Subetapa 06.2).
 
 Trata todas las rutas de archivo como UNTRUSTED INPUT.
 Canonicaliza y resuelve rutas absolutas reales (`os.path.realpath`) para garantizar que la ruta

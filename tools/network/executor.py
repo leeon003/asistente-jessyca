@@ -11,13 +11,13 @@ from datetime import UTC, datetime
 from core.audit_logger import get_audit_logger
 from core.event_bus import get_event_bus
 from core.logger import get_logger
+from core.network_boundary_security import NetworkBoundaryConsolidator
 from core.network_connection_models import NetworkConnectionRequest
 from core.network_models import NetworkInterfaceRequest
 from core.network_routing_models import DNSCacheRequest, RoutingTableRequest
 from server.boundary import ExecutionResult, ExecutionStatus
 from server.evidence import AuthorizationEvidence
 from server.execution_request import ExecutionRequest
-from core.network_boundary_security import NetworkBoundaryConsolidator
 from server.executor import IToolExecutor
 from tools.network.connection_service import NetworkConnectionInspectionService
 from tools.network.dns_cache_service import DNSCacheInspectionService

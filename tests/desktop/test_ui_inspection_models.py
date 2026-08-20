@@ -7,13 +7,15 @@ from datetime import UTC, datetime
 import pytest
 
 from core.ui_inspection_models import (
+    DetectedUIElement,
     UIControlType,
+    UIDetectionSource,
     UIElementBounds,
     UIElementInfo,
-    UIElementRequest,
     UIElementTree,
     UIInspectionMetadata,
     UIInspectionResult,
+    WindowInfo,
 )
 
 

@@ -2,10 +2,17 @@
 
 from __future__ import annotations
 
-from core.audit_logger import AuditEvent, AuditEventType, sanitize_audit_data
+import pytest
+
+from core.audit_logger import sanitize_audit_data
 from core.confirmation import compute_action_fingerprint
 from core.risk_engine import RiskEngine
-from core.security_architecture import SecurityContext, SecurityLevel, SecurityRequest, ToolSecurityMetadata
+from core.security_architecture import (
+    SecurityContext,
+    SecurityLevel,
+    SecurityRequest,
+    ToolSecurityMetadata,
+)
 from core.security_policy import SecurityPolicyEvaluator, create_default_security_policy
 
 fuzz_inputs = [

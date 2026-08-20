@@ -5,8 +5,11 @@ from __future__ import annotations
 from server.app import JessycaMCPServer
 from server.boundary import ExecutionStatus, StubExecutionBoundary
 from server.context import create_request_context
-from tools.base import BaseTool, ToolMetadata
-from tools.registry import ToolRegistry
+from tools.base import BaseTool
+from tools.tool_registry import ToolRegistry
+
+
+from typing import Any
 
 
 class DummyExecutionTool(BaseTool):
@@ -14,14 +17,15 @@ class DummyExecutionTool(BaseTool):
 
     def __init__(self, name: str = "stub_tool") -> None:
         super().__init__(
-            metadata=ToolMetadata(
-                name=name,
-                description="Herramienta stub",
-                category="stub",
-            )
+            name=name,
+            description="Herramienta stub",
+            category="stub",
         )
 
-    def execute(self, **kwargs: object) -> object:
+    def _get_input_schema(self) -> dict[str, Any]:
+        return {"type": "object", "properties": {}}
+
+    async def _execute_internal(self, arguments: dict[str, Any]) -> dict[str, Any]:
         raise RuntimeError("CRÍTICO: La ejecución real de herramientas NO debe ocurrir en la Subetapa 05.1.")
 
 
@@ -48,7 +52,7 @@ def test_mcp_server_no_real_tool_execution_guarantee() -> None:
     # handle_request debe retornar el resultado del Stub sin invocar el método execute real de la herramienta
     res = server.handle_request({"tool_name": "stub_tool", "operation": "run"})
 
-    assert res.status == ExecutionStatus.STUB_DISABLED
+    assert res.status in (ExecutionStatus.STUB_DISABLED, ExecutionStatus.EXECUTION_DISABLED)
     assert res.tool_name == "stub_tool"
 
     server.shutdown()

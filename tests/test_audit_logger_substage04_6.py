@@ -41,6 +41,8 @@ import threading
 from datetime import UTC, datetime
 from pathlib import Path
 
+import pytest
+
 from core.audit_logger import (
     AuditEvent,
     AuditEventType,

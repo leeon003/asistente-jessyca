@@ -166,7 +166,7 @@ class ToolPlanProposal:
         discarded_tools_summary: dict[str, str] | None = None,
         planning_context: PlanningContext | None = None,
         plan_id: str | None = None,
-    ) -> "ToolPlanProposal":
+    ) -> ToolPlanProposal:
         return cls(
             plan_id=plan_id or f"plan_{uuid.uuid4().hex[:12]}",
             intent=intent,

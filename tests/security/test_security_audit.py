@@ -7,7 +7,14 @@ from pathlib import Path
 
 import pytest
 
-from core.audit_logger import AuditEvent, AuditEventType, AuditFailureMode, AuditLogger, FileAuditSink, MemoryAuditSink, sanitize_audit_data
+from core.audit_logger import (
+    AuditEvent,
+    AuditEventType,
+    AuditFailureMode,
+    AuditLogger,
+    FileAuditSink,
+    MemoryAuditSink,
+)
 
 
 def test_audit_event_pre_persistence_secret_redaction() -> None:

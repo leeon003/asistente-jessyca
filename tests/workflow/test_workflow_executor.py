@@ -15,13 +15,10 @@ from __future__ import annotations
 import time
 from typing import Any
 
-import pytest
-
 from core.autonomy.autonomy_governor import get_autonomy_governor
-from core.autonomy.autonomy_level import AutonomyLevel, TaskActionRisk
+from core.autonomy.autonomy_level import TaskActionRisk
 from core.workflow import (
     StepExecutionPipeline,
-    StepExecutionResult,
     StepState,
     StepVerificationRule,
     WorkflowDefinition,

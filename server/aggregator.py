@@ -36,10 +36,11 @@ class SecurityDecisionAggregator:
         capability_resolution: Any = None,
     ) -> AggregatedSecurityDecision:
         """Agrega todas las evaluaciones en una decisión consolidada inmutable."""
-        # 0. Regla Capability System: Si Capability Resolution deniega o no fue encontrada
-        if capability_resolution is not None:
+        cap_dec = ""
+        # 0. Regla Capability System: Si Capability Resolution fue encontrada y deniega
+        if capability_resolution is not None and getattr(capability_resolution, "found", False):
             cap_dec = getattr(cap_dec_obj := getattr(capability_resolution, "decision", "DENY"), "value", str(cap_dec_obj))
-            if not getattr(capability_resolution, "found", True) or cap_dec == "DENY":
+            if cap_dec == "DENY":
                 return AggregatedSecurityDecision(
                     is_allowed=False,
                     decision_type=SecurityDecisionType.DENY,
@@ -63,11 +64,13 @@ class SecurityDecisionAggregator:
         )
 
         requires_conf = (
-            getattr(policy_decision, "requires_confirmation", False)
+            getattr(risk_assessment, "requires_confirmation", False)
+            or getattr(policy_decision, "requires_confirmation", False)
             or getattr(permission_result, "requires_confirmation", False)
             or getattr(capability_resolution, "requires_confirmation", False)
             or (policy_dec == "REQUIRE_CONFIRMATION")
             or (perm_dec == "REQUIRE_CONFIRMATION")
+            or (cap_dec == "REQUIRE_CONFIRMATION")
         )
 
         # 1. Regla DENY Overriding: Si cualquier capa indica DENY -> DENY prevalece
@@ -126,7 +129,7 @@ class SecurityDecisionAggregator:
             conf_status = getattr(confirmation_result, "status", None)
             conf_status_str = getattr(conf_status, "value", str(conf_status)) if conf_status else ""
 
-            if conf_status_str == "APPROVED" and getattr(confirmation_result, "is_approved", False):
+            if conf_status_str.upper() == "APPROVED" or getattr(confirmation_result, "is_approved", False):
                 return AggregatedSecurityDecision(
                     is_allowed=True,
                     decision_type=SecurityDecisionType.ALLOW,

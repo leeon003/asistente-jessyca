@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from server.context import RequestContext, create_request_context
+from server.context import create_request_context
 
 
 def test_request_context_creation_and_uniqueness() -> None:

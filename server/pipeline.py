@@ -8,24 +8,21 @@ from __future__ import annotations
 
 import time
 from datetime import UTC, datetime
-from typing import Any
 
 from core.audit_logger import AuditEvent, AuditEventType, AuditLogger, get_audit_logger
-from core.confirmation import ConfirmationManager, ConfirmationStatus, IConfirmationProvider
+from core.builtin_capabilities import register_builtin_capabilities
+from core.capability_resolver import CapabilityResolver
+from core.confirmation import ConfirmationManager, IConfirmationProvider
 from core.event_bus import EventBus, get_event_bus
 from core.logger import get_logger
 from core.permission_manager import PermissionManager, PermissionRequest
 from core.risk_engine import RiskEngine
-from core.security_architecture import SecurityContext, SecurityDecisionType, ToolSecurityMetadata
+from core.security_architecture import SecurityContext, ToolSecurityMetadata
 from core.security_policy import SecurityPolicyEvaluator, create_default_security_policy
 from server.aggregator import SecurityDecisionAggregator
 from server.boundary import ExecutionResult, ExecutionStatus, SecureExecutionBoundary
-from server.errors import ExecutionNotAuthorizedError
 from server.evidence import create_authorization_evidence
-from server.execution_request import ExecutionRequest, create_execution_request
-
-from core.builtin_capabilities import register_builtin_capabilities
-from core.capability_resolver import CapabilityResolver
+from server.execution_request import ExecutionRequest
 
 logger = get_logger("jessyca.server.pipeline")
 
@@ -228,6 +225,7 @@ class SecureExecutionPipeline:
                 policy_decision=policy_result,
                 permission_result=permission_result,
                 confirmation_result=confirmation_result,
+                capability_resolution=capability_res,
             )
 
             conf_status = getattr(confirmation_result, "status", None)

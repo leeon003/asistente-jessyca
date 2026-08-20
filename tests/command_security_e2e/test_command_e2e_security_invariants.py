@@ -8,7 +8,6 @@ from core.command_parser import SecureCommandParser
 from core.command_policy import CommandPolicyManager
 from core.permission_manager import PermissionDecision
 from core.powershell_boundary import PowerShellExecutionBoundary
-from core.risk_engine import SecurityLevel
 
 
 def test_invariant_1_unknown_command_deny() -> None:

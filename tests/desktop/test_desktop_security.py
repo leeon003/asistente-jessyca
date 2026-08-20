@@ -5,7 +5,10 @@ from __future__ import annotations
 import pytest
 
 from core.desktop_models import ScreenshotRequest
-from core.desktop_security import DesktopLimitExceededError, DesktopSecurityError, DesktopSecurityManager
+from core.desktop_security import (
+    DesktopSecurityError,
+    DesktopSecurityManager,
+)
 
 
 def test_desktop_security_manager_validates_correct_request() -> None:

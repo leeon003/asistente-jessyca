@@ -8,7 +8,6 @@ from core.confirmation import (
     ConfirmationManager,
     ConfirmationStatus,
     MockConfirmationProvider,
-    compute_action_fingerprint,
 )
 from core.security_architecture import SecurityLevel
 

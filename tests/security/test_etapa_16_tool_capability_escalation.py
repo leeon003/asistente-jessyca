@@ -11,12 +11,12 @@ from __future__ import annotations
 
 import pytest
 
-from core.capability_registry import CapabilityRegistry, get_capability_registry
 from core.capabilities import (
     CapabilityOperation,
     CapabilitySource,
     ToolCapability,
 )
+from core.capability_registry import CapabilityRegistry
 from core.exceptions import SecurityValidationError
 from core.risk_engine import RiskEngine
 from core.security_architecture import SecurityContext, SecurityLevel, ToolSecurityMetadata

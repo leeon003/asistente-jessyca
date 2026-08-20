@@ -50,6 +50,18 @@ def test_windows_network_tool_executor_executes_connections_operations() -> None
         context=RequestContext(user="tester"),
     )
 
-    result2 = executor.execute(req2, evidence1)
+    evidence2 = AuthorizationEvidence(
+        evidence_id="ev-port-1",
+        request_id="net-port-exec-1",
+        decision=PermissionDecision.ALLOW,
+        policy_rules_evaluated=(),
+        user_confirmed=False,
+        evaluation_timestamp=datetime.now(UTC),
+        risk_level=SecurityLevel.SAFE,
+        action_fingerprint="dummy_fp",
+        is_valid=True,
+    )
+
+    result2 = executor.execute(req2, evidence2)
     assert result2.status == ExecutionStatus.SUCCESS
     assert result2.output["success"] is True

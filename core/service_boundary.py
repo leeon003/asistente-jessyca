@@ -50,6 +50,12 @@ class ProtectedServiceViolationError(ServiceBoundaryError):
     pass
 
 
+class ServiceSecurityViolationError(ServiceBoundaryError):
+    """Error emitido cuando el nombre del servicio contiene caracteres de inyección o formato inválido."""
+
+    pass
+
+
 class UnknownServiceError(ServiceBoundaryError):
     """Error emitido cuando no se puede identificar el servicio solicitado."""
 
@@ -113,6 +119,11 @@ class ServiceControlBoundary:
         service_clean = request.service_name.strip().lower()
         if not service_clean:
             raise ServiceBoundaryError("El nombre del servicio no puede estar vacío.")
+
+        if " " in service_clean or any(c in service_clean for c in (";", "&", "|", "<", ">", "\n", "\r", "\t", "/", "\\", "..")):
+            raise ServiceSecurityViolationError(
+                f"[SERVICE NAME INJECTION] El nombre de servicio '{request.service_name}' contiene caracteres inválidos o secuencias de inyección no permitidas."
+            )
 
         if service_clean in self.protected_list:
             raise ProtectedServiceViolationError(

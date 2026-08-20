@@ -49,9 +49,18 @@ class CancellationToken:
     def __init__(self, event: threading.Event | None = None) -> None:
         self._event = event or threading.Event()
 
+    def cancel(self, reason: str = "") -> None:
+        """Solicita la cancelación del token."""
+        self._event.set()
+
     def is_cancellation_requested(self) -> bool:
         """Indica si se ha solicitado la cancelación."""
         return self._event.is_set()
+
+    @property
+    def is_cancelled(self) -> bool:
+        """Propiedad de conveniencia para verificar si la cancelación fue solicitada."""
+        return self.is_cancellation_requested()
 
     def wait_or_cancelled(self, timeout_seconds: float) -> bool:
         """Espera de forma no bloqueante hasta el timeout o hasta recibir cancelación.
@@ -159,7 +168,10 @@ class EmergencyStopManager(IEmergencyStopController):
             # Etapa 17.0 — emit SecurityEvent CRITICAL + update metric
             try:
                 from core.observability.security_event_emitter import get_security_event_emitter
-                from core.observability.security_event_models import SecurityEventType, SecuritySeverity
+                from core.observability.security_event_models import (
+                    SecurityEventType,
+                    SecuritySeverity,
+                )
                 get_security_event_emitter().emit_violation(
                     event_type=SecurityEventType.EMERGENCY_STOP_ACTIVATED,
                     severity=SecuritySeverity.CRITICAL,
@@ -205,7 +217,10 @@ class EmergencyStopManager(IEmergencyStopController):
             # Etapa 17.0 — emit SecurityEvent + update metric gauge
             try:
                 from core.observability.security_event_emitter import get_security_event_emitter
-                from core.observability.security_event_models import SecurityEventType, SecuritySeverity
+                from core.observability.security_event_models import (
+                    SecurityEventType,
+                    SecuritySeverity,
+                )
                 get_security_event_emitter().emit_violation(
                     event_type=SecurityEventType.EMERGENCY_STOP_RESET,
                     severity=SecuritySeverity.HIGH,

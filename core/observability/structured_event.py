@@ -22,7 +22,6 @@ from enum import StrEnum
 from typing import Any, Protocol
 
 from core.command_output import SecretRedactor
-from core.exceptions import MCPError
 from core.logger import get_logger
 
 logger = get_logger("jessyca.observability.structured_event")
@@ -63,7 +62,7 @@ class CorrelationId:
         object.__setattr__(self, "value", val)
 
     @classmethod
-    def generate(cls, prefix: str = "corr_") -> "CorrelationId":
+    def generate(cls, prefix: str = "corr_") -> CorrelationId:
         """Genera un nuevo CorrelationId con UUIDv4."""
         return cls(f"{prefix}{uuid.uuid4().hex}")
 
@@ -90,7 +89,7 @@ class ActionId:
         object.__setattr__(self, "value", val)
 
     @classmethod
-    def generate(cls, prefix: str = "act_") -> "ActionId":
+    def generate(cls, prefix: str = "act_") -> ActionId:
         """Genera un nuevo ActionId con UUIDv4 corto."""
         return cls(f"{prefix}{uuid.uuid4().hex[:12]}")
 
@@ -158,7 +157,7 @@ class TraceContext:
         plugin_id: str | None = None,
         span_id: str | None = None,
         parent_span_id: str | None = None,
-    ) -> "TraceContext":
+    ) -> TraceContext:
         """Deriva un contexto hijo heredando los identificadores base."""
         return TraceContext(
             correlation_id=self.correlation_id,
@@ -187,7 +186,7 @@ class TraceContext:
         }
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "TraceContext":
+    def from_dict(cls, data: dict[str, Any]) -> TraceContext:
         """Deserializa un TraceContext desde un diccionario."""
         return cls(
             correlation_id=str(data["correlation_id"]),
@@ -297,7 +296,7 @@ def sanitize_bounded_metadata(
         return sanitized_list
 
     # Objetos personalizados con to_dict()
-    if hasattr(data, "to_dict") and callable(getattr(data, "to_dict")):
+    if hasattr(data, "to_dict") and callable(data.to_dict):
         try:
             return sanitize_bounded_metadata(
                 data.to_dict(),
@@ -375,7 +374,7 @@ class StructuredEvent:
         error_detail: dict[str, Any] | None = None,
         event_id: str | None = None,
         timestamp: datetime | None = None,
-    ) -> "StructuredEvent":
+    ) -> StructuredEvent:
         """Fábrica para construir eventos estructurados con correlación automática."""
         c_id = correlation_id.value if isinstance(correlation_id, CorrelationId) else str(correlation_id)
         a_id = action_id.value if isinstance(action_id, ActionId) else (str(action_id) if action_id else None)
@@ -421,7 +420,7 @@ class StructuredEvent:
         return json.dumps(self.to_dict(), ensure_ascii=False, default=str)
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "StructuredEvent":
+    def from_dict(cls, data: dict[str, Any]) -> StructuredEvent:
         """Reconstruye un StructuredEvent desde un diccionario serializado."""
         tc_raw = data.get("trace_context")
         trace_ctx = TraceContext.from_dict(tc_raw) if tc_raw and isinstance(tc_raw, dict) else None
@@ -452,7 +451,7 @@ class StructuredEvent:
         )
 
     @classmethod
-    def from_json(cls, json_str: str) -> "StructuredEvent":
+    def from_json(cls, json_str: str) -> StructuredEvent:
         """Deserializa un StructuredEvent desde una cadena JSON."""
         return cls.from_dict(json.loads(json_str))
 

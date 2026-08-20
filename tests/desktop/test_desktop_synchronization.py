@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import threading
-import pytest
 
 from core.desktop_synchronization import (
     DesktopSynchronizer,
@@ -11,7 +10,6 @@ from core.desktop_synchronization import (
     SynchronizationStatus,
 )
 from core.emergency_stop import CancellationToken, get_emergency_stop_manager
-from core.ui_inspection_models import UIElementBounds, UIElementInfo, UIElementTree
 from tools.desktop.ui_backend import FakeUIInspectionBackend
 
 

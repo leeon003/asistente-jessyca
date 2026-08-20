@@ -28,6 +28,7 @@ logger = get_logger("jessyca.observability.trace_manager")
 
 # ContextVar local para el span activo del hilo/tarea actual
 import contextvars
+
 _CURRENT_SPAN: contextvars.ContextVar[Span | None] = contextvars.ContextVar(
     "jessyca_current_span", default=None
 )

@@ -163,6 +163,10 @@ class AutonomyPolicy:
         self.audit_logger = get_audit_logger()
         self.event_bus = get_event_bus()
 
+    def evaluate_autonomous_request(self, request: AutonomousTaskRequest) -> AutonomyEvaluationResult:
+        """Alias para evaluate_task."""
+        return self.evaluate_task(request)
+
     def evaluate_task(self, request: AutonomousTaskRequest) -> AutonomyEvaluationResult:
         """Evalúa una solicitud de tarea autónoma o programada aplicando el flujo riguroso de seguridad."""
         # 1. Clasificación del Nivel de Riesgo

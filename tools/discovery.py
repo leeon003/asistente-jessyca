@@ -14,7 +14,7 @@ from typing import Any
 from core.capability import CapabilityManager
 from core.contracts import ITool
 from core.logger import get_logger
-from tools.registry import ToolRegistry
+from tools.tool_registry import ToolRegistry
 
 logger = get_logger("jessyca.tools.discovery")
 
@@ -60,8 +60,8 @@ class ToolDiscoveryEngine:
         capability_manager: CapabilityManager | None = None,
         tools_base_dir: Path | str | None = None,
     ) -> None:
-        self.registry = registry or ToolRegistry()
-        self.capability_manager = capability_manager or CapabilityManager()
+        self.registry = registry if registry is not None else ToolRegistry()
+        self.capability_manager = capability_manager if capability_manager is not None else CapabilityManager()
 
         if tools_base_dir is None:
             self.tools_dir = Path(__file__).resolve().parent

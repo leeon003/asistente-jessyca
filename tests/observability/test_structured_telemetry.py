@@ -24,7 +24,6 @@ from core.observability import (
     EventSeverity,
     JsonlStructuredEventExporter,
     StructuredEvent,
-    StructuredEventEmitter,
     StructuredTelemetryEmitter,
     TraceContext,
     get_structured_telemetry_emitter,

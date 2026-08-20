@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-import pytest
-
 from core.risk_engine import RiskAssessment
 from core.security_architecture import SecurityDecisionType, SecurityLevel
 from core.security_policy import PolicyDecision
-from server.evidence import AuthorizationEvidence, compute_evidence_fingerprint, create_authorization_evidence
+from server.evidence import (
+    create_authorization_evidence,
+)
 from server.execution_request import create_execution_request
 
 

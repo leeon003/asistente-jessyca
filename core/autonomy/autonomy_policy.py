@@ -84,7 +84,7 @@ class TaskRiskClassifier:
 
         # 1. CRITICAL
         for pat in self.CRITICAL_PATTERNS:
-            if re.search(pat, target) or ("format" in param_str and "c:" in param_str):
+            if re.search(pat, target) or ("format" in param_str and "c:" in param_str) or ("hklm" in param_str):
                 return TaskActionRisk.CRITICAL
 
         # 2. DANGEROUS
@@ -171,7 +171,7 @@ class AutonomyPolicy:
         self,
         permission_manager: PermissionManager | None = None,
         risk_classifier: TaskRiskClassifier | None = None,
-        capability_registry: "Any | None" = None,
+        capability_registry: Any | None = None,
     ) -> None:
         self.permission_manager = permission_manager or PermissionManager()
         self.classifier = risk_classifier or TaskRiskClassifier()

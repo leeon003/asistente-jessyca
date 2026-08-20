@@ -38,7 +38,7 @@ FORBIDDEN_CLIENT_OVERRIDE_KEYS: set[str] = {
 class RequestContext:
     """Contexto estructurado inmutable para solicitudes MCP."""
 
-    tool_name: str
+    tool_name: str = "general"
     operation: str = "execute"
     user: str = "mcp_client"
     parameters: JSONDict = field(default_factory=dict)

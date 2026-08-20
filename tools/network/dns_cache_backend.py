@@ -1,7 +1,7 @@
 """Backends desacoplados para la inspección y diagnóstico de la caché DNS local (Subetapa 09.3).
 
 GARANTÍA ABSOLUTA DE SEGURIDAD:
-NO utiliza subprocess, os.system, os.popen, shell=True, cmd.exe, powershell.exe, ipconfig /displaydns ni Get-DnsClientCache.
+Inspección segura mediante APIs nativas de Python/Windows sin procesos shell externos.
 La inspección se realiza mediante la API nativa dnsapi.dll de Windows vía ctypes o FakeDNSCacheInspectionBackend para pruebas.
 """
 

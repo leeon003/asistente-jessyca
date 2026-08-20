@@ -5,9 +5,9 @@ from __future__ import annotations
 import pytest
 
 from core.network_models import (
-    NetworkIPAddress,
     NetworkInterface,
     NetworkInterfaceRequest,
+    NetworkIPAddress,
 )
 
 

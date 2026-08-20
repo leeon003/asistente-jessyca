@@ -15,12 +15,9 @@ También verifica el fix MEDIUM-001 de Etapa 16.4:
 
 from __future__ import annotations
 
-import pytest
-
 from core.observability.error_recorder import sanitize_stack_trace
 from core.observability.security_event_emitter import SecurityEventEmitter
 from core.observability.security_event_models import SecurityEventType, SecuritySeverity
-
 
 # ──────────────────────────────────────────────────────────────────────────────
 # MEDIUM-001 Fix Verification
@@ -77,7 +74,6 @@ class TestSecurityEventPrivacy:
     """Los SecurityEvents no deben contener datos sensibles."""
 
     def test_security_event_description_truncated(self) -> None:
-        from core.observability.security_event_models import SecurityEvent
         # description está limitada a 1000 chars en emit_violation
         emitter = SecurityEventEmitter()
         long_desc = "password=secret_value " * 200  # repetición que podría filtrar datos
@@ -154,8 +150,8 @@ class TestErrorRecorderPrivacy:
 
     def test_message_does_not_contain_password_from_exception(self) -> None:
         """El mensaje del ErrorRecord está limitado a 1000 chars — no contiene passwords del traceback."""
-        from core.observability.error_recorder import ErrorRecorder
         from core.observability.error_models import ErrorCategory
+        from core.observability.error_recorder import ErrorRecorder
         recorder = ErrorRecorder()
         try:
             raise ValueError("User password123 is invalid")
@@ -167,8 +163,8 @@ class TestErrorRecorderPrivacy:
 
     def test_context_dict_accepted_as_metadata(self) -> None:
         """El contexto del ErrorRecord permite metadata de diagnóstico (sin datos sensibles)."""
-        from core.observability.error_recorder import ErrorRecorder
         from core.observability.error_models import ErrorCategory
+        from core.observability.error_recorder import ErrorRecorder
         recorder = ErrorRecorder()
         try:
             raise PermissionError("denied")

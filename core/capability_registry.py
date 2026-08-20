@@ -129,9 +129,10 @@ class CapabilityRegistry:
             return True
 
     def get(self, capability_id: str) -> ToolCapability | None:
-        """Obtiene una capability por su ID."""
+        """Obtiene una capability por su ID o por su nombre de herramienta."""
         with self._lock:
-            return self._capabilities_by_id.get(capability_id.strip())
+            key = capability_id.strip()
+            return self._capabilities_by_id.get(key) or self._capabilities_by_tool.get(key.lower())
 
     def get_tool(self, tool_name: str) -> ToolCapability | None:
         """Obtiene la capability de una herramienta."""

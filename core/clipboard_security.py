@@ -11,6 +11,7 @@ GARANTÍA ABSOLUTA DE SEGURIDAD Y PRIVACIDAD:
 from __future__ import annotations
 
 import hashlib
+from dataclasses import dataclass
 from typing import Protocol
 
 from config.settings import AppSettings
@@ -127,7 +128,10 @@ class ClipboardSecurityManager:
         if is_sanitized:
             try:
                 from core.observability.security_event_emitter import get_security_event_emitter
-                from core.observability.security_event_models import SecurityEventType, SecuritySeverity
+                from core.observability.security_event_models import (
+                    SecurityEventType,
+                    SecuritySeverity,
+                )
                 get_security_event_emitter().emit_violation(
                     event_type=SecurityEventType.SENSITIVE_DATA_IN_CLIPBOARD,
                     severity=SecuritySeverity.LOW,
@@ -220,3 +224,31 @@ class ClipboardSecurityManager:
             )
         )
         return success
+
+
+@dataclass(frozen=True)
+class ClipboardValidationResult:
+    """Resultado inmutable de la validación y sanitización del portapapeles."""
+
+    is_valid: bool
+    sanitized_content: str
+    contains_sensitive_data: bool
+
+
+class ClipboardSecurityValidator:
+    """Validador de seguridad y redactor de secretos para el portapapeles."""
+
+    def __init__(self, sanitizer: OCRTextSanitizer | None = None) -> None:
+        self.sanitizer = sanitizer or OCRTextSanitizer()
+
+    def validate_clipboard_content(self, content: str) -> ClipboardValidationResult:
+        """Valida y redacta secretos (passwords, tokens, API keys) en el portapapeles."""
+        if not content:
+            return ClipboardValidationResult(is_valid=True, sanitized_content="", contains_sensitive_data=False)
+        clean_text, count = self.sanitizer.sanitize_text(content)
+        has_sensitive = count > 0 or clean_text != content
+        return ClipboardValidationResult(
+            is_valid=True,
+            sanitized_content=clean_text,
+            contains_sensitive_data=has_sensitive,
+        )

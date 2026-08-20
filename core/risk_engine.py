@@ -324,10 +324,10 @@ class UnknownOperationRiskRule(RiskRule):
         self, request: Any, arguments: dict[str, Any] | None = None
     ) -> Any:
         if isinstance(request, SecurityRequest):
-            act = request.action.strip()
-            tool = request.metadata.tool_name.strip()
+            act = request.action.strip().lower()
+            tool = request.metadata.tool_name.strip().lower()
 
-            if not act or act == "unknown" or not tool:
+            if not act or act in ("unknown", "unknown_op") or not tool or tool in ("unknown", "unknown_tool"):
                 return (
                     SecurityLevel.WARNING,
                     {RiskFactor.UNKNOWN_OPERATION},

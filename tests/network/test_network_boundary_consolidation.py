@@ -15,9 +15,10 @@ from __future__ import annotations
 import concurrent.futures
 import inspect
 import re
+
 import pytest
 
-from core.audit_logger import AuditEventType, MemoryAuditSink
+from core.audit_logger import MemoryAuditSink
 from core.network_boundary_security import (
     NetworkBoundaryConsolidator,
     NetworkBoundarySecurityError,
@@ -28,12 +29,12 @@ from server.evidence import AuthorizationEvidence
 from server.execution_request import ExecutionRequest, RequestContext
 from server.executor import ExecutionStatus
 from server.pipeline import SecureExecutionPipeline
+from tools.network.backend import FakeNetworkInspectionBackend
 from tools.network.connection_backend import FakeNetworkConnectionInspectionBackend
 from tools.network.connection_service import NetworkConnectionInspectionService
 from tools.network.dns_cache_backend import FakeDNSCacheInspectionBackend
 from tools.network.dns_cache_service import DNSCacheInspectionService
 from tools.network.executor import WindowsNetworkToolExecutor
-from tools.network.backend import FakeNetworkInspectionBackend
 from tools.network.network_service import NetworkInspectionService
 from tools.network.routing_backend import FakeRoutingTableInspectionBackend
 from tools.network.routing_service import RoutingTableInspectionService

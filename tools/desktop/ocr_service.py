@@ -12,12 +12,12 @@ from datetime import UTC, datetime
 
 from config.settings import AppSettings
 from core.audit_logger import AuditEvent, AuditEventType, get_audit_logger
-from core.desktop_models import OCRMetadata, OCRRequest, OCRResult, OCRTextRegion
+from core.desktop_models import OCRMetadata, OCRRequest, OCRResult
 from core.event_bus import get_event_bus
 from core.logger import get_logger
 from core.ocr_sanitizer import OCRTextSanitizer
 from core.ocr_security import OCRSecurityManager
-from tools.desktop.ocr_backend import FakeOCRBackend, IOCRBackend, WindowsOCRBackend
+from tools.desktop.ocr_backend import IOCRBackend, WindowsOCRBackend
 
 logger = get_logger("jessyca.tools.desktop.ocr_service")
 

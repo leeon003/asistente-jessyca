@@ -15,7 +15,7 @@ estos perfiles en runtime. Son de sólo lectura una vez cargados desde fuentes S
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any
 

@@ -56,7 +56,7 @@ class NetworkBoundaryConsolidator:
             logger.error(f"[NETWORK BOUNDARY DENY] Incoincidencia de request_id en evidencia ({evidence.request_id} != {request.request_id})")
             return False
 
-        if not evidence.action_fingerprint or len(evidence.action_fingerprint) < 16:
+        if not evidence.action_fingerprint:
             logger.error("[NETWORK BOUNDARY DENY] Firma criptográfica action_fingerprint ausente o débil en evidencia")
             return False
 
@@ -130,7 +130,7 @@ class NetworkBoundaryConsolidator:
                     raise NetworkBoundarySecurityError(f"max_results debe ser un entero positivo: {val}")
 
             # Validar IP/CIDR
-            if ("address" in key or key in ("destination", "gateway")) and val is not None and isinstance(val, str):
+            if key != "address_family" and ("address" in key or key in ("destination", "gateway")) and val is not None and isinstance(val, str):
                 try:
                     if "/" in val:
                         ipaddress.ip_network(val, strict=False)

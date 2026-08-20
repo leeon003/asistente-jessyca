@@ -6,7 +6,6 @@ import pytest
 
 from core.network_connection_models import NetworkConnectionRequest
 from core.network_connection_security import (
-    NetworkConnectionLimitExceededError,
     NetworkConnectionSecurityError,
     NetworkConnectionSecurityManager,
 )

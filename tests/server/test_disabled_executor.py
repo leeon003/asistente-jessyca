@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import sys
-
 from core.risk_engine import RiskAssessment
 from core.security_architecture import SecurityDecisionType, SecurityLevel
 from core.security_policy import PolicyDecision

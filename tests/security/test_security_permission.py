@@ -2,7 +2,12 @@
 
 from __future__ import annotations
 
-from core.permission_manager import PermissionDecision, PermissionManager, PermissionRequest, PermissionSource
+from core.permission_manager import (
+    PermissionDecision,
+    PermissionManager,
+    PermissionRequest,
+    PermissionSource,
+)
 from core.risk_engine import RiskAssessment
 from core.security_architecture import SecurityContext, SecurityLevel, ToolSecurityMetadata
 

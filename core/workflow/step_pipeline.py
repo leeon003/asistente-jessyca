@@ -21,16 +21,13 @@ from typing import Any
 
 from core.autonomy.autonomy_decision import AutonomyDecisionValue
 from core.autonomy.autonomy_governor import AutonomyGovernor, get_autonomy_governor
-from core.autonomy.autonomy_level import AutonomyLevel, TaskActionRisk
-from core.autonomy.autonomy_policy import AutonomyEvaluationContext, AutonomyPolicy
+from core.autonomy.autonomy_policy import AutonomyEvaluationContext
 from core.exceptions import MCPError
 from core.logger import get_logger
 from core.observability.structured_event import (
     ActionId,
     CorrelationId,
-    EventCategory,
     EventSeverity,
-    StructuredEvent,
     get_structured_telemetry_emitter,
 )
 from core.recovery.recovery_coordinator import ControlledFailureRecovery, get_recovery_coordinator

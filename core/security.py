@@ -8,6 +8,7 @@ verificación UAC/Admin en Windows y registro auditable de seguridad.
 
 from __future__ import annotations
 
+import threading
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import StrEnum
@@ -155,6 +156,7 @@ class SecurityManager:
         self._strict_whitelist_mode: bool = strict_whitelist_mode
         self._risk_engine = risk_engine
         self._policy_manager = policy_manager
+        self._lock = threading.RLock()
 
     @property
     def risk_engine(self) -> RiskEngine:
@@ -229,7 +231,8 @@ class SecurityManager:
     def grant_one_time_permission(self, tool_name: str) -> None:
         """Otorga un permiso de un solo uso (ALLOW_ONCE) a una herramienta."""
         name = tool_name.strip()
-        self._one_time_grants.add(name)
+        with self._lock:
+            self._one_time_grants.add(name)
         logger.info(f"Permiso temporal de un solo uso (ALLOW_ONCE) otorgado a '{name}'.")
 
     def process_user_action(
@@ -309,18 +312,41 @@ class SecurityManager:
         args = arguments or {}
 
         # 0. Comprobar Permiso Temporal de Un Solo Uso (ALLOW_ONCE)
-        if tool_name in self._one_time_grants:
-            self._one_time_grants.remove(tool_name)
+        with self._lock:
+            if tool_name in self._one_time_grants:
+                self._one_time_grants.remove(tool_name)
+                decision = SecurityDecision(
+                    is_allowed=True,
+                    status=SecurityStatus.ALLOWED,
+                    reason=f"Ejecución permitida para '{tool_name}' por permiso temporal consumido (ALLOW_ONCE).",
+                    action=PermissionAction.ALLOW_ONCE,
+                )
+                self._log_audit(profile, decision, user)
+                return decision
+
+        # 1. Comprobar Lista Negra (Prioridad absoluta sobre políticas)
+        if tool_name in self._blacklist:
             decision = SecurityDecision(
-                is_allowed=True,
-                status=SecurityStatus.ALLOWED,
-                reason=f"Ejecución permitida para '{tool_name}' por permiso temporal consumido (ALLOW_ONCE).",
-                action=PermissionAction.ALLOW_ONCE,
+                is_allowed=False,
+                status=SecurityStatus.BLOCKED_BY_BLACKLIST,
+                reason=f"Herramienta '{tool_name}' está explícitamente en la Lista Negra.",
+                action=PermissionAction.DENY,
             )
             self._log_audit(profile, decision, user)
             return decision
 
-        # 0.1 Comprobar Reglas del PolicyManager (Multi-Dimensión: usuario, herramienta, categoría, riesgo, acción, ruta)
+        # 2. Comprobar Bloqueo Dinámico
+        if tool_name in self._dynamically_blocked:
+            decision = SecurityDecision(
+                is_allowed=False,
+                status=SecurityStatus.BLOCKED_DYNAMICALLY,
+                reason=f"Herramienta '{tool_name}' ha sido bloqueada dinámicamente.",
+                action=PermissionAction.DENY,
+            )
+            self._log_audit(profile, decision, user)
+            return decision
+
+        # 3. Comprobar Reglas del PolicyManager (Multi-Dimensión: usuario, herramienta, categoría, riesgo, acción, ruta)
         if self._policy_manager is not None:
             rule_effect = self._policy_manager.evaluate_rules(profile, user, action, args)
             if rule_effect is not None:
@@ -346,29 +372,7 @@ class SecurityManager:
                 elif rule_effect in (PermissionAction.ALLOW, PermissionAction.ALLOW_ONCE, PermissionAction.ALWAYS_ALLOW):
                     return self.process_user_action(profile, rule_effect, user=user)
 
-        # 1. Comprobar Lista Negra
-        if tool_name in self._blacklist:
-            decision = SecurityDecision(
-                is_allowed=False,
-                status=SecurityStatus.BLOCKED_BY_BLACKLIST,
-                reason=f"Herramienta '{tool_name}' está explícitamente en la Lista Negra.",
-                action=PermissionAction.DENY,
-            )
-            self._log_audit(profile, decision, user)
-            return decision
-
-        # 2. Comprobar Bloqueo Dinámico
-        if tool_name in self._dynamically_blocked:
-            decision = SecurityDecision(
-                is_allowed=False,
-                status=SecurityStatus.BLOCKED_DYNAMICALLY,
-                reason=f"Herramienta '{tool_name}' ha sido bloqueada dinámicamente.",
-                action=PermissionAction.DENY,
-            )
-            self._log_audit(profile, decision, user)
-            return decision
-
-        # 3. Comprobar Modo Estricto de Lista Blanca
+        # 4. Comprobar Modo Estricto de Lista Blanca
         if self._strict_whitelist_mode and tool_name not in self._whitelist:
             decision = SecurityDecision(
                 is_allowed=False,

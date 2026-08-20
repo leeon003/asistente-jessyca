@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from core.audit_logger import AuditEvent, AuditEventType, get_audit_logger
+from core.audit_logger import get_audit_logger
 from core.desktop_automation_models import (
     DesktopActionRequest,
     DesktopActionTarget,

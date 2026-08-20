@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import pytest
+from typing import Any
 
 from core.confirmation import ConfirmationStatus, MockConfirmationProvider
 from core.security_architecture import SecurityLevel
@@ -10,8 +10,8 @@ from server.app import JessycaMCPServer
 from server.boundary import ExecutionStatus
 from server.execution_request import create_execution_request
 from server.pipeline import SecureExecutionPipeline
-from tools.base import BaseTool, ToolMetadata
-from tools.registry import ToolRegistry
+from tools.base import BaseTool
+from tools.tool_registry import ToolRegistry
 
 
 class DummyMockTool(BaseTool):
@@ -19,15 +19,16 @@ class DummyMockTool(BaseTool):
 
     def __init__(self, name: str, risk_level: SecurityLevel = SecurityLevel.SAFE) -> None:
         super().__init__(
-            metadata=ToolMetadata(
-                name=name,
-                description="Herramienta mock de prueba",
-                category="test",
-            )
+            name=name,
+            description="Herramienta mock de prueba",
+            category="test",
         )
-        self.metadata.risk_level = risk_level
+        self.risk_level = risk_level
 
-    def execute(self, **kwargs: object) -> object:
+    def _get_input_schema(self) -> dict[str, Any]:
+        return {"type": "object", "properties": {}}
+
+    async def _execute_internal(self, arguments: dict[str, Any]) -> dict[str, Any]:
         raise RuntimeError("CRÍTICO: No debe ejecutarse el método real de la herramienta en 05.2.")
 
 

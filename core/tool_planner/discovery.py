@@ -8,11 +8,11 @@ Garantiza:
 
 from __future__ import annotations
 
-from typing import Any
-
 from core.autonomy.autonomy_level import AutonomyLevel, TaskActionRisk
-from core.autonomy.capability_autonomy_registry import CapabilityAutonomyRegistry, get_capability_autonomy_registry
-from core.diagnostics.models import HealthStatus
+from core.autonomy.capability_autonomy_registry import (
+    CapabilityAutonomyRegistry,
+    get_capability_autonomy_registry,
+)
 from core.diagnostics.monitor import HealthMonitor, get_health_monitor
 from core.logger import get_logger
 from core.tool_planner.models import PlanningContext, ToolCandidate

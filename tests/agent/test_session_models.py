@@ -3,15 +3,13 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+
 import pytest
 
 from core.session_models import (
     SessionFact,
     SessionId,
-    SessionMessage,
     SessionMetadata,
-    SessionPreference,
-    SessionRole,
     SessionState,
     SessionStatus,
 )

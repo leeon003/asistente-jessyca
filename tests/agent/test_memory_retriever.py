@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+
 from core.context_models import (
     ContextItem,
     ContextQuery,

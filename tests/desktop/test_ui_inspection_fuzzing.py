@@ -6,7 +6,6 @@ import pytest
 
 from core.ui_inspection_models import UIElementBounds, UIElementRequest
 from core.ui_inspection_security import (
-    UIInspectionLimitExceededError,
     UIInspectionSecurityError,
     UIInspectionSecurityManager,
 )

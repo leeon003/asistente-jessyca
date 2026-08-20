@@ -12,14 +12,12 @@ from config.settings import AppSettings
 from core.logger import get_logger
 from core.types import JSONDict
 from server.boundary import ExecutionResult, IExecutionBoundary, StubExecutionBoundary
-from server.context import RequestContext, create_request_context
 from server.errors import MCPServerNotInitializedError, MCPToolNotFoundError, MCPValidationError
+from server.execution_request import create_execution_request
 from server.health import HealthChecker, HealthCheckResult
 from server.lifecycle import LifecycleState, ServerLifecycleManager
-from tools.tool_registry import ToolRegistry, get_tool_registry
-
-from server.execution_request import ExecutionRequest, create_execution_request
 from server.pipeline import SecureExecutionPipeline
+from tools.tool_registry import ToolRegistry, get_tool_registry
 
 logger = get_logger("jessyca.server.app")
 
@@ -105,14 +103,16 @@ class JessycaMCPServer:
     def list_tools(self) -> list[JSONDict]:
         """Devuelve la lista de metadatos de herramientas registradas en el ToolRegistry."""
         tools_info: list[JSONDict] = []
-        for tool_name in self.tool_registry.list_tools():
-            tool_obj = self.tool_registry.get_tool(tool_name)
-            if tool_obj:
-                info = getattr(tool_obj, "metadata", None)
-                if info and hasattr(info, "to_dict"):
-                    tools_info.append(info.to_dict())
-                else:
-                    tools_info.append({"name": tool_name, "description": "Herramienta registrada"})
+        for tool in self.tool_registry.list_tools():
+            meta = tool.get_metadata() if hasattr(tool, "get_metadata") else getattr(tool, "metadata", None)
+            if meta and hasattr(meta, "to_dict"):
+                tools_info.append(meta.to_dict())
+            else:
+                tools_info.append({
+                    "name": tool.name,
+                    "description": getattr(tool, "description", "Herramienta registrada"),
+                    "category": getattr(tool, "category", "general"),
+                })
         return tools_info
 
     def get_tool_info(self, tool_name: str) -> JSONDict:
@@ -124,10 +124,14 @@ class JessycaMCPServer:
         if not tool:
             raise MCPToolNotFoundError(tool_name)
 
-        meta = getattr(tool, "metadata", None)
+        meta = tool.get_metadata() if hasattr(tool, "get_metadata") else getattr(tool, "metadata", None)
         if meta and hasattr(meta, "to_dict"):
             return meta.to_dict()  # type: ignore[no-any-return]
-        return {"name": tool_name, "description": "Herramienta registrada"}
+        return {
+            "name": tool.name,
+            "description": getattr(tool, "description", "Herramienta registrada"),
+            "category": getattr(tool, "category", "general"),
+        }
 
     def handle_request(
         self,

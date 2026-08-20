@@ -2,17 +2,13 @@
 
 from datetime import UTC, datetime
 
-import pytest
-
 from core.network_models import (
-    NetworkIPAddress,
     NetworkInterface,
     NetworkInterfaceMetadata,
-    NetworkInterfaceRequest,
     NetworkInterfacesResult,
+    NetworkIPAddress,
 )
 from core.network_security import (
-    NetworkLimitExceededError,
     NetworkSecurityManager,
 )
 

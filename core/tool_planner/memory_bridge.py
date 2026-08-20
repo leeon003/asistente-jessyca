@@ -23,9 +23,8 @@ DEFENSAS INTEGRADAS:
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass, field
-from datetime import UTC, datetime, timedelta
-from typing import Any
+from dataclasses import dataclass
+from datetime import UTC, datetime
 
 from core.logger import get_logger
 from core.semantic_retriever import SemanticMemoryRetriever, SemanticMemoryType
@@ -142,7 +141,7 @@ class SemanticMemoryPlannerBridge:
 
         try:
             # Consultar memorias semánticas vía retriever
-            raw_memories = self.retriever.retrieve(query=intent, top_k=top_k)
+            raw_memories = self.retriever.retrieve_context(query=intent, top_k=top_k)
         except Exception as exc:
             logger.error(f"[MEMORY BRIDGE] Error al consultar SemanticMemoryRetriever: {exc}")
             return []

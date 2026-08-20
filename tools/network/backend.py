@@ -1,7 +1,7 @@
 """Backends desacoplados para la inspección y diagnóstico de adaptadores de red (Subetapa 09.1).
 
 GARANTÍA ABSOLUTA DE SEGURIDAD:
-NO utiliza subprocess, os.system, os.popen, shell=True, cmd.exe, powershell.exe, ipconfig, netsh ni route.
+Inspección segura mediante APIs nativas de Python/Windows sin procesos shell externos.
 La inspección se realiza mediante APIs de red nativas de Python/Windows o un FakeNetworkInspectionBackend para pruebas.
 """
 
@@ -13,11 +13,11 @@ from typing import Protocol
 
 from core.logger import get_logger
 from core.network_models import (
-    NetworkIPAddress,
     NetworkInterface,
     NetworkInterfaceMetadata,
     NetworkInterfaceRequest,
     NetworkInterfacesResult,
+    NetworkIPAddress,
 )
 
 logger = get_logger("jessyca.tools.network.backend")

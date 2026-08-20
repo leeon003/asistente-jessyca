@@ -9,7 +9,6 @@ Rechaza explícitamente coordenadas mágicas, objetivos no validados, targets ob
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import Any
 
 from config.settings import AppSettings
 from core.audit_logger import AuditEvent, AuditEventType, get_audit_logger
@@ -33,7 +32,12 @@ from core.desktop_executors_models import (
 from core.emergency_stop import EmergencyStopManager, get_emergency_stop_manager
 from core.event_bus import get_event_bus
 from core.logger import get_logger
-from tools.desktop.executors import FakeKeyboardExecutor, FakeMouseExecutor, IKeyboardExecutor, IMouseExecutor
+from tools.desktop.executors import (
+    FakeKeyboardExecutor,
+    FakeMouseExecutor,
+    IKeyboardExecutor,
+    IMouseExecutor,
+)
 
 logger = get_logger("jessyca.tools.desktop.action_guard")
 

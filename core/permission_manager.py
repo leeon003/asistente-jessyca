@@ -16,6 +16,7 @@ from core.logger import get_logger
 from core.risk_engine import RiskAssessment
 from core.security_architecture import (
     SecurityContext,
+    SecurityLevel,
     ToolSecurityMetadata,
 )
 from core.types import JSONDict
@@ -172,3 +173,24 @@ class PermissionManager:
             source=PermissionSource.SYSTEM,
             correlation_id=correlation_id,
         )
+
+    def check_permission(
+        self,
+        tool_name: str,
+        operation: str = "execute",
+        parameters: dict[str, Any] | None = None,
+        risk_level: SecurityLevel | RiskLevel = SecurityLevel.SAFE,
+        user: str = "user",
+    ) -> PermissionDecision:
+        """Método de conveniencia para verificar permisos directos."""
+        from core.risk_engine import RiskAssessment
+        from core.security_architecture import SecurityContext, ToolSecurityMetadata
+        req = PermissionRequest(
+            context=SecurityContext(user=user, tool_name=tool_name, parameters=parameters or {}),
+            metadata=ToolSecurityMetadata(tool_name=tool_name, category=operation),
+            risk_assessment=RiskAssessment(risk_level=risk_level),
+            tool_name=tool_name,
+            operation=operation,
+        )
+        res = self.evaluate_permission(req)
+        return res.decision

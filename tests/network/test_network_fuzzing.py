@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from core.network_models import NetworkIPAddress, NetworkInterfaceRequest
+from core.network_models import NetworkInterfaceRequest, NetworkIPAddress
 from core.network_security import (
     NetworkLimitExceededError,
     NetworkSecurityError,

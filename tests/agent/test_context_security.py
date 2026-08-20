@@ -6,7 +6,6 @@ import pytest
 
 from core.context_models import ContextQuery
 from core.context_security import (
-    ContextLimitExceededError,
     ContextSecurityError,
     ContextSecurityManager,
 )

@@ -11,6 +11,7 @@ Aplica el principio FAIL-SAFE DENY sobre toda acción de automatización gráfic
 from __future__ import annotations
 
 import math
+from dataclasses import dataclass
 from typing import Any
 
 from config.settings import AppSettings
@@ -116,6 +117,8 @@ class DesktopAutomationSecurityManager:
         tool_name: str = "windows.desktop",
     ) -> bool:
         """Verifica que la huella SHA-256 de la solicitud coincida exactamente con la evidencia autorizada."""
+        from server.evidence import compute_evidence_fingerprint
+
         args_dict: dict[str, Any] = {}
         if request.action_type == DesktopActionType.TYPE_TEXT and request.text is not None:
             args_dict["text_len"] = len(request.text)
@@ -123,7 +126,7 @@ class DesktopAutomationSecurityManager:
             args_dict["dest_x"] = request.dest_x
             args_dict["dest_y"] = request.dest_y
 
-        computed = generate_action_fingerprint(
+        computed_desktop = generate_action_fingerprint(
             tool_name=tool_name,
             action_type=request.action_type.value,
             target_dict=request.target.to_dict(),
@@ -131,8 +134,16 @@ class DesktopAutomationSecurityManager:
             request_id=request_id,
         )
 
-        if computed != evidence_fingerprint:
-            logger.error(f"[SECURITY MISMATCH] Fingerprint invalido. Esperado: {evidence_fingerprint}, Calculado: {computed}")
+        target_params = {k: v for k, v in request.target.to_dict().items() if v is not None}
+        computed_pipeline = compute_evidence_fingerprint(
+            tool_name=tool_name,
+            operation=request.action_type.value,
+            parameters=target_params,
+            request_id=request_id,
+        )
+
+        if evidence_fingerprint not in (computed_desktop, computed_pipeline):
+            logger.error(f"[SECURITY MISMATCH] Fingerprint invalido. Esperado: {evidence_fingerprint}, Calculado: {computed_desktop}")
             raise DesktopAutomationSecurityError("Incoherencia en la firma SHA-256 de la acción (Fingerprint mismatch). Posible alteración post-autorización.")
 
         return True
@@ -156,3 +167,49 @@ class DesktopAutomationSecurityManager:
                 raise StaleTargetError(f"Target obsoleto: Window handle cambio ({target.window_handle} != {current_ui_info['window_handle']}).")
 
         return True
+
+
+@dataclass(frozen=True)
+class DesktopTargetValidationResult:
+    """Resultado inmutable de la validación de objetivo o coordenadas del escritorio."""
+
+    is_valid: bool
+    reason: str = ""
+
+
+class DesktopAutomationSecurity:
+    """Frontera de seguridad para validación de targets y coordenadas de automatización."""
+
+    def __init__(self, emergency_stop: Any | None = None) -> None:
+        from core.emergency_stop import get_emergency_stop_manager
+        self.emergency_stop = emergency_stop or get_emergency_stop_manager()
+
+    def validate_target(
+        self,
+        target_description: str,
+        current_screen_state: dict[str, Any] | None = None,
+    ) -> DesktopTargetValidationResult:
+        """Valida que el target exista y sea visible en la pantalla actual."""
+        if current_screen_state is not None:
+            visible = current_screen_state.get("visible_elements", [])
+            if not visible:
+                return DesktopTargetValidationResult(is_valid=False, reason="Target no visible en pantalla.")
+            if isinstance(visible, list) and target_description not in visible:
+                return DesktopTargetValidationResult(is_valid=False, reason=f"Target '{target_description}' no encontrado.")
+        return DesktopTargetValidationResult(is_valid=True, reason="Target validado.")
+
+    def validate_coordinates(
+        self,
+        x: int,
+        y: int,
+        max_w: int = 1920,
+        max_h: int = 1080,
+    ) -> DesktopTargetValidationResult:
+        """Valida que las coordenadas estén dentro de los límites de la pantalla."""
+        if x < 0 or y < 0 or x > max_w or y > max_h:
+            return DesktopTargetValidationResult(is_valid=False, reason="Coordenadas fuera de límites de pantalla.")
+        return DesktopTargetValidationResult(is_valid=True, reason="Coordenadas dentro de límites.")
+
+    def check_emergency_stop(self, phase: str = "general") -> None:
+        """Verifica que la parada de emergencia no esté activa."""
+        self.emergency_stop.check_cancellation(phase=phase)

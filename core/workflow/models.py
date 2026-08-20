@@ -176,7 +176,7 @@ class WorkflowDefinition:
         version: str = "1.0.0",
         owner_source: WorkflowSource = WorkflowSource.USER,
         description: str = "",
-    ) -> "WorkflowDefinition":
+    ) -> WorkflowDefinition:
         return cls(
             workflow_id=workflow_id or f"wf_{uuid.uuid4().hex[:12]}",
             name=name,
@@ -282,7 +282,7 @@ class WorkflowStateSnapshot:
         }
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "WorkflowStateSnapshot":
+    def from_dict(cls, data: dict[str, Any]) -> WorkflowStateSnapshot:
         def _parse_ts(ts_val: Any) -> datetime:
             if isinstance(ts_val, str):
                 return datetime.fromisoformat(ts_val)

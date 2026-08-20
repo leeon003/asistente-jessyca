@@ -93,6 +93,16 @@ class CommandPolicyEvaluation:
     reason: str
     rule_id: str | None = None
 
+    @property
+    def allowed(self) -> bool:
+        """Indica si el comando fue autorizado por la política."""
+        return self.decision in (PermissionDecision.ALLOW, PermissionDecision.ALWAYS_ALLOW, PermissionDecision.ALLOW_ONCE)
+
+    @property
+    def is_allowed(self) -> bool:
+        """Alias retrocompatible de allowed."""
+        return self.allowed
+
     def to_dict(self) -> dict[str, Any]:
         """Convierte el resultado de evaluación a un diccionario estructurado."""
         return {
@@ -229,11 +239,21 @@ class CommandPolicyManager:
     def evaluate_command(
         self,
         raw_executable_or_command: str,
-        arguments: list[str] | tuple[str, ...] | None = None,
+        arguments: list[str] | tuple[str, ...] | str | None = None,
     ) -> CommandPolicyEvaluation:
         """Evalúa un comando y sus argumentos devolviendo una decisión determinista (FAIL-SAFE DENY)."""
-        args_tuple = tuple(arguments or ())
-        exec_name = raw_executable_or_command.strip()
+        raw_clean = raw_executable_or_command.strip()
+        if isinstance(arguments, str) or arguments is None:
+            parts = raw_clean.split()
+            if parts:
+                exec_name = parts[0]
+                args_tuple = tuple(parts[1:])
+            else:
+                exec_name = ""
+                args_tuple = ()
+        else:
+            exec_name = raw_clean
+            args_tuple = tuple(arguments)
 
         # 1. Detección de entrada nula o vacía
         if not exec_name:
@@ -282,7 +302,7 @@ class CommandPolicyManager:
             return self._deny_evaluation(
                 exec_name,
                 args_tuple,
-                f"FAIL-SAFE DENY: El ejecutable '{exec_base}' no está registrado en la lista blanca de comandos.",
+                f"FAIL-SAFE DENY: El ejecutable '{exec_base}' no está registrado o no autorizado en la lista blanca de comandos (desconocido).",
             )
 
         # 7. Verificación de patrones de argumentos permitidos si se han especificado en la regla

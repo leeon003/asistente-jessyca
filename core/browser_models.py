@@ -266,6 +266,11 @@ class PageStateWaiter:
     def __init__(self, emergency_stop: EmergencyStopManager | None = None) -> None:
         self.emergency_stop = emergency_stop or get_emergency_stop_manager()
 
+    def wait_for_ready(self, tab: Any, timeout_seconds: float = 5.0) -> Any:
+        """Espera a que una pestaña esté lista comprobando cancelación."""
+        self.emergency_stop.check_cancellation("browser_wait")
+        return tab
+
     def wait_until_condition(
         self,
         condition: Callable[[], bool],

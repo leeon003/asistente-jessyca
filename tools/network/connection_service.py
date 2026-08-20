@@ -20,7 +20,6 @@ from core.network_connection_models import (
 )
 from core.network_connection_security import NetworkConnectionSecurityManager
 from tools.network.connection_backend import (
-    FakeNetworkConnectionInspectionBackend,
     INetworkConnectionInspectionBackend,
     WindowsNetworkConnectionInspectionBackend,
 )

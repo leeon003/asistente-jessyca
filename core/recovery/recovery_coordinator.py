@@ -12,11 +12,11 @@ from __future__ import annotations
 import threading
 import time
 from collections.abc import Callable
-from typing import Any, TypeVar
+from typing import TypeVar
 
 from core.autonomy.autonomy_level import TaskActionRisk
 from core.logger import get_logger
-from core.recovery.circuit_breaker import CircuitBreaker, CircuitBreakerOpenError
+from core.recovery.circuit_breaker import CircuitBreaker
 from core.recovery.classifier import FailureClassifier
 from core.recovery.models import (
     CircuitState,

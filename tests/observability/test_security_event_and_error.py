@@ -14,10 +14,13 @@ import pytest
 
 from core.observability.context import ObservabilityContext, reset_context, set_current_context
 from core.observability.error_models import ErrorCategory, ErrorRecord
-from core.observability.error_recorder import ErrorRecorder, MemoryErrorSink, sanitize_stack_trace
-from core.observability.security_event_emitter import MemorySecurityEventSink, SecurityEventEmitter
-from core.observability.security_event_models import SecurityEvent, SecurityEventType, SecuritySeverity
-
+from core.observability.error_recorder import ErrorRecorder, sanitize_stack_trace
+from core.observability.security_event_emitter import SecurityEventEmitter
+from core.observability.security_event_models import (
+    SecurityEvent,
+    SecurityEventType,
+    SecuritySeverity,
+)
 
 # ──────────────────────────────────────────────────────────────────────────────
 # SecurityEventEmitter Tests

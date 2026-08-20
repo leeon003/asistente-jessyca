@@ -22,7 +22,7 @@ from core.permission_manager import (
     PermissionManager,
     PermissionRequest,
 )
-from core.risk_engine import RiskEngine, RiskFactor
+from core.risk_engine import RiskEngine
 from core.security_architecture import (
     SecurityContext,
     SecurityDecisionType,
@@ -31,9 +31,7 @@ from core.security_architecture import (
     ToolSecurityMetadata,
 )
 from core.security_policy import (
-    DefaultPolicyProvider,
     InvalidPolicyError,
-    PolicyDecision,
     PolicyRule,
     PolicyRuleCondition,
     PolicySource,

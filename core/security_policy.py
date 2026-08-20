@@ -120,7 +120,7 @@ class PolicyDecision:
 
     decision_type: SecurityDecisionType
     is_allowed: bool
-    reason: str
+    reason: str = ""
     matched_rule_id: str | None = None
     matched_rule_name: str | None = None
     priority: int = 0
@@ -177,6 +177,10 @@ class PolicyRuleBase:
             rule_score = SECURITY_RISK_HIERARCHY.get(rule_risk.value, 2)
             if eval_score < rule_score:
                 return False
+
+        # 3.5 Elevación de privilegios (requires_elevation)
+        if self.rule.requires_elevation is not None and self.rule.requires_elevation != metadata.requires_elevation:
+            return False
 
         # 4. Condición de usuario (users)
         cond = self.rule.conditions
@@ -419,7 +423,21 @@ class SecurityPolicyEvaluator:
                 policy_source=active_policy.source,
             )
 
-        # 4. Límite Absoluto de max_allowed_risk:
+        # 4. Protección de Escalamiento de Privilegios UAC:
+        requires_elev = metadata.requires_elevation or any(r.requires_elevation is True for r in all_matched_rules)
+        if metadata.requires_elevation or any(r.decision == SecurityDecisionType.REQUIRE_ELEVATED_AUTHORIZATION for r in all_matched_rules):
+            logger.info("Operación exige elevación de privilegios UAC -> REQUIRE_ELEVATED_AUTHORIZATION")
+            return PolicyDecision(
+                decision_type=SecurityDecisionType.REQUIRE_ELEVATED_AUTHORIZATION,
+                is_allowed=False,
+                reason="Protección de elevación: La operación exige elevación autorizada de privilegios (UAC/Admin).",
+                policy_id=active_policy.policy_id,
+                policy_version=active_policy.version,
+                policy_source=active_policy.source,
+                requires_elevation=True,
+            )
+
+        # 5. Límite Absoluto de max_allowed_risk:
         # Si el riesgo de la operación excede max_allowed_risk, no puede resultar ALLOW
         if eval_score > max_allowed_score:
             logger.info(
@@ -432,21 +450,7 @@ class SecurityPolicyEvaluator:
                 policy_id=active_policy.policy_id,
                 policy_version=active_policy.version,
                 policy_source=active_policy.source,
-            )
-
-        # 5. Protección de Escalamiento de Privilegios UAC y Riesgo Crítico:
-        # Si requiere elevación o es CRITICAL, no puede resultar ALLOW
-        requires_elev = metadata.requires_elevation or any(r.requires_elevation is True for r in all_matched_rules)
-        if metadata.requires_elevation or any(r.decision == SecurityDecisionType.REQUIRE_ELEVATED_AUTHORIZATION for r in all_matched_rules):
-            logger.info("Operación exige elevación de privilegios UAC -> REQUIRE_ELEVATED_AUTHORIZATION")
-            return PolicyDecision(
-                decision_type=SecurityDecisionType.REQUIRE_ELEVATED_AUTHORIZATION,
-                is_allowed=False,
-                reason="Protección de elevación: La operación exige elevación autorizada de privilegios (UAC/Admin).",
-                policy_id=active_policy.policy_id,
-                policy_version=active_policy.version,
-                policy_source=active_policy.source,
-                requires_elevation=True,
+                requires_elevation=requires_elev,
             )
 
         if eval_risk == SecurityLevel.CRITICAL:
@@ -465,7 +469,13 @@ class SecurityPolicyEvaluator:
         if all_matched_rules:
             # Seleccionar la regla con mayor número de prioridad
             selected_rule = max(all_matched_rules, key=lambda r: r.priority)
-            is_allowed = selected_rule.decision == SecurityDecisionType.ALLOW
+            if requires_elev:
+                is_allowed = False
+                decision_type = SecurityDecisionType.REQUIRE_ELEVATED_AUTHORIZATION
+            else:
+                decision_type = selected_rule.decision
+                is_allowed = selected_rule.decision == SecurityDecisionType.ALLOW
+
             requires_conf = (
                 selected_rule.decision == SecurityDecisionType.REQUIRE_CONFIRMATION
                 or (selected_rule.requires_confirmation is True)
@@ -473,13 +483,13 @@ class SecurityPolicyEvaluator:
             )
 
             logger.info(
-                f"Regla de política seleccionada [{selected_rule.name}] -> Decision: {selected_rule.decision.value} (Prioridad: {selected_rule.priority})"
+                f"Regla de política seleccionada [{selected_rule.name}] -> Decision: {decision_type.value} (Prioridad: {selected_rule.priority})"
             )
 
             return PolicyDecision(
-                decision_type=selected_rule.decision,
+                decision_type=decision_type,
                 is_allowed=is_allowed,
-                reason=f"Regla de política '{selected_rule.name}' aplicó la decisión {selected_rule.decision.value}.",
+                reason=f"Regla de política '{selected_rule.name}' aplicó la decisión {decision_type.value}.",
                 matched_rule_id=selected_rule.rule_id,
                 matched_rule_name=selected_rule.name,
                 priority=selected_rule.priority,

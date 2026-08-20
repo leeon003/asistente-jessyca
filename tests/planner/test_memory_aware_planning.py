@@ -15,18 +15,14 @@ Verifica:
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
-from typing import Any
-
-import pytest
 
 from core.autonomy.autonomy_governor import get_autonomy_governor
-from core.autonomy.autonomy_level import AutonomyLevel, TaskActionRisk
+from core.autonomy.autonomy_level import AutonomyLevel
 from core.tool_planner import (
     ControlledToolPlanner,
     MemoryEvidence,
     MemoryEvidenceSanitizer,
     PlanningContext,
-    SemanticMemoryPlannerBridge,
 )
 
 

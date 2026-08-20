@@ -395,7 +395,7 @@ class SessionManager:
         self,
         user: str = "anonymous",
         metadata: dict | None = None,
-    ) -> "SimpleSession":
+    ) -> SimpleSession:
         """Inicia una sesión nueva con una API simplificada.
 
         Proporciona compatibilidad con tests que usan la interfaz de alto nivel.
@@ -405,7 +405,7 @@ class SessionManager:
         simple = SimpleSession(session_id=str(state.session_id), user=user)
         self._active_simple_session = simple
         if not hasattr(self, "_session_history"):
-            self._session_history: dict[str, "SimpleSession"] = {}
+            self._session_history: dict[str, SimpleSession] = {}
         return simple
 
     def record_tool_usage(
@@ -437,7 +437,7 @@ class SessionManager:
             return
         self._active_simple_session._errors.append({"message": message, "details": details or {}})
 
-    def end_session(self) -> "SimpleSession | None":
+    def end_session(self) -> SimpleSession | None:
         """Finaliza la sesión simplificada activa."""
         if not hasattr(self, "_active_simple_session") or self._active_simple_session is None:
             return None
@@ -446,7 +446,7 @@ class SessionManager:
         self._active_simple_session = None
         # Guardar en historial para export posterior
         if not hasattr(self, "_session_history"):
-            self._session_history: dict[str, "SimpleSession"] = {}
+            self._session_history: dict[str, SimpleSession] = {}
         self._session_history[simple.session_id] = simple
         return simple
 

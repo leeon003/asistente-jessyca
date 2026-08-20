@@ -1,7 +1,7 @@
 """Backends desacoplados para la inspección y diagnóstico de conexiones de red y puertos (Subetapa 09.2).
 
 GARANTÍA ABSOLUTA DE SEGURIDAD:
-NO utiliza subprocess, os.system, os.popen, shell=True, cmd.exe, powershell.exe, netstat ni netsh.
+Inspección segura mediante APIs nativas de Python/Windows sin procesos shell externos.
 La inspección se realiza mediante la API nativa de psutil / socket o un FakeNetworkConnectionInspectionBackend para pruebas.
 """
 

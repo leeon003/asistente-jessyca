@@ -32,7 +32,9 @@ class BaseMCPTool(ITool, ABC):
         required_permissions: list[str] | None = None,
         timeout_seconds: float = 30.0,
         supports_rollback: bool = False,
+        metadata: Any = None,
     ) -> None:
+        self.metadata = metadata
         self._name = name
         self._description = description
         self.version = version

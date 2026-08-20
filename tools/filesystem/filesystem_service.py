@@ -9,16 +9,15 @@ from __future__ import annotations
 import datetime
 import os
 import tempfile
-from pathlib import Path
 
 from config.settings import AppSettings
 from core.logger import get_logger
 from tools.filesystem.errors import (
-    FileOperationError,
     FileNotFoundToolError,
+    FileOperationError,
+    FileSizeLimitError,
     FilesystemError,
     FilesystemPermissionError,
-    FileSizeLimitError,
 )
 from tools.filesystem.models import (
     DirectoryListing,
@@ -63,7 +62,7 @@ class FilesystemService:
                     is_dir = os.path.isdir(item_path)
                     is_file = os.path.isfile(item_path)
                     size_bytes = stat.st_size if is_file else 0
-                    mod_time = datetime.datetime.fromtimestamp(stat.st_mtime, tz=datetime.timezone.utc).isoformat()
+                    mod_time = datetime.datetime.fromtimestamp(stat.st_mtime, tz=datetime.UTC).isoformat()
 
                     entries.append(
                         FileEntry(
@@ -104,7 +103,7 @@ class FilesystemService:
             if size_bytes > self.max_read_size:
                 raise FileSizeLimitError(size_bytes, self.max_read_size)
 
-            with open(canonical, mode="r", encoding=encoding, errors="replace") as f:
+            with open(canonical, encoding=encoding, errors="replace") as f:
                 content = f.read()
 
             return FileReadResult(

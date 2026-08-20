@@ -123,6 +123,7 @@ class TestStaleMemoryExploitation:
     def test_expired_memory_not_returned(self) -> None:
         """Memoria TEMPORARY expirada (> 1h) no debe ser retornada."""
         from datetime import UTC, datetime, timedelta
+
         from core.vector_store_models import VectorDocument
 
         retriever = SemanticMemoryRetriever()

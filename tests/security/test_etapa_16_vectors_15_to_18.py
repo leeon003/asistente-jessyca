@@ -15,7 +15,6 @@ from core.emergency_stop import (
     EmergencyStopTriggeredError,
 )
 
-
 # ─────────────────────────────────────────────────────────
 # Vector 15: Race Conditions
 # ─────────────────────────────────────────────────────────
@@ -270,7 +269,10 @@ class TestStaleStateExecution:
 
     def test_stale_transaction_confirmation_rejected(self) -> None:
         """C-02 AUDIT: Acceso a _resolved_requests desde ChangeTransaction."""
-        from core.change_transaction import ChangeTransactionManager, TransactionConfirmationRequiredError
+        from core.change_transaction import (
+            ChangeTransactionManager,
+            TransactionConfirmationRequiredError,
+        )
         from core.confirmation import ConfirmationManager
 
         conf = ConfirmationManager()
@@ -295,7 +297,10 @@ class TestStaleStateExecution:
 
     def test_expired_transaction_confirmation_rejected(self) -> None:
         """Transacción con confirmación expirada no debe ejecutarse."""
-        from core.change_transaction import ChangeTransactionManager, TransactionConfirmationRequiredError, Reversibility
+        from core.change_transaction import (
+            ChangeTransactionManager,
+            Reversibility,
+        )
         from core.confirmation import ConfirmationManager
 
         conf = ConfirmationManager()

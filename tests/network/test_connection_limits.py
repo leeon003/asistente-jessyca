@@ -7,7 +7,6 @@ from datetime import UTC, datetime
 from core.network_connection_models import (
     ActiveNetworkConnection,
     NetworkConnectionMetadata,
-    NetworkConnectionRequest,
     NetworkConnectionsResult,
     NetworkEndpoint,
 )

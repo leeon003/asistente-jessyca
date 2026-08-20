@@ -4,7 +4,11 @@ from __future__ import annotations
 
 import pytest
 
-from core.change_transaction import ChangeTransactionManager, TransactionConfirmationRequiredError, TransactionState
+from core.change_transaction import (
+    ChangeTransactionManager,
+    TransactionConfirmationRequiredError,
+    TransactionState,
+)
 from core.confirmation import ConfirmationManager, ConfirmationStatus, MockConfirmationProvider
 
 
@@ -49,9 +53,9 @@ class TestRegistryAbuse:
     def test_hklm_write_outside_allowlist_blocked(self) -> None:
         """Escritura en HKLM fuera del allowlist debe ser bloqueada."""
         from core.registry_boundary import (
+            RegistrySecurityViolationError,
             RegistryWriteBoundary,
             RegistryWriteRequest,
-            RegistrySecurityViolationError,
         )
 
         boundary = RegistryWriteBoundary(
@@ -70,9 +74,9 @@ class TestRegistryAbuse:
     def test_path_traversal_in_registry_key_blocked(self) -> None:
         """Intento de path traversal en clave de registro debe ser bloqueado."""
         from core.registry_boundary import (
+            RegistrySecurityViolationError,
             RegistryWriteBoundary,
             RegistryWriteRequest,
-            RegistrySecurityViolationError,
         )
 
         boundary = RegistryWriteBoundary(
@@ -131,9 +135,9 @@ class TestServiceAbuse:
     def test_protected_service_stop_blocked(self) -> None:
         """Servicios protegidos (WinDefend, RPCSS, etc.) no pueden ser detenidos."""
         from core.service_boundary import (
+            ProtectedServiceViolationError,
             ServiceControlBoundary,
             ServiceControlRequest,
-            ProtectedServiceViolationError,
         )
 
         boundary = ServiceControlBoundary(enabled=True)
@@ -199,7 +203,11 @@ class TestSoftwareInstallAbuse:
 
     def test_untrusted_source_rejected(self) -> None:
         """Fuentes distintas a 'winget' deben ser rechazadas."""
-        from core.software_boundary import SoftwareInstallBoundary, SoftwareInstallRequest, UntrustedSourceError
+        from core.software_boundary import (
+            SoftwareInstallBoundary,
+            SoftwareInstallRequest,
+            UntrustedSourceError,
+        )
 
         boundary = SoftwareInstallBoundary(enabled=True, source="winget")
         req = SoftwareInstallRequest(
@@ -215,9 +223,9 @@ class TestSoftwareInstallAbuse:
     def test_arbitrary_exe_blocked(self) -> None:
         """Instalación de EXE/MSI arbitrarios debe ser bloqueada."""
         from core.software_boundary import (
+            ArbitraryInstallerError,
             SoftwareInstallBoundary,
             SoftwareInstallRequest,
-            ArbitraryInstallerError,
         )
 
         boundary = SoftwareInstallBoundary(enabled=True)

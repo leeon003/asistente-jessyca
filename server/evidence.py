@@ -40,14 +40,20 @@ class AuthorizationEvidence:
     """Estructura inmutable de evidencia de autorización generada exclusivamente por el sistema."""
 
     request_id: str
-    correlation_id: str
-    tool_name: str
-    operation: str
-    risk_assessment: Any
-    policy_result: Any
-    permission_result: Any
-    confirmation_result: Any
-    action_fingerprint: str
+    correlation_id: str = ""
+    tool_name: str = ""
+    operation: str = ""
+    risk_assessment: Any = None
+    policy_result: Any = None
+    permission_result: Any = None
+    confirmation_result: Any = None
+    action_fingerprint: str = ""
+    decision: Any = None
+    risk_level: Any = None
+    policy_rules_evaluated: Any = None
+    user_confirmed: bool = False
+    evaluation_timestamp: datetime | None = None
+    is_valid: bool = True
     evidence_id: str = field(default_factory=lambda: str(uuid.uuid4()))
     timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
 
@@ -85,7 +91,7 @@ class AuthorizationEvidence:
         operation: str,
         parameters: JSONDict | None = None,
         request_id: str | None = None,
-    ) -> "AuthorizationEvidence":
+    ) -> AuthorizationEvidence:
         """Factory de conveniencia que crea una evidencia de autorización válida.
 
         Útil para tests unitarios donde se necesita una evidencia válida sin pasar

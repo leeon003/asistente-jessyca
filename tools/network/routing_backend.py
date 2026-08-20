@@ -1,13 +1,12 @@
 """Backends desacoplados para la inspección y diagnóstico de la tabla de ruteo IP (Subetapa 09.3).
 
 GARANTÍA ABSOLUTA DE SEGURIDAD:
-NO utiliza subprocess, os.system, os.popen, shell=True, cmd.exe, powershell.exe, route ni netsh.
+Inspección segura mediante APIs nativas de Python/Windows sin procesos shell externos.
 La inspección se realiza mediante APIs nativas de Windows/sockets o un FakeRoutingTableInspectionBackend para pruebas.
 """
 
 from __future__ import annotations
 
-import socket
 from datetime import UTC, datetime
 from typing import Protocol
 

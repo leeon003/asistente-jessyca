@@ -25,7 +25,7 @@ logger = get_logger("jessyca.core.powershell_boundary")
 
 # Banderas de bypass explícitamente prohibidas
 FORBIDDEN_POWERSHELL_FLAGS = re.compile(
-    r"-(encodedcommand|encoded|enc|executionpolicy\s+bypass|executionpolicy\s+unrestricted|commandwithargs|noexit|windowstyle\s+hidden|-c(\s+|$)|-command(\s+|$))",
+    r"-(encodedcommand|encoded|enc|executionpolicy\s+(?:bypass|unrestricted)|commandwithargs|noexit|windowstyle\s+hidden|command|c)\b",
     re.IGNORECASE,
 )
 

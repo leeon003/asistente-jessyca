@@ -4,13 +4,10 @@ from __future__ import annotations
 
 import pytest
 
-from core.session_manager import SessionManager
 from core.session_security import (
-    SessionLimitExceededError,
     SessionSecurityError,
     SessionSecurityManager,
 )
-from core.session_store import InMemorySessionStore
 
 
 def test_controlled_session_fuzzing() -> None:

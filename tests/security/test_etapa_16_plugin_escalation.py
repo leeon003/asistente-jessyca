@@ -93,7 +93,7 @@ class TestPluginPrivilegeElevation:
 
     def test_plugin_cannot_downgrade_risk_of_dangerous_tool(self) -> None:
         """Plugin no puede declarar herramienta DANGEROUS como SAFE."""
-        with pytest.raises(PluginPrivilegeElevationError, match="[Ee]levación|[Ee]scalation|[Vv]iolation"):
+        with pytest.raises(PluginPrivilegeElevationError, match=r"(?i)elevaci|escalat|violat"):
             self.policy.validate_plugin_manifest(
                 plugin_id="escalating-plugin",
                 requested_capability_names=[PluginDeclaredCapability.PROCESS_EXECUTE.value],

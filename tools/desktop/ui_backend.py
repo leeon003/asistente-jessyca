@@ -11,7 +11,6 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Protocol
 
-from core.desktop_models import ScreenshotRequest
 from core.logger import get_logger
 from core.ui_inspection_models import (
     UIControlType,

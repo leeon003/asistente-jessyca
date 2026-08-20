@@ -6,10 +6,19 @@ import pytest
 
 from core.audit_logger import AuditEvent, AuditEventType, AuditLogger, MemoryAuditSink
 from core.confirmation import ConfirmationManager, ConfirmationStatus, MockConfirmationProvider
-from core.permission_manager import PermissionDecision, PermissionManager, PermissionRequest
 from core.risk_engine import RiskEngine
-from core.security_architecture import SecurityContext, SecurityDecisionType, SecurityLevel, ToolSecurityMetadata
-from core.security_policy import PolicyRule, SecurityPolicy, SecurityPolicyEvaluator, create_default_security_policy
+from core.security_architecture import (
+    SecurityContext,
+    SecurityDecisionType,
+    SecurityLevel,
+    ToolSecurityMetadata,
+)
+from core.security_policy import (
+    PolicyRule,
+    SecurityPolicy,
+    SecurityPolicyEvaluator,
+    create_default_security_policy,
+)
 
 
 # INVARIANTE 1: CRITICAL nunca puede convertirse en ALLOW

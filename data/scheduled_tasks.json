@@ -1,0 +1,58 @@
+{
+  "safe-task-001": {
+    "task_id": "safe-task-001",
+    "tool_name": "system.info",
+    "operation": "read",
+    "trigger_config": {
+      "type": "interval",
+      "interval_seconds": 3600.0,
+      "start_at": "2026-08-20T03:19:26.451748+00:00",
+      "last_fire": null
+    },
+    "parameters": {},
+    "user_id": "default_user",
+    "max_retries": 3,
+    "retry_backoff_base_seconds": 2.0,
+    "timeout_seconds": 30.0,
+    "is_active": true,
+    "created_at": "2026-08-20T03:19:26.451748+00:00"
+  },
+  "dangerous-task-001": {
+    "task_id": "dangerous-task-001",
+    "tool_name": "filesystem.delete",
+    "operation": "delete",
+    "trigger_config": {
+      "type": "interval",
+      "interval_seconds": 3600.0,
+      "start_at": "2026-08-20T03:19:26.469438+00:00",
+      "last_fire": null
+    },
+    "parameters": {
+      "recursive": true
+    },
+    "user_id": "default_user",
+    "max_retries": 3,
+    "retry_backoff_base_seconds": 2.0,
+    "timeout_seconds": 30.0,
+    "is_active": true,
+    "created_at": "2026-08-20T03:19:26.469438+00:00"
+  },
+  "dup-task-001": {
+    "task_id": "dup-task-001",
+    "tool_name": "system.info",
+    "operation": "read",
+    "trigger_config": {
+      "type": "interval",
+      "interval_seconds": 3600.0,
+      "start_at": "2026-08-20T03:19:26.488052+00:00",
+      "last_fire": null
+    },
+    "parameters": {},
+    "user_id": "default_user",
+    "max_retries": 3,
+    "retry_backoff_base_seconds": 2.0,
+    "timeout_seconds": 30.0,
+    "is_active": true,
+    "created_at": "2026-08-20T03:19:26.488052+00:00"
+  }
+}

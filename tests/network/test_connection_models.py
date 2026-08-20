@@ -7,7 +7,6 @@ import pytest
 from core.network_connection_models import (
     ActiveNetworkConnection,
     ListeningPort,
-    NetworkConnectionRequest,
     NetworkEndpoint,
 )
 

@@ -20,7 +20,6 @@ from core.network_routing_models import (
 )
 from core.network_routing_security import NetworkRoutingSecurityManager
 from tools.network.dns_cache_backend import (
-    FakeDNSCacheInspectionBackend,
     IDNSCacheInspectionBackend,
     WindowsDNSCacheInspectionBackend,
 )

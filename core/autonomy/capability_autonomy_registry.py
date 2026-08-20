@@ -308,7 +308,6 @@ class CapabilityAutonomyRegistry:
     def get_stats(self) -> dict[str, Any]:
         """Retorna estadísticas del catálogo para auditoría."""
         with self._lock:
-            from core.autonomy.autonomy_level import TaskActionRisk
             stats: dict[str, Any] = {
                 "total_profiles": len(self._profiles),
                 "is_locked": self._is_locked,

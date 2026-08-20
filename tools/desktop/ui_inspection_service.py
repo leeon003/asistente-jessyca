@@ -17,7 +17,6 @@ from core.event_bus import get_event_bus
 from core.logger import get_logger
 from core.ocr_sanitizer import OCRTextSanitizer
 from core.ui_inspection_models import (
-    UIElementBounds,
     UIElementInfo,
     UIElementRequest,
     UIElementTree,
@@ -26,7 +25,10 @@ from core.ui_inspection_models import (
     WindowInfo,
 )
 from core.ui_inspection_security import UIInspectionSecurityManager
-from tools.desktop.ui_backend import FakeUIInspectionBackend, IUIInspectionBackend, WindowsUIAutomationBackend
+from tools.desktop.ui_backend import (
+    IUIInspectionBackend,
+    WindowsUIAutomationBackend,
+)
 
 logger = get_logger("jessyca.tools.desktop.ui_inspection_service")
 

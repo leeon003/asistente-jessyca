@@ -2,14 +2,10 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
-
 import pytest
 
 from core.desktop_automation_models import (
-    DesktopActionMetadata,
     DesktopActionRequest,
-    DesktopActionResult,
     DesktopActionTarget,
     DesktopActionType,
     generate_action_fingerprint,

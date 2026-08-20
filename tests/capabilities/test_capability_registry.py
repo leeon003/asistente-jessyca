@@ -9,7 +9,6 @@ from core.capabilities import (
     CapabilityOperation,
     CapabilityRiskLevel,
     CapabilitySource,
-    CapabilityStatus,
     ToolCapability,
 )
 from core.capability_registry import CapabilityRegistry

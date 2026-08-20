@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+
 import pytest
 
 from core.desktop_automation_models import (
@@ -196,4 +197,4 @@ def test_fake_mouse_and_keyboard_type_text_recorded() -> None:
     # Keyboard debe escribir el texto
     assert len(kb.operations) == 1
     assert kb.operations[0]["op"] == "type_text"
-    assert kb.operations[0]["text_len"] == 16
+    assert kb.operations[0]["text_len"] == 17

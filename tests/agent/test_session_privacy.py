@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from core.audit_logger import AuditEventType, MemoryAuditSink
+from core.audit_logger import MemoryAuditSink
 from core.session_manager import SessionManager
 from core.session_models import SessionRole
 from core.session_store import InMemorySessionStore

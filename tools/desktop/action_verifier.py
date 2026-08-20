@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import time
 from datetime import UTC, datetime
-from typing import Any
 
 from core.action_verification_models import (
     ActionVerificationRequest,
@@ -26,7 +25,10 @@ from core.event_bus import get_event_bus
 from core.logger import get_logger
 from core.ocr_sanitizer import OCRTextSanitizer
 from core.ui_inspection_models import UIElementInfo, UIElementRequest, UIInspectionResult
-from tools.desktop.ui_backend import FakeUIInspectionBackend, IUIInspectionBackend, WindowsUIAutomationBackend
+from tools.desktop.ui_backend import (
+    IUIInspectionBackend,
+    WindowsUIAutomationBackend,
+)
 
 logger = get_logger("jessyca.tools.desktop.action_verifier")
 
@@ -155,7 +157,7 @@ class ActionVerifier:
             fail_reason = f"Confianza observada insuficiente ({last_observed.observed_confidence:.2f} < {request.min_confidence:.2f})."
         elif last_observed and exp.expected_text and last_observed.observed_text != exp.expected_text:
             fail_status = VerificationStatus.VERIFICATION_FAILED
-            fail_reason = f"Discrepancia de estado: El texto observado no coincide con el esperado."
+            fail_reason = "Discrepancia de estado: El texto observado no coincide con el esperado."
 
         res = VerificationResult(
             status=fail_status,
@@ -237,7 +239,7 @@ class ActionVerifier:
         if exp.expected_text and exp.expect_value_match:
             clean_expected, _ = self.sanitizer.sanitize_text(exp.expected_text)
             if clean_expected.lower() not in clean_name.lower():
-                return False, obs_state, f"El texto observado no contiene el valor esperado."
+                return False, obs_state, "El texto observado no contiene el valor esperado."
 
         return True, obs_state, "Verificación exitosa: El estado UI observado coincide con el estado esperado."
 
