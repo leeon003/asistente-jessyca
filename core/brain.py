@@ -7,6 +7,8 @@ from typing import Any
 import requests
 from dotenv import load_dotenv
 
+from core.intent_models import IntentStatus, ParsedIntent, PendingIntent
+
 load_dotenv()
 
 OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
@@ -88,80 +90,104 @@ def _llamar_ollama(prompt_completo: str) -> str:
     return str(response.json().get("response", ""))
 
 
-def procesar_orden(texto_usuario: str, skills_disponibles: dict[str, Any] | None = None) -> dict[str, Any]:
+def procesar_orden(
+    texto_usuario: str,
+    skills_disponibles: dict[str, Any] | None = None,
+    contexto_aclaracion: PendingIntent | None = None,
+) -> ParsedIntent:
     """
     Envía el texto del usuario al LLM (Ollama local con gemma4:e4b) y parsea la respuesta
-    como instrucción estructurada para el orquestador.
-
-    Retorna:
-        {
-            "respuesta_hablada": str,
-            "skill": str | None,
-            "parametros": dict | None,
-            "error": str | None   <- sólo presente si algo falló
-        }
+    como instrucción estructurada y tipada (ParsedIntent) para el validador y orquestador.
     """
     skills_map = skills_disponibles or {}
     system_prompt = _cargar_system_prompt()
     skills_descripcion = _construir_prompt_skills(skills_map)
 
-    prompt_completo = (
-        f"{system_prompt}\n\n"
-        f"{skills_descripcion}\n\n"
-        f"ORDEN DEL USUARIO: {texto_usuario}\n\n"
-        "Responde ÚNICAMENTE con el JSON solicitado, sin texto extra."
-    )
+    if contexto_aclaracion is not None:
+        prompt_completo = (
+            f"{system_prompt}\n\n"
+            f"{skills_descripcion}\n\n"
+            f"CONTEXTO DE ACLARACIÓN PENDIENTE:\n"
+            f"- Habilidad en curso: {contexto_aclaracion.skill_nombre}\n"
+            f"- Pregunta formulada al usuario: {contexto_aclaracion.pregunta_formulada}\n"
+            f"- Parámetro esperado: {contexto_aclaracion.parametro_esperado}\n"
+            f"- Parámetros acumulados: {contexto_aclaracion.parametros_parciales}\n\n"
+            f"RESPUESTA DE ACLARACIÓN DEL USUARIO: {texto_usuario}\n\n"
+            "Integra la respuesta del usuario para completar la intención. Responde ÚNICAMENTE con el JSON solicitado."
+        )
+    else:
+        prompt_completo = (
+            f"{system_prompt}\n\n"
+            f"{skills_descripcion}\n\n"
+            f"ORDEN DEL USUARIO: {texto_usuario}\n\n"
+            "Responde ÚNICAMENTE con el JSON solicitado, sin texto extra."
+        )
 
-    ultimo_error = None
+    ultimo_error: str | None = None
 
     for intento in range(1, 3):  # hasta 2 intentos
         try:
             texto_respuesta = _llamar_ollama(prompt_completo)
         except requests.exceptions.ConnectionError:
-            return {
-                "respuesta_hablada": "No puedo conectarme al servicio de inteligencia local. ¿Está Ollama corriendo?",
-                "skill": None,
-                "parametros": None,
-                "error": f"Ollama no disponible en {OLLAMA_HOST}. Verifica que el servicio esté activo."
-            }
+            return ParsedIntent(
+                estado=IntentStatus.INVALID,
+                respuesta_hablada="No puedo conectarme al servicio de inteligencia local. ¿Está Ollama corriendo?",
+                error=f"Ollama no disponible en {OLLAMA_HOST}. Verifica que el servicio esté activo.",
+            )
         except requests.exceptions.Timeout:
-            return {
-                "respuesta_hablada": "El modelo tardó demasiado en responder. Intenta de nuevo.",
-                "skill": None,
-                "parametros": None,
-                "error": "Timeout al conectar con Ollama."
-            }
+            return ParsedIntent(
+                estado=IntentStatus.INVALID,
+                respuesta_hablada="El modelo tardó demasiado en responder. Intenta de nuevo.",
+                error="Timeout al conectar con Ollama.",
+            )
         except Exception as e:
-            return {
-                "respuesta_hablada": "Ocurrió un error inesperado al consultar el modelo.",
-                "skill": None,
-                "parametros": None,
-                "error": str(e)
-            }
+            return ParsedIntent(
+                estado=IntentStatus.INVALID,
+                respuesta_hablada="Ocurrió un error inesperado al consultar el modelo.",
+                error=str(e),
+            )
 
         parsed = _extraer_json(texto_respuesta)
         if parsed is not None:
-            # Validar que la skill exista en el registro si se especificaron skills disponibles
-            skill_pedida = parsed.get("skill")
-            if skill_pedida and skills_map and skill_pedida not in skills_map:
-                logger.warning(f"LLM sugirió skill desconocida: '{skill_pedida}'. Se ignora.")
-                parsed["skill"] = None
-                parsed["parametros"] = None
-                parsed.setdefault("respuesta_hablada", "Entendí tu orden pero no tengo esa habilidad disponible aún.")
+            # Interpretar y mapear el estado devuelto
+            estado_raw = str(parsed.get("estado", "CLEAR")).upper().strip()
+            try:
+                estado = IntentStatus(estado_raw)
+            except ValueError:
+                estado = IntentStatus.CLEAR
 
-            return {
-                "respuesta_hablada": parsed.get("respuesta_hablada", ""),
-                "skill": parsed.get("skill"),
-                "parametros": parsed.get("parametros"),
-                "error": None
-            }
+            skill_pedida = parsed.get("skill")
+            parametros = parsed.get("parametros") or {}
+            respuesta_hablada = str(parsed.get("respuesta_hablada", ""))
+            pregunta_aclaratoria = parsed.get("pregunta_aclaratoria")
+            parametro_faltante = parsed.get("parametro_faltante")
+            candidatos = parsed.get("candidatos") or []
+
+            # Si el LLM sugirió una skill no registrada en el catálogo
+            if skill_pedida and skills_map and skill_pedida not in skills_map:
+                logger.warning(f"LLM sugirió skill desconocida: '{skill_pedida}'. Se clasifica como UNSUPPORTED.")
+                estado = IntentStatus.UNSUPPORTED
+                skill_pedida = None
+                parametros = None
+                if not respuesta_hablada:
+                    respuesta_hablada = "Entendí tu orden pero no tengo esa habilidad disponible aún."
+
+            return ParsedIntent(
+                estado=estado,
+                respuesta_hablada=respuesta_hablada,
+                skill=skill_pedida,
+                parametros=parametros if isinstance(parametros, dict) else {},
+                pregunta_aclaratoria=str(pregunta_aclaratoria) if pregunta_aclaratoria else None,
+                parametro_faltante=str(parametro_faltante) if parametro_faltante else None,
+                candidatos=list(candidatos) if isinstance(candidatos, list) else [],
+                error=None,
+            )
 
         logger.warning(f"Intento {intento}: JSON mal formado. Texto recibido: {texto_respuesta[:200]}")
         ultimo_error = f"Respuesta no parseable después de {intento} intento(s): {texto_respuesta[:300]}"
 
-    return {
-        "respuesta_hablada": "No pude interpretar la respuesta del modelo. Por favor, repite tu orden.",
-        "skill": None,
-        "parametros": None,
-        "error": ultimo_error
-    }
+    return ParsedIntent(
+        estado=IntentStatus.INVALID,
+        respuesta_hablada="No pude interpretar la respuesta del modelo. Por favor, repite tu orden.",
+        error=ultimo_error,
+    )
