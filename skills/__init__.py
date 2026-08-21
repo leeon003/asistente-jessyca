@@ -15,9 +15,11 @@ from skills.skill_manager import (
     get_skill_manager,
 )
 from skills.skill_models import (
+    ALLOWED_SKILL_CAPABILITIES,
     SkillCapability,
     SkillContext,
     SkillDefinition,
+    SkillManifest,
     SkillPermission,
     SkillResult,
     SkillStatus,
@@ -57,10 +59,12 @@ __all__ = [
     "CerrarAplicacion",
     "BuscarArchivo",
     "SKILLS_DISPONIBLES",
-    # Skill Framework 2.0 (Fase 28.0)
+    # Skill Framework 2.0 (Fase 28.0 y 28.1)
     "SkillStatus",
     "SkillCapability",
+    "ALLOWED_SKILL_CAPABILITIES",
     "SkillPermission",
+    "SkillManifest",
     "SkillDefinition",
     "SkillContext",
     "SkillResult",

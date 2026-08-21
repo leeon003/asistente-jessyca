@@ -13,7 +13,10 @@ from typing import ClassVar
 
 from core.logger import get_logger
 from skills.base_skill import BaseSkill
-from skills.skill_models import SkillDefinition
+from skills.skill_models import (
+    SkillDefinition,
+    SkillStatus,
+)
 from skills.skill_validator import SkillValidator
 
 logger = get_logger("jessyca.skills.registry")
@@ -30,6 +33,7 @@ class SkillRegistry:
         self.validator = validator or SkillValidator()
         self._skills: dict[str, BaseSkill] = {}
         self._definitions: dict[str, SkillDefinition] = {}
+        self._statuses: dict[str, SkillStatus] = {}
 
     @classmethod
     def get_instance(cls) -> SkillRegistry:
@@ -45,14 +49,29 @@ class SkillRegistry:
             definition = skill.definition
             is_valid, error_msg = self.validator.validate(definition)
             if not is_valid:
+                self._statuses[definition.skill_id] = SkillStatus.FAILED
                 logger.warning(
                     f"[SKILL REGISTRATION REJECTED] Skill '{definition.skill_id}' rechazada: {error_msg}"
                 )
                 return False, error_msg
 
+            # Si incluye manifest formal, validarlo
+            if definition.manifest is not None:
+                m_valid, m_error = self.validator.validate_manifest(
+                    manifest=definition.manifest,
+                    installed_skills=self.get_installed_versions(),
+                )
+                if not m_valid:
+                    self._statuses[definition.skill_id] = SkillStatus.FAILED
+                    logger.warning(
+                        f"[SKILL MANIFEST REJECTED] Manifest de skill '{definition.skill_id}' rechazado: {m_error}"
+                    )
+                    return False, m_error
+
             self._skills[definition.skill_id] = skill
             self._definitions[definition.skill_id] = definition
-            logger.info(f"[SKILL REGISTERED] Skill '{definition.skill_id}' v{definition.version} registrada con éxito.")
+            self._statuses[definition.skill_id] = SkillStatus.READY
+            logger.info(f"[SKILL REGISTERED] Skill '{definition.skill_id}' v{definition.version} registrada con éxito (Status: READY).")
             return True, None
 
     def unregister_skill(self, skill_id: str) -> bool:
@@ -61,9 +80,20 @@ class SkillRegistry:
             if skill_id in self._skills:
                 del self._skills[skill_id]
                 del self._definitions[skill_id]
+                self._statuses[skill_id] = SkillStatus.UNLOADED
                 logger.info(f"[SKILL UNREGISTERED] Skill '{skill_id}' desregistrada.")
                 return True
             return False
+
+    def get_status(self, skill_id: str) -> SkillStatus:
+        """Obtiene el estado de ciclo de vida de la Skill."""
+        with self._lock:
+            return self._statuses.get(skill_id, SkillStatus.UNVALIDATED)
+
+    def get_installed_versions(self) -> dict[str, str]:
+        """Retorna un mapeo de skill_id -> version para chequeo de dependencias."""
+        with self._lock:
+            return {d.skill_id: d.version for d in self._definitions.values()}
 
     def get_skill(self, skill_id: str) -> BaseSkill | None:
         """Obtiene la instancia ejecutora de una Skill por su ID."""

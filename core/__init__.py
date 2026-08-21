@@ -585,10 +585,11 @@ __all__ = [
     "PluginEcosystemValidator",
     "PluginEcosystemManager",
     "get_plugin_ecosystem_manager",
-    # Skill Framework Foundation (Fase 28.0)
+    # Skill Framework Foundation (Fase 28.0 y 28.1)
     "BaseSkill",
     "SkillCapability",
     "SkillPermission",
+    "SkillManifest",
     "SkillDefinition",
     "SkillContext",
     "SkillResult",
@@ -608,6 +609,7 @@ from skills.skill_models import (
     SkillCapability,
     SkillContext,
     SkillDefinition,
+    SkillManifest,
     SkillPermission,
     SkillResult,
     SkillStatus,
