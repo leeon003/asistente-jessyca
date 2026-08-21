@@ -558,7 +558,15 @@ __all__ = [
     "ControlCommandResult",
     "SystemState",
     "get_control_center",
+    # Smart Model Routing 2.0 (Fase 25)
+    "ModelRoutingDecision",
+    "ModelPerformanceTracker",
 ]
+
+from core.llm.smart_routing_models import (
+    ModelPerformanceTracker,
+    ModelRoutingDecision,
+)
 
 from core.observability.control_center import (
     ControlCenter,

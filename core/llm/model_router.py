@@ -1,7 +1,7 @@
-"""Enrutador dinámico de modelos LLM (ModelRouter - Fase 2: Dynamic Model Router).
+"""Enrutador dinámico de modelos LLM (ModelRouter - Fase 25: Smart Model Routing 2.0).
 
 Selecciona deterministamente el perfil de modelo óptimo para una tarea dada según
-sus capacidades, complejidad, latencia, VRAM y estado de disponibilidad.
+sus capacidades, complejidad, latencia, VRAM, estado de disponibilidad y rendimiento histórico.
 
 GARANTÍA DE SEGURIDAD (INVARIANTE ARQUITECTÓNICA):
 El ModelRouter:
@@ -20,13 +20,17 @@ from typing import ClassVar
 from core.llm.model_profile import ModelProfile
 from core.llm.model_registry import ModelRegistry
 from core.llm.routing_policy import RoutingContext, RoutingPolicy, TaskComplexity, TaskType
+from core.llm.smart_routing_models import (
+    ModelPerformanceTracker,
+    ModelRoutingDecision,
+)
 from core.logger import get_logger
 
 logger = get_logger("jessyca.llm.router")
 
 
 class ModelRouter:
-    """Enrutador de selección dinámica y resolución de modelos LLM con soporte de fallback."""
+    """Enrutador de selección dinámica y resolución de modelos LLM con soporte de fallback y Smart Routing 2.0."""
 
     _instance: ClassVar[ModelRouter | None] = None
     _class_lock: ClassVar[threading.RLock] = threading.RLock()
@@ -35,10 +39,12 @@ class ModelRouter:
         self,
         registry: ModelRegistry | None = None,
         policy: RoutingPolicy | None = None,
+        tracker: ModelPerformanceTracker | None = None,
     ) -> None:
         self._lock = threading.RLock()
         self._registry = registry or ModelRegistry.get_instance()
-        self._policy = policy or RoutingPolicy(registry=self._registry)
+        self._tracker = tracker or ModelPerformanceTracker()
+        self._policy = policy or RoutingPolicy(registry=self._registry, tracker=self._tracker)
 
     @classmethod
     def get_instance(cls) -> ModelRouter:
@@ -49,7 +55,7 @@ class ModelRouter:
             return cls._instance
 
     def route(self, context: RoutingContext) -> ModelProfile:
-        """Determina y retorna el perfil de modelo óptimo según el contexto proporcionado."""
+        """Determina y retorna el perfil de modelo óptimo según el contexto proporcionado (retrocompatibilidad)."""
         with self._lock:
             selected_profile = self._policy.evaluate(context)
             logger.debug(
@@ -57,6 +63,16 @@ class ModelRouter:
                 f"enrutada al modelo: '{selected_profile.name}' (provider: {selected_profile.provider})"
             )
             return selected_profile
+
+    def route_smart(self, context: RoutingContext) -> ModelRoutingDecision:
+        """Ejecuta el enrutamiento inteligente multidimensional y retorna una decisión estructurada y explicable."""
+        with self._lock:
+            decision = self._policy.evaluate_smart(context)
+            logger.info(
+                f"[SMART MODEL ROUTER 2.0] Tarea '{context.task_type.value}' -> "
+                f"Modelo: '{decision.selected_model.name}' (Confianza: {decision.confidence:.2f}, Razón: {decision.reason})"
+            )
+            return decision
 
     def select_model_for_task(
         self,
@@ -122,6 +138,24 @@ class ModelRouter:
                 f"[MODEL ROUTER] Fallback activado para '{attempted_model}' -> Asignado '{fallback_profile.name}'"
             )
             return fallback_profile
+
+    def record_inference_result(
+        self,
+        model_name: str,
+        task_type: TaskType,
+        latency_ms: float,
+        success: bool,
+        tokens: int = 0,
+    ) -> None:
+        """Actualiza el historial de rendimiento de un modelo para optimizaciones futuras de enrutamiento."""
+        with self._lock:
+            self._tracker.record_result(
+                model_name=model_name,
+                task_type=task_type,
+                latency_ms=latency_ms,
+                success=success,
+                tokens=tokens,
+            )
 
 
 def get_model_router() -> ModelRouter:

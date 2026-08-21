@@ -111,13 +111,15 @@ __all__ = [
     "LLMProvider",
     "OllamaProvider",
     "FakeLLMProvider",
-    # Enrutamiento Dinámico
+    # Enrutamiento Dinámico (Smart Model Routing 2.0 - Fase 25)
     "TaskType",
     "TaskComplexity",
     "RoutingContext",
     "RoutingPolicy",
     "ModelRouter",
     "get_model_router",
+    "ModelRoutingDecision",
+    "ModelPerformanceTracker",
     # Ciclo de Vida y Gobernanza VRAM
     "ModelStatus",
     "LoadedModelInfo",
@@ -149,3 +151,8 @@ __all__ = [
     "get_consensus_engine",
     "DEFAULT_CONSENSUS_ENSEMBLE",
 ]
+
+from core.llm.smart_routing_models import (
+    ModelPerformanceTracker,
+    ModelRoutingDecision,
+)
