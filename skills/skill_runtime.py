@@ -1,17 +1,22 @@
-"""Entorno de ejecución seguro para Skills (skill_runtime.py - Fase 28.0).
+"""Entorno de ejecución y runtime seguro para Skills (skill_runtime.py - Fase 28.4).
 
-Ejecuta el ciclo de vida gobernado de una Skill:
-Skill Validation -> SecurityPipeline -> Tool / Agent / Model -> Verification -> SkillResult
-
-INVARIANTES DE SEGURIDAD ABSOLUTAS:
-1. UNA SKILL NUNCA PUEDE EJECUTAR OPERACIONES PRIVILEGIADAS DIRECTAMENTE (sin pasar por SecurityPipeline).
-2. PREVALENCIA DE PARADA DE EMERGENCIA: EmergencyStopManager interrumpe inmediatamente cualquier Skill.
+Ejecuta el ciclo de vida gobernado de una Skill con:
+1. Creación de contexto tipado (SkillContext).
+2. Control estricto de Timeout con aislamiento de hilos.
+3. Control y chequeo de Cancelación (CancellationToken).
+4. Control de Presupuesto (AgentBudget / AutonomyPolicy).
+5. Prevalencia de Parada de Emergencia (EmergencyStopManager).
+6. Captura, aislamiento de excepciones y emisión de SkillResult estructurado.
 """
 
 from __future__ import annotations
 
+import concurrent.futures
 import time
+from typing import Any
 
+from core.cancellation import CancellationToken
+from core.control_plane.models import AgentBudget
 from core.emergency_stop import EmergencyStopManager
 from core.logger import get_logger
 from core.permission_manager import (
@@ -36,7 +41,7 @@ logger = get_logger("jessyca.skills.runtime")
 
 
 class SkillRuntime:
-    """Runtime seguro de ejecución e intermediación de Skills de JESSYCA."""
+    """Runtime seguro de ejecución, contención y ciclo de vida de Skills de JESSYCA."""
 
     def __init__(
         self,
@@ -48,12 +53,36 @@ class SkillRuntime:
         self.permission_manager = permission_manager or PermissionManager()
         self.emergency_stop = emergency_stop or EmergencyStopManager.get_instance()
 
+    def create_context(
+        self,
+        skill_id: str,
+        intent: str = "",
+        parameters: dict[str, Any] | None = None,
+        timeout_seconds: float = 60.0,
+        cancellation_token: CancellationToken | None = None,
+        session_id: str = "default_session",
+        user: str = "user",
+        metadata: dict[str, Any] | None = None,
+    ) -> SkillContext:
+        """Helper para la creación formal y estructurada de un SkillContext."""
+        return SkillContext(
+            skill_id=skill_id,
+            intent=intent or f"execute_{skill_id}",
+            parameters=parameters or {},
+            timeout_seconds=timeout_seconds,
+            cancellation_token=cancellation_token,
+            session_id=session_id,
+            user=user,
+            metadata=metadata or {},
+        )
+
     def execute_skill(
         self,
         skill: BaseSkill,
         context: SkillContext,
+        budget: AgentBudget | None = None,
     ) -> SkillResult:
-        """Ejecuta una Skill a través de la frontera de seguridad y ciclo de vida controlado."""
+        """Ejecuta una Skill bajo gobierno de seguridad, límites de presupuesto, timeout y cancelación."""
         start_time = time.perf_counter()
 
         # 1. Comprobación inmediata de Parada de Emergencia
@@ -68,9 +97,9 @@ class SkillRuntime:
                 execution_id=context.execution_id,
             )
 
-        # 2. Comprobación de Cancelación
+        # 2. Comprobación de Cancelación previa
         if context.cancellation_token and context.cancellation_token.is_cancelled:
-            logger.info(f"[SKILL RUNTIME CANCELLED] Skill '{skill.skill_id}' cancelada por token.")
+            logger.info(f"[SKILL RUNTIME CANCELLED] Skill '{skill.skill_id}' cancelada antes de iniciar.")
             return SkillResult(
                 skill_id=skill.skill_id,
                 success=False,
@@ -80,7 +109,39 @@ class SkillRuntime:
                 execution_id=context.execution_id,
             )
 
-        # 3. Evaluación de Seguridad previa (RiskEngine + PermissionManager)
+        # 3. Control de Presupuesto (AgentBudget)
+        if budget is not None:
+            # Comprobar si el presupuesto está agotado
+            if getattr(budget, "is_exhausted", lambda: False)():
+                logger.warning(f"[SKILL BUDGET EXHAUSTED] Presupuesto agotado para skill '{skill.skill_id}'.")
+                return SkillResult(
+                    skill_id=skill.skill_id,
+                    success=False,
+                    status=SkillStatus.FAILED,
+                    error="Presupuesto de ejecución agotado.",
+                    security_decision="BUDGET_EXHAUSTED",
+                    execution_id=context.execution_id,
+                )
+
+            # Comprobar techo de riesgo
+            if hasattr(budget, "risk_ceiling"):
+                skill_risk_val = str(getattr(skill.definition.risk_level, "value", skill.definition.risk_level)).upper()
+                ceiling_val = str(getattr(budget.risk_ceiling, "value", budget.risk_ceiling)).upper()
+                # Si la skill es de riesgo alto/peligroso/crítico y el techo del presupuesto es bajo/medio/solo lectura
+                if skill_risk_val in ("DANGEROUS", "CRITICAL", "HIGH") and ceiling_val in ("SAFE", "LOW", "WARNING", "READ_ONLY", "LOW_RISK", "MEDIUM_RISK"):
+                    logger.warning(
+                        f"[SKILL BUDGET RISK EXCEEDED] Riesgo de skill '{skill.skill_id}' ({skill_risk_val}) supera techo ({ceiling_val})."
+                    )
+                    return SkillResult(
+                        skill_id=skill.skill_id,
+                        success=False,
+                        status=SkillStatus.FAILED,
+                        error=f"El nivel de riesgo de la Skill ({skill_risk_val}) supera el techo de riesgo del presupuesto ({ceiling_val}).",
+                        security_decision="BUDGET_RISK_CEILING_EXCEEDED",
+                        execution_id=context.execution_id,
+                    )
+
+        # 4. Evaluación de Seguridad previa (RiskEngine + PermissionManager)
         sec_req = SecurityRequest(
             action="execute",
             context=SecurityContext(
@@ -134,7 +195,64 @@ class SkillRuntime:
                     metadata={"confirmation_required": True, "risk_level": str(effective_risk)},
                 )
 
-        # 4. Ejecución de la Skill
-        logger.info(f"[SKILL RUNTIME EXECUTING] Ejecutando Skill '{skill.skill_id}'...")
-        res = skill.execute(context)
-        return res
+        # 5. Ejecución controlada con Timeout y Aislamiento de Errores
+        logger.info(f"[SKILL RUNTIME EXECUTING] Ejecutando Skill '{skill.skill_id}' con timeout={context.timeout_seconds}s...")
+
+        try:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                future = executor.submit(skill.execute, context)
+                try:
+                    res: SkillResult = future.result(timeout=context.timeout_seconds)
+                except TimeoutError:
+                    elapsed_ms = (time.perf_counter() - start_time) * 1000.0
+                    logger.error(
+                        f"[SKILL TIMEOUT] Skill '{skill.skill_id}' excedió el timeout de {context.timeout_seconds}s."
+                    )
+                    return SkillResult(
+                        skill_id=skill.skill_id,
+                        success=False,
+                        status=SkillStatus.FAILED,
+                        error=f"Timeout de ejecución: la Skill superó el tiempo límite de {context.timeout_seconds} segundos.",
+                        security_decision="TIMEOUT",
+                        execution_id=context.execution_id,
+                        duration_ms=elapsed_ms,
+                    )
+
+            # Comprobar cancelación post-ejecución
+            if context.cancellation_token and context.cancellation_token.is_cancelled:
+                return SkillResult(
+                    skill_id=skill.skill_id,
+                    success=False,
+                    status=SkillStatus.CANCELLED,
+                    error="Ejecución cancelada durante la operación.",
+                    security_decision="CANCELLED",
+                    execution_id=context.execution_id,
+                    duration_ms=(time.perf_counter() - start_time) * 1000.0,
+                )
+
+            # Comprobar Parada de Emergencia post-ejecución
+            if self.emergency_stop.is_stopped():
+                return SkillResult(
+                    skill_id=skill.skill_id,
+                    success=False,
+                    status=SkillStatus.FAILED,
+                    error="Parada de Emergencia activada durante la ejecución.",
+                    security_decision="EMERGENCY_STOP",
+                    execution_id=context.execution_id,
+                    duration_ms=(time.perf_counter() - start_time) * 1000.0,
+                )
+
+            return res
+
+        except Exception as exc:
+            elapsed_ms = (time.perf_counter() - start_time) * 1000.0
+            logger.error(f"[SKILL RUNTIME EXCEPTION] Error en ejecución de '{skill.skill_id}': {exc}")
+            return SkillResult(
+                skill_id=skill.skill_id,
+                success=False,
+                status=SkillStatus.FAILED,
+                error=f"Excepción no controlada durante la ejecución de la Skill: {exc}",
+                security_decision="EXCEPTION",
+                execution_id=context.execution_id,
+                duration_ms=elapsed_ms,
+            )
