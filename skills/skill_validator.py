@@ -49,6 +49,9 @@ SECURITY_TAMPERING_KEYWORDS: set[str] = {
 }
 
 
+DESTRUCTIVE_KEYWORDS_REGEX = re.compile(r"\b(delete|format|destroy|purge|wipe|borrado|destruccion)\b", re.IGNORECASE)
+
+
 class SkillValidationError(MCPError):
     """Error emitido cuando una Skill viola las reglas de validación estructural o de seguridad."""
 
@@ -80,8 +83,8 @@ class SkillValidator:
                 return False, f"La skill '{definition.skill_id}' solicita el permiso prohibido '{perm}'. Operación denegada por seguridad inmutable."
 
         # 5. Validar Consistencia de Riesgo
-        desc_lower = (definition.description + " " + definition.name).lower()
-        if any(k in desc_lower for k in ("delete", "format", "destroy", "purge", "wipe")):
+        desc_lower = f"{definition.description} {definition.name}".lower()
+        if DESTRUCTIVE_KEYWORDS_REGEX.search(desc_lower):
             if definition.risk_level in (SecurityLevel.SAFE, SecurityLevel.LOW):
                 return False, f"La skill '{definition.skill_id}' contiene operaciones destructivas pero declara risk_level SAFE/LOW. Intento de degradación de riesgo rechazado."
 
@@ -151,8 +154,8 @@ class SkillValidator:
                 return False, f"Intento malicioso de manipulación de seguridad detectado con palabra clave '{kw}' en manifest '{manifest.id}'."
 
         # 10. Consistencia de nivel de riesgo
-        desc_lower = (manifest.description + " " + manifest.name).lower()
-        if any(k in desc_lower for k in ("delete", "format", "destroy", "purge", "wipe")):
+        desc_lower = f"{manifest.description} {manifest.name}".lower()
+        if DESTRUCTIVE_KEYWORDS_REGEX.search(desc_lower):
             if manifest.risk_level in (SecurityLevel.SAFE, SecurityLevel.LOW):
                 return False, f"Degradación de riesgo inválida: La skill '{manifest.id}' realiza acciones destructivas pero declara riesgo SAFE/LOW."
 

@@ -1,8 +1,10 @@
-"""Módulo y Framework de Habilidades (Skills) de JESSYCA 3.0 (Fases 28.0 - 28.7).
+"""Módulo y Framework de Habilidades (Skills) de JESSYCA 3.0 (Fases 28.0 - 28.8).
 
-Proporciona tanto el Skill Framework modular (SkillDefinition, SkillRegistry, SkillManager,
-SkillRouter, SkillRuntime, SkillSecuritySandbox) como las primeras Production Skills
-(windows.apps, windows.screenshot, files.search, browser.search) y soporte retrocompatible.
+Proporciona el Skill Framework completo junto con el Catálogo Oficial de Skills:
+- Windows: windows.apps, windows.screenshot, windows.clipboard, windows.notifications, windows.audio, windows.display
+- Files: files.search, files.read, files.create, files.copy, files.move, files.rename, files.organize
+- Browser: browser.open, browser.search, browser.navigate, browser.read, browser.download
+- Documents: documents.read, documents.create, documents.summarize, documents.convert
 """
 
 from __future__ import annotations
@@ -12,7 +14,27 @@ from skills.apps_skill import WindowsAppsSkill
 from skills.archivos import BuscarArchivo
 from skills.base_skill import BaseSkill
 from skills.browser_search_skill import BrowserSearchSkill
+from skills.browser_skills import (
+    BrowserDownloadSkill,
+    BrowserNavigateSkill,
+    BrowserOpenSkill,
+    BrowserReadSkill,
+)
+from skills.documents_skills import (
+    DocumentsConvertSkill,
+    DocumentsCreateSkill,
+    DocumentsReadSkill,
+    DocumentsSummarizeSkill,
+)
 from skills.file_search_skill import FilesSearchSkill
+from skills.files_skills import (
+    FilesCopySkill,
+    FilesCreateSkill,
+    FilesMoveSkill,
+    FilesOrganizeSkill,
+    FilesReadSkill,
+    FilesRenameSkill,
+)
 from skills.screenshot_skill import WindowsScreenshotSkill
 from skills.skill_manager import (
     SkillManager,
@@ -53,15 +75,42 @@ from skills.skill_validator import (
     SkillValidationError,
     SkillValidator,
 )
+from skills.windows_skills import (
+    WindowsAudioSkill,
+    WindowsClipboardSkill,
+    WindowsDisplaySkill,
+    WindowsNotificationsSkill,
+)
 
-# Catálogo oficial de Skills de Producción registradas en el sistema
-SKILLS_DISPONIBLES = {
-    # Production Skills 1.0 (Fase 28.7)
+# Catálogo Oficial de Skills de Producción registradas en el sistema
+SKILLS_DISPONIBLES: dict[str, BaseSkill] = {
+    # ── 1. GRUPO WINDOWS ──
     "windows.apps": WindowsAppsSkill(),
     "windows.screenshot": WindowsScreenshotSkill(),
+    "windows.clipboard": WindowsClipboardSkill(),
+    "windows.notifications": WindowsNotificationsSkill(),
+    "windows.audio": WindowsAudioSkill(),
+    "windows.display": WindowsDisplaySkill(),
+    # ── 2. GRUPO FILES ──
     "files.search": FilesSearchSkill(),
+    "files.read": FilesReadSkill(),
+    "files.create": FilesCreateSkill(),
+    "files.copy": FilesCopySkill(),
+    "files.move": FilesMoveSkill(),
+    "files.rename": FilesRenameSkill(),
+    "files.organize": FilesOrganizeSkill(),
+    # ── 3. GRUPO BROWSER ──
+    "browser.open": BrowserOpenSkill(),
     "browser.search": BrowserSearchSkill(),
-    # Legacy aliases retrocompatibles
+    "browser.navigate": BrowserNavigateSkill(),
+    "browser.read": BrowserReadSkill(),
+    "browser.download": BrowserDownloadSkill(),
+    # ── 4. GRUPO DOCUMENTS ──
+    "documents.read": DocumentsReadSkill(),
+    "documents.create": DocumentsCreateSkill(),
+    "documents.summarize": DocumentsSummarizeSkill(),
+    "documents.convert": DocumentsConvertSkill(),
+    # ── LEGACY ALIASES ──
     "abrir_aplicacion": AbrirAplicacion(),
     "cerrar_aplicacion": CerrarAplicacion(),
     "buscar_archivo": BuscarArchivo(),
@@ -79,12 +128,33 @@ __all__ = [
     "CerrarAplicacion",
     "BuscarArchivo",
     "SKILLS_DISPONIBLES",
-    # Production Skills (Fase 28.7)
+    # Grupo Windows
     "WindowsAppsSkill",
     "WindowsScreenshotSkill",
+    "WindowsClipboardSkill",
+    "WindowsNotificationsSkill",
+    "WindowsAudioSkill",
+    "WindowsDisplaySkill",
+    # Grupo Files
     "FilesSearchSkill",
+    "FilesReadSkill",
+    "FilesCreateSkill",
+    "FilesCopySkill",
+    "FilesMoveSkill",
+    "FilesRenameSkill",
+    "FilesOrganizeSkill",
+    # Grupo Browser
+    "BrowserOpenSkill",
     "BrowserSearchSkill",
-    # Skill Framework 2.0 (Fases 28.0 - 28.6)
+    "BrowserNavigateSkill",
+    "BrowserReadSkill",
+    "BrowserDownloadSkill",
+    # Grupo Documents
+    "DocumentsReadSkill",
+    "DocumentsCreateSkill",
+    "DocumentsSummarizeSkill",
+    "DocumentsConvertSkill",
+    # Skill Framework 2.0
     "SkillStatus",
     "SkillCapability",
     "ALLOWED_SKILL_CAPABILITIES",

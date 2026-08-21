@@ -585,12 +585,30 @@ __all__ = [
     "PluginEcosystemValidator",
     "PluginEcosystemManager",
     "get_plugin_ecosystem_manager",
-    # Production Skills 1.0 (Fase 28.7)
+    # Production Skills Catalog (Fase 28.8)
     "WindowsAppsSkill",
     "WindowsScreenshotSkill",
+    "WindowsClipboardSkill",
+    "WindowsNotificationsSkill",
+    "WindowsAudioSkill",
+    "WindowsDisplaySkill",
     "FilesSearchSkill",
+    "FilesReadSkill",
+    "FilesCreateSkill",
+    "FilesCopySkill",
+    "FilesMoveSkill",
+    "FilesRenameSkill",
+    "FilesOrganizeSkill",
+    "BrowserOpenSkill",
     "BrowserSearchSkill",
-    # Skill Framework Foundation (Fases 28.0 - 28.7)
+    "BrowserNavigateSkill",
+    "BrowserReadSkill",
+    "BrowserDownloadSkill",
+    "DocumentsReadSkill",
+    "DocumentsCreateSkill",
+    "DocumentsSummarizeSkill",
+    "DocumentsConvertSkill",
+    # Skill Framework Foundation (Fases 28.0 - 28.8)
     "BaseSkill",
     "SkillCapability",
     "SkillPermission",
@@ -616,8 +634,34 @@ __all__ = [
 from skills.apps_skill import WindowsAppsSkill
 from skills.base_skill import BaseSkill
 from skills.browser_search_skill import BrowserSearchSkill
+from skills.browser_skills import (
+    BrowserDownloadSkill,
+    BrowserNavigateSkill,
+    BrowserOpenSkill,
+    BrowserReadSkill,
+)
+from skills.documents_skills import (
+    DocumentsConvertSkill,
+    DocumentsCreateSkill,
+    DocumentsReadSkill,
+    DocumentsSummarizeSkill,
+)
 from skills.file_search_skill import FilesSearchSkill
+from skills.files_skills import (
+    FilesCopySkill,
+    FilesCreateSkill,
+    FilesMoveSkill,
+    FilesOrganizeSkill,
+    FilesReadSkill,
+    FilesRenameSkill,
+)
 from skills.screenshot_skill import WindowsScreenshotSkill
+from skills.windows_skills import (
+    WindowsAudioSkill,
+    WindowsClipboardSkill,
+    WindowsDisplaySkill,
+    WindowsNotificationsSkill,
+)
 from skills.skill_models import (
     SkillCapability,
     SkillContext,

@@ -52,6 +52,8 @@ class SkillCapability(StrEnum):
 
     BROWSER = "browser"
     BROWSER_NAVIGATION = "browser_navigation"
+    OPEN_BROWSER = "open_browser"
+    BROWSER_DOWNLOAD = "browser_download"
     WEB_SEARCH = "web_search"
     CONTENT_READ = "content_read"
     DESKTOP = "desktop"
@@ -62,6 +64,11 @@ class SkillCapability(StrEnum):
     SYSTEM = "system"
     SYSTEM_DIAGNOSTICS = "system_diagnostics"
     SYSTEM_INFO = "system_info"
+    SYSTEM_NOTIFICATION = "system_notification"
+    SYSTEM_AUDIO = "system_audio"
+    SYSTEM_DISPLAY = "system_display"
+    HARDWARE_CONTROL = "hardware_control"
+    HARDWARE_INFO = "hardware_info"
     APPLICATION = "application"
     APPLICATION_CONTROL = "application_control"
     VISION = "vision"
@@ -69,6 +76,16 @@ class SkillCapability(StrEnum):
     NETWORK = "network"
     MEMORY = "memory"
     PROCESS = "process"
+    CLIPBOARD = "clipboard"
+    CLIPBOARD_READ = "clipboard_read"
+    CLIPBOARD_WRITE = "clipboard_write"
+    DOCUMENT = "document"
+    DOCUMENT_READ = "document_read"
+    DOCUMENT_WRITE = "document_write"
+    DOCUMENT_SUMMARIZE = "document_summarize"
+    DOCUMENT_CONVERT = "document_convert"
+    TEXT_PROCESSING = "text_processing"
+    USER_INTERACTION = "user_interaction"
 
 
 # Catálogo extendido de capacidades reconocidas por el sistema
