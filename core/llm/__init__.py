@@ -150,8 +150,25 @@ __all__ = [
     "ConsensusEngine",
     "get_consensus_engine",
     "DEFAULT_CONSENSUS_ENSEMBLE",
+    # Model Performance Learning (Fase 26)
+    "InferenceExecutionRecord",
+    "ModelPerformanceStats",
+    "ModelPerformanceStore",
+    "ModelPerformanceLearner",
+    "get_model_performance_learner",
 ]
 
+from core.llm.performance_learning import (
+    ModelPerformanceLearner,
+    get_model_performance_learner,
+)
+from core.llm.performance_models import (
+    InferenceExecutionRecord,
+    ModelPerformanceStats,
+)
+from core.llm.performance_store import (
+    ModelPerformanceStore,
+)
 from core.llm.smart_routing_models import (
     ModelPerformanceTracker,
     ModelRoutingDecision,
