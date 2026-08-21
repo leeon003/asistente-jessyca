@@ -33,7 +33,6 @@ from __future__ import annotations
 
 import concurrent.futures
 from datetime import UTC, datetime, timedelta
-from typing import Any
 
 import pytest
 

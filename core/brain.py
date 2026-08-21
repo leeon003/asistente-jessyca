@@ -1,3 +1,11 @@
+"""Módulo de interpretación y extracción estructurada de intenciones (Brain).
+
+Refactorizado en Fase 1 (Multi-LLM Foundation) para interactuar mediante la abstracción
+LLMProvider y ModelManager, preservando total retrocompatibilidad y fallback.
+"""
+
+from __future__ import annotations
+
 import json
 import logging
 import os
@@ -8,9 +16,15 @@ import requests
 from dotenv import load_dotenv
 
 from core.intent_models import IntentStatus, ParsedIntent, PendingIntent
+from core.llm.exceptions import (
+    ProviderConnectionError,
+    ProviderTimeoutError,
+)
+from core.llm.inference import InferenceRequest, LLMProvider, OllamaProvider
 
 load_dotenv()
 
+# Variables de entorno mantenidas temporalmente por compatibilidad retroactiva
 OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "gemma4:e4b")
 
@@ -23,6 +37,7 @@ logger = logging.getLogger("brain")
 
 
 def _cargar_system_prompt() -> str:
+    """Carga las instrucciones base del sistema desde system_prompt.txt."""
     try:
         with open(SYSTEM_PROMPT_PATH, encoding="utf-8") as f:
             return f.read().strip()
@@ -31,6 +46,7 @@ def _cargar_system_prompt() -> str:
 
 
 def _construir_prompt_skills(skills_disponibles: dict[str, Any] | None) -> str:
+    """Construye la descripción textual del catálogo de habilidades disponibles."""
     if not skills_disponibles:
         return "No hay habilidades registradas actualmente."
     lineas = ["HABILIDADES DISPONIBLES (usa el campo 'skill' con exactamente este nombre):"]
@@ -76,28 +92,25 @@ def _extraer_json(texto: str) -> dict[str, Any] | None:
     return None
 
 
-def _llamar_ollama(prompt_completo: str) -> str:
-    """Realiza la llamada HTTP a Ollama y retorna el texto de la respuesta."""
-    url = f"{OLLAMA_HOST}/api/generate"
-    payload = {
-        "model": OLLAMA_MODEL,
-        "prompt": prompt_completo,
-        "stream": False,
-        "options": {"temperature": 0.1}
-    }
-    response = requests.post(url, json=payload, timeout=60)
-    response.raise_for_status()
-    return str(response.json().get("response", ""))
+def _llamar_ollama(prompt_completo: str, model_name: str | None = None) -> str:
+    """Realiza la inferencia a través de la abstracción OllamaProvider."""
+    provider = OllamaProvider(host=OLLAMA_HOST, post_fn=requests.post)
+    return provider.generate_text(
+        prompt=prompt_completo,
+        model_name=model_name or OLLAMA_MODEL,
+    )
 
 
 def procesar_orden(
     texto_usuario: str,
     skills_disponibles: dict[str, Any] | None = None,
     contexto_aclaracion: PendingIntent | None = None,
+    provider: LLMProvider | None = None,
+    model_name: str | None = None,
 ) -> ParsedIntent:
-    """
-    Envía el texto del usuario al LLM (Ollama local con gemma4:e4b) y parsea la respuesta
-    como instrucción estructurada y tipada (ParsedIntent) para el validador y orquestador.
+    """Envía el texto del usuario al LLM y parsea la respuesta como instrucción estructurada y tipada (ParsedIntent).
+
+    Utiliza la capa desacoplada LLMProvider / ModelManager permitiendo selección explícita de modelo.
     """
     skills_map = skills_disponibles or {}
     system_prompt = _cargar_system_prompt()
@@ -127,14 +140,25 @@ def procesar_orden(
 
     for intento in range(1, 3):  # hasta 2 intentos
         try:
-            texto_respuesta = _llamar_ollama(prompt_completo)
-        except requests.exceptions.ConnectionError:
+            if provider is not None:
+                # Inferencia mediante abstracción LLMProvider desacoplada
+                req = InferenceRequest(
+                    prompt=prompt_completo,
+                    model_name=model_name,
+                    temperature=0.1,
+                )
+                res = provider.generate(req)
+                texto_respuesta = res.content
+            else:
+                # Ruta predeterminada manteniendo compatibilidad total mediante _llamar_ollama
+                texto_respuesta = _llamar_ollama(prompt_completo, model_name=model_name)
+        except (requests.exceptions.ConnectionError, ProviderConnectionError):
             return ParsedIntent(
                 estado=IntentStatus.INVALID,
                 respuesta_hablada="No puedo conectarme al servicio de inteligencia local. ¿Está Ollama corriendo?",
                 error=f"Ollama no disponible en {OLLAMA_HOST}. Verifica que el servicio esté activo.",
             )
-        except requests.exceptions.Timeout:
+        except (requests.exceptions.Timeout, ProviderTimeoutError):
             return ParsedIntent(
                 estado=IntentStatus.INVALID,
                 respuesta_hablada="El modelo tardó demasiado en responder. Intenta de nuevo.",

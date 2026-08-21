@@ -10,7 +10,7 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import StrEnum
-from typing import Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
 from core.logger import get_logger
 from core.risk_engine import RiskAssessment
@@ -179,7 +179,7 @@ class PermissionManager:
         tool_name: str,
         operation: str = "execute",
         parameters: dict[str, Any] | None = None,
-        risk_level: SecurityLevel | RiskLevel = SecurityLevel.SAFE,
+        risk_level: SecurityLevel | str = SecurityLevel.SAFE,
         user: str = "user",
     ) -> PermissionDecision:
         """Método de conveniencia para verificar permisos directos."""

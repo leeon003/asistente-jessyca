@@ -12,7 +12,7 @@ import os
 import sqlite3
 import threading
 from datetime import datetime
-from typing import Protocol
+from typing import Any, Protocol
 
 from core.logger import get_logger
 from core.session_models import (

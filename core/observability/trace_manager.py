@@ -12,8 +12,7 @@ vía sinks desacoplados (JSONL, OTLP futuro).
 Thread-safe: usa threading.Lock para proteger el store interno.
 """
 
-from __future__ import annotations
-
+import contextvars
 import threading
 from collections import deque
 from collections.abc import Generator
@@ -27,8 +26,6 @@ from core.observability.span_models import Span, SpanStatus
 logger = get_logger("jessyca.observability.trace_manager")
 
 # ContextVar local para el span activo del hilo/tarea actual
-import contextvars
-
 _CURRENT_SPAN: contextvars.ContextVar[Span | None] = contextvars.ContextVar(
     "jessyca_current_span", default=None
 )

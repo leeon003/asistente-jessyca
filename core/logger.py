@@ -21,6 +21,17 @@ from core.constants import (
 _is_configured: bool = False
 
 
+class SafeRotatingFileHandler(RotatingFileHandler):
+    """Manejador de archivos rotativos seguro para Windows (ignora PermissionError durante rollover si otro proceso tiene el lock)."""
+
+    def doRollover(self) -> None:
+        try:
+            super().doRollover()
+        except PermissionError:
+            # En Windows, si otro proceso concurrente tiene el archivo abierto, continuar escribiendo
+            pass
+
+
 def setup_logger(
     log_level: str = DEFAULT_LOG_LEVEL,
     log_file: Path | str | None = None,
@@ -65,7 +76,7 @@ def setup_logger(
         log_file_path = Path(log_file)
         log_file_path.parent.mkdir(parents=True, exist_ok=True)
 
-    file_handler = RotatingFileHandler(
+    file_handler = SafeRotatingFileHandler(
         filename=str(log_file_path),
         maxBytes=MAX_LOG_BYTES,
         backupCount=LOG_BACKUP_COUNT,
@@ -88,7 +99,7 @@ def get_logger(name: str) -> logging.Logger:
         name: Nombre del componente o módulo (ej: 'jessyca.config', 'jessyca.tools').
 
     Returns:
-        Instancia de logging.Logger.
+        Instancia de logging.Logger lista para emitir registros estructurados.
     """
     if not _is_configured:
         setup_logger()

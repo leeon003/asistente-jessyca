@@ -1,12 +1,12 @@
-"""Controlled Agent Loop (Etapa 20.1).
+"""Controlled Agent Loop (Etapa 20.1 & Fase 6: Activación Controlada).
 
-Implementa el ciclo acotado, seguro y gobernado del agente:
-  OBSERVE -> INTERPRET -> RETRIEVE -> PLAN -> POLICY CHECK -> ACT -> VERIFY -> UPDATE
+Implementa el motor de ejecución acotado, seguro y gobernado del agente:
+  OBSERVE -> INTERPRET -> PLAN -> ACT -> VERIFY -> UPDATE -> STOP
 
 GARANTÍAS INMUTABLES:
-1. Bounded Loop: Iteraciones limitadas estrictamente por budget; PROHIBIDO 'while True' sin acotamiento.
-2. Multi-Dimensional Resource Limits: Timeout global, tool budget, token budget y límite de fallos.
-3. Risk Ceiling: Bloqueo inmediato de cualquier acción que supere el techo de riesgo declarado.
+1. Bounded Loop: Iteraciones (max_steps) limitadas estrictamente por budget; PROHIBIDO 'while True' sin acotamiento.
+2. Multi-Dimensional Resource Limits: Timeout global (max_time), tool budget (max_actions), reintentos (max_retries), token budget y techo de riesgo (max_risk).
+3. Risk Ceiling & Security Policy: Bloqueo inmediato (STOP INMEDIATO) de cualquier acción que supere el techo de riesgo o sea denegada por SecurityPipeline / PermissionManager / RiskEngine.
 4. Emergency & Cancellation: Detención inmediata ante Emergency Stop o señal de cancelación.
 5. Inviolabilidad de Políticas: Toda acción pasa por Policy Check antes de ACT.
 """
@@ -47,11 +47,13 @@ class ControlledAgentLoop:
         emergency_stop: EmergencyStopManager | None = None,
         action_executor: Callable[[str, str, dict[str, Any]], dict[str, Any]] | None = None,
         action_verifier: Callable[[str, dict[str, Any]], bool] | None = None,
+        security_checker: Callable[[str, str, dict[str, Any]], tuple[bool, str]] | None = None,
     ) -> None:
         self.planner = planner or ControlledToolPlanner()
         self.emergency_stop = emergency_stop or get_emergency_stop_manager()
         self.action_executor = action_executor or self._default_action_executor
         self.action_verifier = action_verifier or self._default_action_verifier
+        self.security_checker = security_checker
         self.governor = get_autonomy_governor()
         self.registry = get_capability_autonomy_registry()
 
@@ -75,15 +77,15 @@ class ControlledAgentLoop:
 
         logger.info(
             f"[AGENT LOOP START] Tarea '{task_uuid}': '{intent}' "
-            f"(Max iter: {effective_budget.max_iterations}, Timeout: {effective_budget.global_timeout_seconds}s, "
-            f"Risk ceiling: {effective_budget.risk_ceiling.value})"
+            f"(Max steps: {effective_budget.max_steps}, Timeout: {effective_budget.max_time}s, "
+            f"Risk ceiling: {effective_budget.max_risk.value})"
         )
 
         current_state = AgentLoopState.IDLE
         stop_reason = ""
 
         # INVARIANTE: Bounded Loop condicionado al límite de iteraciones (NUNCA while True)
-        while tracker.iterations_count < effective_budget.max_iterations:
+        while tracker.iterations_count < effective_budget.max_steps:
             iteration_index = tracker.iterations_count + 1
 
             # ── 0. BARRERA DE ENTRADA: Emergency Stop & Cancellation & Budgets ──
@@ -106,7 +108,7 @@ class ControlledAgentLoop:
                 logger.warning(f"[AGENT LOOP] {stop_reason}")
                 break
 
-            logger.debug(f"[AGENT LOOP] --- Iniciando Iteración {iteration_index}/{effective_budget.max_iterations} ---")
+            logger.debug(f"[AGENT LOOP] --- Iniciando Iteración {iteration_index}/{effective_budget.max_steps} ---")
 
             # ── 1. OBSERVE ──
             current_state = AgentLoopState.OBSERVING
@@ -118,13 +120,11 @@ class ControlledAgentLoop:
             subtask_hint = self._interpret(intent, observed_state, iteration_index)
             step_record["subtask"] = subtask_hint
 
-            # ── 3. RETRIEVE ──
-            current_state = AgentLoopState.RETRIEVING
+            # ── 3. PLAN ──
+            current_state = AgentLoopState.PLANNING
             retrieved_evidence = self._retrieve(intent, evidence)
             step_record["evidence_count"] = len(retrieved_evidence)
 
-            # ── 4. PLAN ──
-            current_state = AgentLoopState.PLANNING
             p_ctx = PlanningContext(
                 user_intent=intent,
                 current_autonomy_level=self.governor.current_level,
@@ -150,7 +150,7 @@ class ControlledAgentLoop:
             proposed_step = plan_proposal.proposed_steps[0]
             step_record["tool"] = f"{proposed_step.tool_name}.{proposed_step.operation}"
 
-            # ── 5. POLICY CHECK (Risk Ceiling & Autonomy Governance) ──
+            # ── 4. POLICY CHECK / SECURITY PIPELINE (Risk Ceiling, Autonomy, SecurityPolicy) ──
             current_state = AgentLoopState.CHECKING_POLICY
             policy_ok, policy_reason = self._check_policy(proposed_step, effective_budget)
             if not policy_ok:
@@ -158,10 +158,10 @@ class ControlledAgentLoop:
                 stop_reason = policy_reason
                 step_record["policy_denial"] = policy_reason
                 history_trace.append(step_record)
-                logger.warning(f"[AGENT LOOP POLICY DENIED] {policy_reason}")
+                logger.warning(f"[AGENT LOOP POLICY DENIED - STOP INMEDIATO] {policy_reason}")
                 break
 
-            # ── 6. ACT (Execution under Sandbox/Safe Pipeline) ──
+            # ── 5. ACT (Execution under Sandbox/Safe Pipeline) ──
             current_state = AgentLoopState.ACTING
             if self.emergency_stop.is_stopped():
                 current_state = AgentLoopState.STOPPED_EMERGENCY
@@ -173,7 +173,7 @@ class ControlledAgentLoop:
             tracker.tokens_consumed_count += int(act_result.get("tokens_used", 50))
             step_record["act_result"] = act_result
 
-            # ── 7. VERIFY ──
+            # ── 6. VERIFY ──
             current_state = AgentLoopState.VERIFYING
             verify_ok = self.action_verifier(f"{proposed_step.tool_name}.{proposed_step.operation}", act_result)
             step_record["verified"] = verify_ok
@@ -184,26 +184,26 @@ class ControlledAgentLoop:
                 tracker.consecutive_failures_count += 1
                 logger.warning(
                     f"[AGENT LOOP VERIFY FAIL] Fallo de verificación en acción '{proposed_step.tool_name}.{proposed_step.operation}' "
-                    f"(fallos consecutivos: {tracker.consecutive_failures_count})"
+                    f"(fallos consecutivos: {tracker.consecutive_failures_count}/{effective_budget.max_retries})"
                 )
-                if tracker.consecutive_failures_count >= effective_budget.max_consecutive_failures:
+                if tracker.consecutive_failures_count >= effective_budget.max_retries:
                     current_state = AgentLoopState.STOPPED_REPEATED_FAILURE
-                    stop_reason = f"Límite de fallos consecutivos alcanzado ({tracker.consecutive_failures_count} >= {effective_budget.max_consecutive_failures})."
+                    stop_reason = f"Límite de reintentos consecutivos alcanzado ({tracker.consecutive_failures_count} >= {effective_budget.max_retries})."
                     step_record["failure_halt"] = stop_reason
                     tracker.iterations_count += 1
                     history_trace.append(step_record)
                     break
 
-            # ── 8. UPDATE ──
+            # ── 7. UPDATE ──
             current_state = AgentLoopState.UPDATING
             tracker.iterations_count += 1
             self._update_state(ctx, proposed_step, act_result, verify_ok)
             history_trace.append(step_record)
 
             # Comprobar límite de herramientas antes de la siguiente iteración
-            if tracker.tools_executed_count >= effective_budget.max_tool_executions:
+            if tracker.tools_executed_count >= effective_budget.max_actions:
                 current_state = AgentLoopState.STOPPED_LIMIT_REACHED
-                stop_reason = f"Límite de herramientas ejecutadas alcanzado ({tracker.tools_executed_count} >= {effective_budget.max_tool_executions})."
+                stop_reason = f"Límite de herramientas ejecutadas alcanzado ({tracker.tools_executed_count} >= {effective_budget.max_actions})."
                 break
 
             # Evaluar condición de éxito o terminación del objetivo
@@ -214,7 +214,7 @@ class ControlledAgentLoop:
                 logger.info(f"[AGENT LOOP COMPLETED] {stop_reason}")
                 break
 
-        # Si agotó las iteraciones sin completar
+        # ── 8. STOP (Safe Terminal Exit) ──
         if current_state not in (
             AgentLoopState.COMPLETED,
             AgentLoopState.STOPPED_EMERGENCY,
@@ -225,7 +225,7 @@ class ControlledAgentLoop:
             AgentLoopState.STOPPED_LIMIT_REACHED,
         ):
             current_state = AgentLoopState.STOPPED_LIMIT_REACHED
-            stop_reason = f"Límite máximo de iteraciones alcanzado ({effective_budget.max_iterations})."
+            stop_reason = f"Límite máximo de pasos alcanzado ({effective_budget.max_steps})."
 
         return AgentLoopResult(
             task_id=task_uuid,
@@ -254,11 +254,11 @@ class ControlledAgentLoop:
         return {"step_id": f"step_{iteration:02d}", "description": intent, "keywords": keywords, "parameters": {}}
 
     def _retrieve(self, intent: str, evidence: list[MemoryEvidence]) -> list[MemoryEvidence]:
-        """Fase 3: RETRIEVE - Filtra evidencias para el planificador."""
+        """Recuperación de evidencias para el planificador."""
         return list(evidence)
 
     def _check_policy(self, step: Any, budget: AgentBudget) -> tuple[bool, str]:
-        """Fase 5: POLICY CHECK - Evalúa riesgo, techo de riesgo y nivel de autonomía."""
+        """Fase 4: POLICY CHECK - Evalúa riesgo, techo de riesgo, autonomía y SecurityPipeline."""
         risk_hierarchy = {
             TaskActionRisk.READ_ONLY: 0,
             "READ_ONLY": 0,
@@ -283,6 +283,7 @@ class ControlledAgentLoop:
         step_score = risk_hierarchy.get(step_risk, risk_hierarchy.get(step_val, 0))
         ceiling_score = risk_hierarchy.get(budget.risk_ceiling, risk_hierarchy.get(ceiling_val, 0))
 
+        # 1. Techo de riesgo
         if step_score > ceiling_score:
             return (
                 False,
@@ -297,14 +298,23 @@ class ControlledAgentLoop:
                 f"Nivel de autonomía insuficiente ({self.governor.current_level.label} < requerido {min_level.label}).",
             )
 
+        # 3. Security Checker / Pipeline externo
+        if self.security_checker is not None:
+            tool_name = getattr(step, "tool_name", "")
+            operation = getattr(step, "operation", "")
+            params = getattr(step, "parameters", {})
+            sec_ok, sec_reason = self.security_checker(tool_name, operation, params)
+            if not sec_ok:
+                return False, f"Security Pipeline DENY: {sec_reason}"
+
         return True, "Policy check OK"
 
     def _act(self, tool_name: str, operation: str, params: dict[str, Any]) -> dict[str, Any]:
-        """Fase 6: ACT - Ejecuta la acción a través del executor confiable."""
+        """Fase 5: ACT - Ejecuta la acción a través del executor confiable."""
         return self.action_executor(tool_name, operation, params)
 
     def _update_state(self, ctx: dict[str, Any], step: Any, act_result: dict[str, Any], verified: bool) -> None:
-        """Fase 8: UPDATE - Actualiza el contexto y progreso de la tarea."""
+        """Fase 7: UPDATE - Actualiza el contexto y progreso de la tarea."""
         ctx["last_action"] = f"{step.tool_name}.{step.operation}"
         ctx["last_verified"] = verified
         ctx.update(act_result.get("updated_context", {}))

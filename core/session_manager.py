@@ -149,35 +149,34 @@ class SessionManager:
             current_state = self.get_session(session_id)
             self.security_manager.validate_status_transition(current_state.status, current_state.status)
 
+            if current_state.status not in (SessionStatus.ACTIVE, SessionStatus.WAITING_INPUT, SessionStatus.WAITING_CONFIRMATION):
+                raise SessionSecurityError(f"No se pueden agregar mensajes a una sesión en estado '{current_state.status}'.")
 
-        if current_state.status not in (SessionStatus.ACTIVE, SessionStatus.WAITING_INPUT, SessionStatus.WAITING_CONFIRMATION):
-            raise SessionSecurityError(f"No se pueden agregar mensajes a una sesión en estado '{current_state.status}'.")
+            clean_content = self.security_manager.validate_message(content)
+            now = datetime.now(UTC)
 
-        clean_content = self.security_manager.validate_message(content)
-        now = datetime.now(UTC)
+            msg = SessionMessage(
+                message_id=str(uuid.uuid4()),
+                role=role,
+                content=clean_content,
+                timestamp=now,
+            )
 
-        msg = SessionMessage(
-            message_id=str(uuid.uuid4()),
-            role=role,
-            content=clean_content,
-            timestamp=now,
-        )
+            new_messages = current_state.messages + (msg,)
+            new_state = SessionState(
+                session_id=current_state.session_id,
+                status=SessionStatus.ACTIVE,
+                created_at=current_state.created_at,
+                updated_at=now,
+                messages=new_messages,
+                facts=current_state.facts,
+                preferences=current_state.preferences,
+                metadata=current_state.metadata,
+                current_task_id=current_state.current_task_id,
+            )
 
-        new_messages = current_state.messages + (msg,)
-        new_state = SessionState(
-            session_id=current_state.session_id,
-            status=SessionStatus.ACTIVE,
-            created_at=current_state.created_at,
-            updated_at=now,
-            messages=new_messages,
-            facts=current_state.facts,
-            preferences=current_state.preferences,
-            metadata=current_state.metadata,
-            current_task_id=current_state.current_task_id,
-        )
-
-        self.security_manager.validate_state_limits(new_state)
-        self.store.save_session(new_state)
+            self.security_manager.validate_state_limits(new_state)
+            self.store.save_session(new_state)
 
         sid_hash = self._hash_sid(str(current_state.session_id))
         audit_meta = {
@@ -207,31 +206,31 @@ class SessionManager:
             current_state = self.get_session(session_id)
             clean_k, clean_v, conf = self.security_manager.validate_fact(key, value, confidence)
 
-        now = datetime.now(UTC)
+            now = datetime.now(UTC)
 
-        fact = SessionFact(
-            fact_id=str(uuid.uuid4()),
-            key=clean_k,
-            value=clean_v,
-            confidence=conf,
-            timestamp=now,
-        )
+            fact = SessionFact(
+                fact_id=str(uuid.uuid4()),
+                key=clean_k,
+                value=clean_v,
+                confidence=conf,
+                timestamp=now,
+            )
 
-        new_facts = current_state.facts + (fact,)
-        new_state = SessionState(
-            session_id=current_state.session_id,
-            status=current_state.status,
-            created_at=current_state.created_at,
-            updated_at=now,
-            messages=current_state.messages,
-            facts=new_facts,
-            preferences=current_state.preferences,
-            metadata=current_state.metadata,
-            current_task_id=current_state.current_task_id,
-        )
+            new_facts = current_state.facts + (fact,)
+            new_state = SessionState(
+                session_id=current_state.session_id,
+                status=current_state.status,
+                created_at=current_state.created_at,
+                updated_at=now,
+                messages=current_state.messages,
+                facts=new_facts,
+                preferences=current_state.preferences,
+                metadata=current_state.metadata,
+                current_task_id=current_state.current_task_id,
+            )
 
-        self.security_manager.validate_state_limits(new_state)
-        self.store.save_session(new_state)
+            self.security_manager.validate_state_limits(new_state)
+            self.store.save_session(new_state)
 
         sid_hash = self._hash_sid(str(current_state.session_id))
         audit_meta = {

@@ -10,6 +10,11 @@ Contiene:
 - CapabilityAutonomyRegistry: Catálogo oficial de perfiles de sólo lectura en runtime.
 """
 
+from core.autonomy.autonomous_task_manager import AutonomousTaskManager
+from core.autonomy.autonomous_task_models import (
+    AutonomousTaskDefinition,
+    AutonomousTaskStatus,
+)
 from core.autonomy.autonomy_decision import AutonomyDecision, AutonomyDecisionValue
 from core.autonomy.autonomy_governor import AutonomyGovernor, get_autonomy_governor
 from core.autonomy.autonomy_level import AutonomyLevel, TaskActionRisk
@@ -32,6 +37,10 @@ from core.autonomy.capability_autonomy_registry import (
 )
 
 __all__ = [
+    # Autonomous Tasks (Fase 15)
+    "AutonomousTaskDefinition",
+    "AutonomousTaskStatus",
+    "AutonomousTaskManager",
     # Level model
     "AutonomyLevel",
     "TaskActionRisk",

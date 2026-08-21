@@ -20,7 +20,12 @@ htmlcov/
 # Logs del sistema
 logs/*.log
 *.log
+logs/audit/*.jsonl
 logs/audit/audit.jsonl.*
+
+# Datos locales y bases de datos runtime
+data/*.db
+data/*.json
 
 # Archivos de entorno local con datos sensibles
 .env
