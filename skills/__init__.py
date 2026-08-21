@@ -1,10 +1,13 @@
-"""Módulo y Framework de Habilidades (Skills) de JESSYCA 3.0 (Fases 28.0 - 28.8).
+"""Módulo y Framework de Habilidades (Skills) de JESSYCA 3.0 (Fases 28.0 - 32.0).
 
-Proporciona el Skill Framework completo junto con el Catálogo Oficial de Skills:
+Proporciona el Skill Framework completo junto con el Catálogo Oficial de Skills y el
+Subsistema Seguro de Empaquetado, Instalación, Validación Transaccional y Desinstalación (Fase 32):
 - Windows: windows.apps, windows.screenshot, windows.clipboard, windows.notifications, windows.audio, windows.display
 - Files: files.search, files.read, files.create, files.copy, files.move, files.rename, files.organize
 - Browser: browser.open, browser.search, browser.navigate, browser.read, browser.download
 - Documents: documents.read, documents.create, documents.summarize, documents.convert
+- Installer & Security: SkillPackage, SkillIntegrityVerifier, SkillSignatureVerifier, SkillCompatibilityChecker,
+  SkillDependencyValidator, SkillSecurityAnalyzer, SkillPermissionReviewer, IsolatedSkillLoader, SkillInstaller.
 """
 
 from __future__ import annotations
@@ -35,7 +38,30 @@ from skills.files_skills import (
     FilesReadSkill,
     FilesRenameSkill,
 )
+from skills.isolated_loader import (
+    IsolatedSkillLoader,
+    SkillLoaderError,
+)
 from skills.screenshot_skill import WindowsScreenshotSkill
+from skills.skill_compatibility import (
+    CompatibilityCheckResult,
+    SkillCompatibilityChecker,
+)
+from skills.skill_dependency import (
+    DependencyValidationResult,
+    SkillDependencyValidator,
+)
+from skills.skill_installer import (
+    InstallationResult,
+    SkillInstallationError,
+    SkillInstaller,
+    TransactionState,
+    UninstallResult,
+)
+from skills.skill_integrity import (
+    IntegrityVerificationResult,
+    SkillIntegrityVerifier,
+)
 from skills.skill_manager import (
     SkillManager,
     get_skill_manager,
@@ -49,6 +75,17 @@ from skills.skill_models import (
     SkillPermission,
     SkillResult,
     SkillStatus,
+)
+from skills.skill_package import (
+    PackageFormat,
+    SkillPackage,
+    SkillPackageError,
+    SkillPackageMetadata,
+    SkillPackageSecurityError,
+)
+from skills.skill_permission_reviewer import (
+    SkillPermissionReview,
+    SkillPermissionReviewer,
 )
 from skills.skill_registry import (
     SkillRegistry,
@@ -70,6 +107,15 @@ from skills.skill_sandbox import (
     SkillSecurityViolationError,
     SkillUndeclaredToolError,
     UntrustedDataWrapper,
+)
+from skills.skill_security_analyzer import (
+    SecurityAnalysisResult,
+    SkillSecurityAnalyzer,
+)
+from skills.skill_signature import (
+    SignatureStatus,
+    SignatureVerificationResult,
+    SkillSignatureVerifier,
 )
 from skills.skill_validator import (
     SkillValidationError,
@@ -180,4 +226,30 @@ __all__ = [
     "SkillUndeclaredToolError",
     "SkillRecursionLimitError",
     "SkillSecurityViolationError",
+    # Skill Installer & Packaging (Fase 32)
+    "PackageFormat",
+    "SkillPackage",
+    "SkillPackageMetadata",
+    "SkillPackageError",
+    "SkillPackageSecurityError",
+    "IntegrityVerificationResult",
+    "SkillIntegrityVerifier",
+    "SignatureStatus",
+    "SignatureVerificationResult",
+    "SkillSignatureVerifier",
+    "CompatibilityCheckResult",
+    "SkillCompatibilityChecker",
+    "DependencyValidationResult",
+    "SkillDependencyValidator",
+    "SecurityAnalysisResult",
+    "SkillSecurityAnalyzer",
+    "SkillPermissionReview",
+    "SkillPermissionReviewer",
+    "IsolatedSkillLoader",
+    "SkillLoaderError",
+    "TransactionState",
+    "InstallationResult",
+    "UninstallResult",
+    "SkillInstaller",
+    "SkillInstallationError",
 ]
