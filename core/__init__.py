@@ -585,7 +585,52 @@ __all__ = [
     "PluginEcosystemValidator",
     "PluginEcosystemManager",
     "get_plugin_ecosystem_manager",
+    # Skill Framework Foundation (Fase 28.0)
+    "BaseSkill",
+    "SkillCapability",
+    "SkillPermission",
+    "SkillDefinition",
+    "SkillContext",
+    "SkillResult",
+    "SkillStatus",
+    "SkillValidator",
+    "SkillRegistry",
+    "get_skill_registry",
+    "SkillRouter",
+    "get_skill_router",
+    "SkillRuntime",
+    "SkillManager",
+    "get_skill_manager",
 ]
+
+from skills.base_skill import BaseSkill
+from skills.skill_models import (
+    SkillCapability,
+    SkillContext,
+    SkillDefinition,
+    SkillPermission,
+    SkillResult,
+    SkillStatus,
+)
+from skills.skill_validator import (
+    SkillValidationError,
+    SkillValidator,
+)
+from skills.skill_registry import (
+    SkillRegistry,
+    get_skill_registry,
+)
+from skills.skill_router import (
+    SkillRouter,
+    get_skill_router,
+)
+from skills.skill_runtime import (
+    SkillRuntime,
+)
+from skills.skill_manager import (
+    SkillManager,
+    get_skill_manager,
+)
 
 from core.plugins_v2 import (
     PluginEcosystemManager,

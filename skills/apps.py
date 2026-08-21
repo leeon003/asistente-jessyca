@@ -2,9 +2,10 @@ import os
 import re
 import subprocess
 import unicodedata
+from typing import Any
+
 import psutil
 import yaml
-from typing import Any
 
 from skills.base_skill import BaseSkill
 
@@ -52,7 +53,7 @@ class AbrirAplicacion(BaseSkill):
         if not os.path.exists(self.ruta_config):
             return {}
         try:
-            with open(self.ruta_config, "r", encoding="utf-8") as f:
+            with open(self.ruta_config, encoding="utf-8") as f:
                 data = yaml.safe_load(f)
                 if isinstance(data, dict) and "applications" in data and isinstance(data["applications"], dict):
                     return {str(k): str(v) for k, v in data["applications"].items()}
