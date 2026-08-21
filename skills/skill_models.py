@@ -29,6 +29,11 @@ class SkillStatus(StrEnum):
     """Estados formales del ciclo de vida y ejecución de una Skill."""
 
     UNVALIDATED = "UNVALIDATED"
+    REGISTERED = "REGISTERED"
+    VALID = "VALID"
+    INVALID = "INVALID"
+    ENABLED = "ENABLED"
+    DISABLED = "DISABLED"
     DISCOVERED = "DISCOVERED"
     VALIDATING = "VALIDATING"
     LOADED = "LOADED"

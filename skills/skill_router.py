@@ -13,7 +13,10 @@ import threading
 from typing import ClassVar
 
 from core.logger import get_logger
-from skills.skill_models import SkillDefinition
+from skills.skill_models import (
+    SkillDefinition,
+    SkillStatus,
+)
 from skills.skill_registry import SkillRegistry, get_skill_registry
 
 logger = get_logger("jessyca.skills.router")
@@ -48,9 +51,13 @@ class SkillRouter:
             return None, 0.0, "Intención vacía."
 
         with self._lock:
-            skills = self.registry.list_skills()
+            all_skills = self.registry.list_skills()
+            skills = [
+                s for s in all_skills
+                if self.registry.get_status(s.skill_id) not in (SkillStatus.DISABLED, SkillStatus.INVALID, SkillStatus.FAILED)
+            ]
             if not skills:
-                return None, 0.0, "No hay skills registradas en el catálogo."
+                return None, 0.0, "No hay skills habilitadas registradas en el catálogo."
 
             # 1. Coincidencia exacta por skill_id o name
             for sk in skills:
