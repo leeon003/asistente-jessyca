@@ -35,6 +35,15 @@ from skills.skill_router import (
 from skills.skill_runtime import (
     SkillRuntime,
 )
+from skills.skill_sandbox import (
+    SkillRecursionLimitError,
+    SkillSandboxExecutionResult,
+    SkillSandboxSecurityError,
+    SkillSecuritySandbox,
+    SkillSecurityViolationError,
+    SkillUndeclaredToolError,
+    UntrustedDataWrapper,
+)
 from skills.skill_validator import (
     SkillValidationError,
     SkillValidator,
@@ -59,7 +68,7 @@ __all__ = [
     "CerrarAplicacion",
     "BuscarArchivo",
     "SKILLS_DISPONIBLES",
-    # Skill Framework 2.0 (Fase 28.0 y 28.1)
+    # Skill Framework 2.0 (Fases 28.0, 28.1 y 28.2)
     "SkillStatus",
     "SkillCapability",
     "ALLOWED_SKILL_CAPABILITIES",
@@ -77,4 +86,11 @@ __all__ = [
     "SkillRuntime",
     "SkillManager",
     "get_skill_manager",
+    "SkillSecuritySandbox",
+    "SkillSandboxExecutionResult",
+    "UntrustedDataWrapper",
+    "SkillSandboxSecurityError",
+    "SkillUndeclaredToolError",
+    "SkillRecursionLimitError",
+    "SkillSecurityViolationError",
 ]

@@ -585,7 +585,7 @@ __all__ = [
     "PluginEcosystemValidator",
     "PluginEcosystemManager",
     "get_plugin_ecosystem_manager",
-    # Skill Framework Foundation (Fase 28.0 y 28.1)
+    # Skill Framework Foundation (Fases 28.0, 28.1 y 28.2)
     "BaseSkill",
     "SkillCapability",
     "SkillPermission",
@@ -602,6 +602,9 @@ __all__ = [
     "SkillRuntime",
     "SkillManager",
     "get_skill_manager",
+    "SkillSecuritySandbox",
+    "SkillSandboxExecutionResult",
+    "UntrustedDataWrapper",
 ]
 
 from skills.base_skill import BaseSkill
@@ -632,6 +635,11 @@ from skills.skill_runtime import (
 from skills.skill_manager import (
     SkillManager,
     get_skill_manager,
+)
+from skills.skill_sandbox import (
+    SkillSandboxExecutionResult,
+    SkillSecuritySandbox,
+    UntrustedDataWrapper,
 )
 
 from core.plugins_v2 import (
