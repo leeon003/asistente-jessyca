@@ -567,8 +567,27 @@ __all__ = [
     "ModelPerformanceStore",
     "ModelPerformanceLearner",
     "get_model_performance_learner",
+    # Proactive Assistant (Fase 27)
+    "ProactiveEventType",
+    "ProactiveActionType",
+    "ProactiveEvent",
+    "ProactivePolicyDecision",
+    "ProactiveExecutionResult",
+    "ProactivePolicyEngine",
+    "ProactiveAssistant",
+    "get_proactive_assistant",
 ]
 
+from core.proactive import (
+    ProactiveActionType,
+    ProactiveAssistant,
+    ProactiveEvent,
+    ProactiveEventType,
+    ProactiveExecutionResult,
+    ProactivePolicyDecision,
+    ProactivePolicyEngine,
+    get_proactive_assistant,
+)
 from core.llm.performance_models import (
     InferenceExecutionRecord,
     ModelPerformanceStats,
