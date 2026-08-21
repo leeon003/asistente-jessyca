@@ -576,7 +576,27 @@ __all__ = [
     "ProactivePolicyEngine",
     "ProactiveAssistant",
     "get_proactive_assistant",
+    # Plugin Ecosystem 2.0 (Fase 28)
+    "PluginStatus",
+    "PluginToolDeclaration",
+    "PluginManifest2",
+    "ValidationStageResult",
+    "PluginValidationReport",
+    "PluginEcosystemValidator",
+    "PluginEcosystemManager",
+    "get_plugin_ecosystem_manager",
 ]
+
+from core.plugins_v2 import (
+    PluginEcosystemManager,
+    PluginEcosystemValidator,
+    PluginManifest2,
+    PluginStatus,
+    PluginToolDeclaration,
+    PluginValidationReport,
+    ValidationStageResult,
+    get_plugin_ecosystem_manager,
+)
 
 from core.proactive import (
     ProactiveActionType,
