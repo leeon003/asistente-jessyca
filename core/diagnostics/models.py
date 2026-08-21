@@ -1,7 +1,7 @@
-"""Modelos de Datos para el Sistema de Autodiagnóstico (Etapa 17.2).
+"""Modelos de Datos para el Sistema de Autodiagnóstico y Salud (Fase 29).
 
 Define:
-  - HealthStatus: Estados canónicos (HEALTHY, DEGRADED, FAILED, DISABLED).
+  - HealthStatus / ComponentStatus: Estados canónicos (HEALTHY, DEGRADED, UNAVAILABLE, ERROR).
   - HealthCheck: Resultado individual de un sondeo o chequeo de salud de un componente.
   - HealthReport: Informe integral del estado operativo del sistema y capacidades disponibles.
 """
@@ -15,7 +15,7 @@ from typing import Any
 
 
 class HealthStatus(StrEnum):
-    """Estados canónicos de salud operativa del sistema y sus subsistemas."""
+    """Estados canónicos de salud operativa del sistema y sus subsistemas (Fase 29)."""
 
     HEALTHY = "HEALTHY"
     """El componente está 100% operativo y listo para atender solicitudes."""
@@ -23,25 +23,42 @@ class HealthStatus(StrEnum):
     DEGRADED = "DEGRADED"
     """El componente opera parcialmente, con latencia elevada o capacidades reducidas."""
 
-    FAILED = "FAILED"
-    """El componente no está disponible o ha fallado críticamente."""
+    UNAVAILABLE = "UNAVAILABLE"
+    """El componente no está disponible o no se encuentra instalado/activo."""
 
+    ERROR = "ERROR"
+    """El componente ha experimentado una excepción o fallo crítico."""
+
+    # Aliases de compatibilidad
+    FAILED = "FAILED"
     DISABLED = "DISABLED"
-    """El componente ha sido desactivado explícitamente por configuración o seguridad."""
+
+
+ComponentStatus = HealthStatus
 
 
 class ComponentCategory(StrEnum):
     """Categorías de componentes sujetos a diagnóstico de salud."""
 
-    SERVICE = "SERVICE"
+    SYSTEM = "SYSTEM"
+    GPU = "GPU"
+    VRAM = "VRAM"
+    OLLAMA = "OLLAMA"
+    MODELS = "MODELS"
+    MODEL_MANAGER = "MODEL_MANAGER"
+    MEMORY = "MEMORY"
     BROWSER = "BROWSER"
+    DESKTOP = "DESKTOP"
+    VOICE = "VOICE"
+    SCHEDULER = "SCHEDULER"
+    MCP = "MCP"
+    SECURITY = "SECURITY"
+    PLUGINS = "PLUGINS"
+    PLUGIN = "PLUGIN"
+    SERVICE = "SERVICE"
     OCR = "OCR"
     MICROPHONE = "MICROPHONE"
-    OLLAMA = "OLLAMA"
     VECTOR_STORE = "VECTOR_STORE"
-    SCHEDULER = "SCHEDULER"
-    PLUGIN = "PLUGIN"
-    SYSTEM = "SYSTEM"
     RESOURCES = "RESOURCES"
 
 
@@ -101,8 +118,15 @@ class HealthReport:
         for check_name, check in self.checks.items():
             if check_name.lower() == key or check.component.lower() == key:
                 return check.is_available
-        # Si no está en el reporte, asumimos disponible por defecto o no diagnosticado
         return True
+
+    def get_component_status(self, component_name: str) -> HealthStatus:
+        """Obtiene el estado de salud de un componente específico."""
+        key = component_name.strip().lower()
+        for check_name, check in self.checks.items():
+            if check_name.lower() == key or check.component.lower() == key:
+                return check.status
+        return HealthStatus.UNAVAILABLE
 
     def get_user_notice(self, component_name: str) -> str | None:
         """Retorna un mensaje legible para el usuario si el componente no está disponible."""

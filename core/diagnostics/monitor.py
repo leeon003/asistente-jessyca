@@ -1,13 +1,13 @@
-"""HealthMonitor — Monitor Central de Salud y Diagnóstico Local (Etapa 17.2).
+"""HealthMonitor — Monitor Central de Salud y Diagnóstico Local (Fase 29).
 
 Proporciona:
-  - Ejecución de sondeos de componentes (Browser, OCR, Micrófono, Ollama, etc.).
+  - Ejecución de sondeos para los 14 componentes del sistema:
+    (System, GPU, VRAM, Ollama, Models, ModelManager, Memory, Browser, Desktop, Voice, Scheduler, MCP, Security, Plugins).
   - Detección de tasa excesiva de errores (excessive error rate).
   - Detección de fallos repetidos en acciones (repeated action failure).
   - Verificación de agotamiento de recursos (resource exhaustion).
-  - Interrupción temprana con mensajes informativos claros ("Browser control unavailable")
-    en lugar de bucles de reintento indefinidos.
-  - Fail-safe absoluto: NO ejecuta autoreparación peligrosa.
+  - Interrupción temprana con mensajes informativos claros.
+  - Fail-safe absoluto: El sistema de diagnóstico SOLO OBSERVA; NO modifica configuraciones críticas.
 """
 
 from __future__ import annotations
@@ -24,14 +24,20 @@ from core.diagnostics.models import (
     HealthStatus,
 )
 from core.diagnostics.probes import (
-    probe_browser_availability,
-    probe_microphone_availability,
-    probe_ocr_availability,
-    probe_ollama_availability,
-    probe_plugin_system_availability,
-    probe_scheduler_availability,
-    probe_service_boundary_availability,
-    probe_vector_store_availability,
+    probe_browser_health,
+    probe_desktop_health,
+    probe_gpu_health,
+    probe_mcp_health,
+    probe_memory_health,
+    probe_model_manager_health,
+    probe_models_health,
+    probe_ollama_health,
+    probe_plugins_health,
+    probe_scheduler_health,
+    probe_security_health,
+    probe_system_health,
+    probe_voice_health,
+    probe_vram_health,
 )
 from core.exceptions import MCPError
 from core.logger import get_logger
@@ -40,20 +46,20 @@ logger = get_logger("jessyca.diagnostics.monitor")
 
 
 class ComponentUnavailableError(MCPError):
-    """Error emitido cuando una herramienta/capacidad no puede ejecutarse porque el componente está no disponible."""
+    """Error emitido cuando una herramienta o capacidad no puede ejecutarse porque el componente está no disponible."""
 
     pass
 
 
 class HealthMonitor:
-    """Monitor singleton y orquestador de chequeos de salud de JESSYCA 3.0."""
+    """Monitor singleton y orquestador central de chequeos de salud de JESSYCA 3.0."""
 
     _instance: HealthMonitor | None = None
     _singleton_lock: threading.Lock = threading.Lock()
 
     # Umbrales por defecto
     MAX_CONSECUTIVE_ACTION_FAILURES: int = 3
-    EXCESSIVE_ERROR_RATE_THRESHOLD: float = 0.30  # 30% de fallos en ventana móvil
+    EXCESSIVE_ERROR_RATE_THRESHOLD: float = 0.30
     EVENT_WINDOW_SIZE: int = 50
 
     def __init__(self) -> None:
@@ -62,13 +68,13 @@ class HealthMonitor:
         self._last_report: HealthReport | None = None
         self._last_checked_at: datetime | None = None
 
-        # Seguimiento de fallos repetidos por acción/tool
+        # Seguimiento de fallos repetidos por acción
         self._consecutive_failures: dict[str, int] = collections.defaultdict(int)
 
         # Ventana móvil de eventos (True=éxito, False=fallo)
         self._event_window: collections.deque[bool] = collections.deque(maxlen=self.EVENT_WINDOW_SIZE)
 
-        # Registrar sondeos estándar por defecto
+        # Registrar los 14 sondeos oficiales
         self._register_default_probes()
 
     @classmethod
@@ -81,18 +87,24 @@ class HealthMonitor:
         return cls._instance
 
     def _register_default_probes(self) -> None:
-        """Registra los sondeos predeterminados del sistema."""
-        self.register_probe("browser", probe_browser_availability)
-        self.register_probe("ocr", probe_ocr_availability)
-        self.register_probe("microphone", probe_microphone_availability)
-        self.register_probe("ollama", probe_ollama_availability)
-        self.register_probe("vector_store", probe_vector_store_availability)
-        self.register_probe("scheduler", probe_scheduler_availability)
-        self.register_probe("plugin", probe_plugin_system_availability)
-        self.register_probe("service", probe_service_boundary_availability)
+        """Registra los 14 sondeos predeterminados del sistema."""
+        self.register_probe("system", probe_system_health)
+        self.register_probe("gpu", probe_gpu_health)
+        self.register_probe("vram", probe_vram_health)
+        self.register_probe("ollama", probe_ollama_health)
+        self.register_probe("models", probe_models_health)
+        self.register_probe("model_manager", probe_model_manager_health)
+        self.register_probe("memory", probe_memory_health)
+        self.register_probe("browser", probe_browser_health)
+        self.register_probe("desktop", probe_desktop_health)
+        self.register_probe("voice", probe_voice_health)
+        self.register_probe("scheduler", probe_scheduler_health)
+        self.register_probe("mcp", probe_mcp_health)
+        self.register_probe("security", probe_security_health)
+        self.register_probe("plugins", probe_plugins_health)
 
     def register_probe(self, name: str, probe_fn: Callable[[], HealthCheck]) -> None:
-        """Registra un sondeo personalizado para un componente."""
+        """Registra o sobreescribe un sondeo para un componente."""
         with self._lock:
             self._custom_probes[name.lower()] = probe_fn
 
@@ -138,8 +150,9 @@ class HealthMonitor:
                 check_result = HealthCheck(
                     name=name,
                     component=name,
-                    status=HealthStatus.FAILED,
-                    message=f"{name.capitalize()} diagnostic check failed: {exc}",
+                    status=HealthStatus.ERROR,
+                    message=f"Fallo en sondeo de {name}: {exc}",
+                    details={"error": str(exc)},
                 )
             checks[name] = check_result
 
@@ -189,11 +202,14 @@ class HealthMonitor:
                 user_friendly_messages.append(f"Action '{act}' failing repeatedly ({cnt} consecutive errors)")
 
         # 4. Determinar estado general (Overall Status)
-        failed_count = sum(1 for c in checks.values() if c.status == HealthStatus.FAILED)
+        error_count = sum(1 for c in checks.values() if c.status in (HealthStatus.ERROR, HealthStatus.FAILED))
+        unavailable_count = sum(1 for c in checks.values() if c.status == HealthStatus.UNAVAILABLE)
         degraded_count = sum(1 for c in checks.values() if c.status == HealthStatus.DEGRADED)
 
-        if failed_count > 0:
-            overall = HealthStatus.FAILED
+        if error_count > 0:
+            overall = HealthStatus.ERROR
+        elif unavailable_count > 0:
+            overall = HealthStatus.UNAVAILABLE
         elif degraded_count > 0:
             overall = HealthStatus.DEGRADED
         else:
@@ -215,36 +231,58 @@ class HealthMonitor:
 
         return report
 
+    def get_component_health(self, component_name: str) -> HealthCheck:
+        """Obtiene o ejecuta el chequeo específico para un componente."""
+        key = component_name.strip().lower()
+        with self._lock:
+            if key in self._custom_probes:
+                try:
+                    return self._custom_probes[key]()
+                except Exception as exc:
+                    return HealthCheck(
+                        name=key,
+                        component=key,
+                        status=HealthStatus.ERROR,
+                        message=f"Error en probe '{key}': {exc}",
+                    )
+
+        report = self.run_all_checks()
+        if key in report.checks:
+            return report.checks[key]
+        return HealthCheck(
+            name=key,
+            component=key,
+            status=HealthStatus.UNAVAILABLE,
+            message=f"Componente '{component_name}' no registrado en diagnóstico.",
+        )
+
     def is_component_available(self, component_name: str) -> bool:
-        """Verifica si un componente está disponible sin re-ejecutar todos los sondeos si hay un reporte reciente."""
+        """Verifica si un componente está disponible."""
         with self._lock:
             report = self._last_report
 
         if report is not None:
             return report.is_component_available(component_name)
 
-        # Si no hay reporte previo, evaluar
         return self.run_all_checks().is_component_available(component_name)
 
     def assert_available(self, component_name: str) -> None:
-        """Verifica que el componente esté disponible. Si no lo está, lanza ComponentUnavailableError
-
-        con el mensaje informativo exacto para evitar bucles de ejecución indefinidos.
-        """
+        """Verifica que el componente esté disponible o lanza ComponentUnavailableError."""
         report = self.run_all_checks()
         if not report.is_component_available(component_name):
             notice = report.get_user_notice(component_name) or f"{component_name.capitalize()} is unavailable"
             raise ComponentUnavailableError(f"[SELF-DIAGNOSTICS] {notice}")
 
     def reset_failures(self) -> None:
-        """Restablece el contador de fallos repetidos y la ventana de eventos (para tests o recuperación)."""
+        """Restablece el contador de fallos repetidos y la ventana de eventos."""
         with self._lock:
             self._consecutive_failures.clear()
             self._event_window.clear()
             self._last_report = None
+            self._custom_probes.clear()
+            self._register_default_probes()
 
 
-# Función de conveniencia
 def get_health_monitor() -> HealthMonitor:
     """Retorna el singleton global del HealthMonitor."""
     return HealthMonitor.get_instance()
