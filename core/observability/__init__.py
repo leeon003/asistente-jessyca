@@ -110,4 +110,20 @@ __all__ = [
     # Manager
     "ObservabilityManager",
     "get_observability_manager",
+    # Control Center & Real-Time Observability (Fase 24)
+    "ControlCenter",
+    "ControlCenterSnapshot",
+    "ControlCommandResult",
+    "SystemState",
+    "get_control_center",
 ]
+
+from core.observability.control_center import (
+    ControlCenter,
+    get_control_center,
+)
+from core.observability.control_center_models import (
+    ControlCenterSnapshot,
+    ControlCommandResult,
+    SystemState,
+)

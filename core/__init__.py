@@ -552,8 +552,23 @@ __all__ = [
     "PlanningEngine",
     "StepStatus",
     "get_planning_engine",
+    # Control Center & Observability (Fase 24)
+    "ControlCenter",
+    "ControlCenterSnapshot",
+    "ControlCommandResult",
+    "SystemState",
+    "get_control_center",
 ]
 
+from core.observability.control_center import (
+    ControlCenter,
+    get_control_center,
+)
+from core.observability.control_center_models import (
+    ControlCenterSnapshot,
+    ControlCommandResult,
+    SystemState,
+)
 from core.planning import (
     PlanBuilder,
     PlanExecutor,
