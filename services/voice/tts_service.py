@@ -60,6 +60,8 @@ class ITTSService(Protocol):
         cancellation_token: CancellationToken | None = None,
     ) -> bool: ...
 
+    def stop(self) -> None: ...
+
 
 class MockTTSService:
     """Servicio TTS sintético para pruebas rápidas y deterministas en CI/CD."""
@@ -69,6 +71,7 @@ class MockTTSService:
         self.should_fail = False
         self.failure_reason = "Simulated TTS Error"
         self.spoken_texts: list[str] = []
+        self.is_speaking = False
 
     def synthesize(
         self,
@@ -111,9 +114,16 @@ class MockTTSService:
         if self.should_fail:
             raise TTSFailureError(self.failure_reason)
 
+        self.is_speaking = True
         self.spoken_texts.append(text)
         logger.info(f"[MOCK TTS] Hablando: '{text}' (Voz: {voice or self.default_voice})")
+        self.is_speaking = False
         return True
+
+    def stop(self) -> None:
+        """Detiene inmediatamente la reproducción de voz actual (Barge-in)."""
+        self.is_speaking = False
+        logger.info("[MOCK TTS] Reproducción de voz detenida por interrupción.")
 
 
 class EdgeTTSService:
@@ -122,6 +132,15 @@ class EdgeTTSService:
     def __init__(self, default_voice: str = DEFAULT_VOICE_NAME) -> None:
         self.default_voice = default_voice
         self._lock = threading.RLock()
+        self._current_token: CancellationToken | None = None
+
+    def stop(self) -> None:
+        """Detiene de inmediato cualquier reproducción activa de voz."""
+        with self._lock:
+            if self._current_token:
+                self._current_token.cancel()
+                self._current_token = None
+        logger.info("[EDGE-TTS] Síntesis/Reproducción cancelada por comando stop.")
 
     def synthesize(
         self,

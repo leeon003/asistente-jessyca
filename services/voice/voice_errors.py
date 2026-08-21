@@ -1,6 +1,7 @@
-"""Excepciones formales y tipadas para el pipeline de voz (voice_errors.py - Fase 13).
+"""Excepciones formales y tipadas para el subsistema de voz (voice_errors.py - Fase 30).
 
-Define las clases de error para captura de audio, VAD, palabra de activación, STT y TTS.
+Define las clases de error para captura de audio, VAD, palabra de activación, STT, TTS,
+barge-in, interrupción y confirmación por voz.
 """
 
 from __future__ import annotations
@@ -63,24 +64,42 @@ class STTTimeoutError(STTError):
 
 
 class STTModelUnavailableError(STTError):
-    """Error emitido cuando el modelo de STT (faster-whisper) no está disponible."""
+    """Error emitido cuando el modelo de Faster-Whisper no está disponible."""
 
     pass
 
 
 class TTSError(VoiceError):
-    """Error base para fallos de síntesis de voz Text-to-Speech."""
+    """Error base para fallos de síntesis Text-to-Speech."""
 
     pass
 
 
 class TTSFailureError(TTSError):
-    """Error emitido cuando el motor de TTS (edge-tts) falla en generar audio."""
+    """Error emitido cuando falla la síntesis de audio en edge-tts."""
 
     pass
 
 
 class VoiceCancelledError(VoiceError):
-    """Error emitido cuando la operación de voz es cancelada explícitamente."""
+    """Error emitido cuando una interacción de voz es cancelada voluntariamente."""
+
+    pass
+
+
+class VoiceInterruptedError(VoiceError):
+    """Error emitido cuando la respuesta o ejecución es interrumpida por el usuario (Barge-in)."""
+
+    pass
+
+
+class VoiceConfirmationError(VoiceError):
+    """Error emitido cuando la confirmación por voz no puede validarse."""
+
+    pass
+
+
+class VoiceAmbiguousConfirmationError(VoiceConfirmationError):
+    """Error emitido cuando el usuario emite una respuesta ambigua, ruido o conversación externa ante confirmación."""
 
     pass

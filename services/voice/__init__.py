@@ -1,7 +1,7 @@
-"""Paquete del subsistema de voz (services.voice - Fase 13: Voice Pipeline).
+"""Paquete del subsistema de voz (services.voice - Fase 30: Voice Assistant 2.0).
 
-Exporta los servicios de captura de audio, VAD, Wake Word, STT (faster-whisper), TTS (edge-tts)
-y el pipeline de orquestación segura.
+Exporta los servicios de captura de audio, VAD, Wake Word, STT (faster-whisper), TTS (edge-tts),
+controlador de Barge-in, evaluador seguro de confirmaciones por voz y el pipeline de orquestación.
 """
 
 from services.voice.audio_input import (
@@ -10,6 +10,7 @@ from services.voice.audio_input import (
     MicrophoneAudioSource,
     SyntheticAudioSource,
 )
+from services.voice.barge_in_controller import BargeInController
 from services.voice.stt_service import (
     FasterWhisperSTTService,
     ISTTService,
@@ -29,6 +30,10 @@ from services.voice.vad_service import (
     VADEvent,
     VADResult,
 )
+from services.voice.voice_confirmation import (
+    VoiceConfirmationDecision,
+    VoiceConfirmationEvaluator,
+)
 from services.voice.voice_errors import (
     AudioDeviceDisconnectedError,
     MicrophonePermissionDeniedError,
@@ -40,8 +45,11 @@ from services.voice.voice_errors import (
     TTSFailureError,
     VADError,
     VADTimeoutError,
+    VoiceAmbiguousConfirmationError,
     VoiceCancelledError,
+    VoiceConfirmationError,
     VoiceError,
+    VoiceInterruptedError,
     WakeWordError,
 )
 from services.voice.voice_pipeline import (
@@ -57,6 +65,7 @@ from services.voice.wake_word_service import (
 __all__ = [
     "AudioChunk",
     "AudioDeviceDisconnectedError",
+    "BargeInController",
     "DEFAULT_VOICE_NAME",
     "EdgeTTSService",
     "EnergyVADService",
@@ -76,17 +85,22 @@ __all__ = [
     "STTModelUnavailableError",
     "STTTimeoutError",
     "SyntheticAudioSource",
+    "TTSError",
     "TTSFailureError",
     "TTSResult",
-    "TTSError",
     "TranscriptResult",
     "VADError",
     "VADEvent",
     "VADResult",
     "VADTimeoutError",
+    "VoiceAmbiguousConfirmationError",
     "VoiceCancelledError",
+    "VoiceConfirmationDecision",
+    "VoiceConfirmationError",
+    "VoiceConfirmationEvaluator",
     "VoiceError",
     "VoiceInteractionResult",
+    "VoiceInterruptedError",
     "VoicePipeline",
     "WakeWordError",
     "WakeWordResult",
