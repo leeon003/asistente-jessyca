@@ -29,6 +29,7 @@ from skills.skill_registry import (
     get_skill_registry,
 )
 from skills.skill_router import (
+    SkillRouteDecision,
     SkillRouter,
     get_skill_router,
 )
@@ -68,7 +69,7 @@ __all__ = [
     "CerrarAplicacion",
     "BuscarArchivo",
     "SKILLS_DISPONIBLES",
-    # Skill Framework 2.0 (Fases 28.0, 28.1 y 28.2)
+    # Skill Framework 2.0 (Fases 28.0 - 28.5)
     "SkillStatus",
     "SkillCapability",
     "ALLOWED_SKILL_CAPABILITIES",
@@ -82,6 +83,7 @@ __all__ = [
     "SkillRegistry",
     "get_skill_registry",
     "SkillRouter",
+    "SkillRouteDecision",
     "get_skill_router",
     "SkillRuntime",
     "SkillManager",
