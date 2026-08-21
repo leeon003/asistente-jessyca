@@ -585,7 +585,12 @@ __all__ = [
     "PluginEcosystemValidator",
     "PluginEcosystemManager",
     "get_plugin_ecosystem_manager",
-    # Skill Framework Foundation (Fases 28.0 - 28.5)
+    # Production Skills 1.0 (Fase 28.7)
+    "WindowsAppsSkill",
+    "WindowsScreenshotSkill",
+    "FilesSearchSkill",
+    "BrowserSearchSkill",
+    # Skill Framework Foundation (Fases 28.0 - 28.7)
     "BaseSkill",
     "SkillCapability",
     "SkillPermission",
@@ -608,7 +613,11 @@ __all__ = [
     "UntrustedDataWrapper",
 ]
 
+from skills.apps_skill import WindowsAppsSkill
 from skills.base_skill import BaseSkill
+from skills.browser_search_skill import BrowserSearchSkill
+from skills.file_search_skill import FilesSearchSkill
+from skills.screenshot_skill import WindowsScreenshotSkill
 from skills.skill_models import (
     SkillCapability,
     SkillContext,

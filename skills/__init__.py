@@ -1,15 +1,19 @@
-"""Módulo y Framework de Habilidades (Skills) de JESSYCA 3.0 (Fase 28.0).
+"""Módulo y Framework de Habilidades (Skills) de JESSYCA 3.0 (Fases 28.0 - 28.7).
 
 Proporciona tanto el Skill Framework modular (SkillDefinition, SkillRegistry, SkillManager,
-SkillRouter, SkillRuntime, SkillContext, SkillResult) como las implementaciones retrocompatibles
-(BaseSkill, AbrirAplicacion, CerrarAplicacion, BuscarArchivo, SKILLS_DISPONIBLES).
+SkillRouter, SkillRuntime, SkillSecuritySandbox) como las primeras Production Skills
+(windows.apps, windows.screenshot, files.search, browser.search) y soporte retrocompatible.
 """
 
 from __future__ import annotations
 
 from skills.apps import AbrirAplicacion, CerrarAplicacion
+from skills.apps_skill import WindowsAppsSkill
 from skills.archivos import BuscarArchivo
 from skills.base_skill import BaseSkill
+from skills.browser_search_skill import BrowserSearchSkill
+from skills.file_search_skill import FilesSearchSkill
+from skills.screenshot_skill import WindowsScreenshotSkill
 from skills.skill_manager import (
     SkillManager,
     get_skill_manager,
@@ -50,8 +54,14 @@ from skills.skill_validator import (
     SkillValidator,
 )
 
-# Registro retrocompatible de skills disponibles en el sistema
+# Catálogo oficial de Skills de Producción registradas en el sistema
 SKILLS_DISPONIBLES = {
+    # Production Skills 1.0 (Fase 28.7)
+    "windows.apps": WindowsAppsSkill(),
+    "windows.screenshot": WindowsScreenshotSkill(),
+    "files.search": FilesSearchSkill(),
+    "browser.search": BrowserSearchSkill(),
+    # Legacy aliases retrocompatibles
     "abrir_aplicacion": AbrirAplicacion(),
     "cerrar_aplicacion": CerrarAplicacion(),
     "buscar_archivo": BuscarArchivo(),
@@ -69,7 +79,12 @@ __all__ = [
     "CerrarAplicacion",
     "BuscarArchivo",
     "SKILLS_DISPONIBLES",
-    # Skill Framework 2.0 (Fases 28.0 - 28.5)
+    # Production Skills (Fase 28.7)
+    "WindowsAppsSkill",
+    "WindowsScreenshotSkill",
+    "FilesSearchSkill",
+    "BrowserSearchSkill",
+    # Skill Framework 2.0 (Fases 28.0 - 28.6)
     "SkillStatus",
     "SkillCapability",
     "ALLOWED_SKILL_CAPABILITIES",
