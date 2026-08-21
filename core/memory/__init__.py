@@ -1,9 +1,4 @@
-"""Sub-sistema de Memoria Multi-Agente de JESSYCA 3.0 (Fase 12).
-
-Exporta las clases, modelos y utilidades para la gestión de memoria global, privada por agente,
-efímera por tarea y semántica con control de acceso por políticas y procedencia.
-"""
-
+from core.memory.contradiction_detector import ContradictionDetector
 from core.memory.memory_access import (
     MemoryAccessControl,
     MemoryPromotionRequest,
@@ -20,6 +15,15 @@ from core.memory.memory_exceptions import (
     MemoryPromotionError,
     MemoryScopeError,
 )
+from core.memory.memory_expiration import MemoryExpirationManager
+from core.memory.memory_intelligence_engine import MemoryIntelligenceEngine
+from core.memory.memory_intelligence_models import (
+    ContradictionReport,
+    ContradictionResolution,
+    ContradictionType,
+    MemoryContextBundle,
+    RankedMemoryItem,
+)
 from core.memory.memory_manager import (
     MemoryManager,
     get_memory_manager,
@@ -31,16 +35,24 @@ from core.memory.memory_provenance import (
     MemoryProvenance,
     ProvenanceSource,
 )
+from core.memory.memory_ranker import MemoryRanker
 from core.memory.memory_scope import MemoryScope
 
 __all__ = [
     "AUTHORITATIVE_VERIFIER_SOURCES",
+    "ContradictionDetector",
+    "ContradictionReport",
+    "ContradictionResolution",
+    "ContradictionType",
     "InvalidProvenanceError",
     "MemoryAccessControl",
     "MemoryAccessDeniedError",
     "MemoryConfidence",
+    "MemoryContextBundle",
     "MemoryEntry",
     "MemoryError",
+    "MemoryExpirationManager",
+    "MemoryIntelligenceEngine",
     "MemoryIsolationViolationError",
     "MemoryManager",
     "MemoryNotFoundError",
@@ -49,9 +61,11 @@ __all__ = [
     "MemoryPromotionError",
     "MemoryPromotionRequest",
     "MemoryProvenance",
+    "MemoryRanker",
     "MemoryScope",
     "MemoryScopeError",
     "MemoryShareRequest",
     "ProvenanceSource",
+    "RankedMemoryItem",
     "get_memory_manager",
 ]

@@ -42,6 +42,8 @@ class MemoryEntry:
     session_id: str | None = None
     tags: tuple[str, ...] = ()
     metadata: dict[str, Any] = field(default_factory=dict)
+    expires_at: datetime | None = None
+    access_count: int = 0
 
     def __post_init__(self) -> None:
         if not self.entry_id or not isinstance(self.entry_id, str) or not self.entry_id.strip():
@@ -50,6 +52,13 @@ class MemoryEntry:
             raise MemoryError("La clave (key) de la entrada de memoria no puede estar vacía.")
         if not self.owner or not isinstance(self.owner, str) or not self.owner.strip():
             raise MemoryError("El propietario (owner) de la entrada de memoria no puede estar vacío.")
+
+    @property
+    def is_expired(self) -> bool:
+        """Determina si la entrada ha superado su fecha de expiración."""
+        if self.expires_at is None:
+            return False
+        return datetime.now(UTC) > self.expires_at
 
     @classmethod
     def create(
@@ -65,6 +74,8 @@ class MemoryEntry:
         session_id: str | None = None,
         tags: tuple[str, ...] | list[str] = (),
         metadata: dict[str, Any] | None = None,
+        expires_at: datetime | None = None,
+        access_count: int = 0,
     ) -> MemoryEntry:
         """Constructor de conveniencia seguro para crear nuevas entradas de memoria."""
         eid = entry_id or f"mem_{uuid.uuid4().hex[:12]}"
@@ -90,6 +101,8 @@ class MemoryEntry:
             session_id=session_id,
             tags=tuple(tags),
             metadata=dict(metadata or {}),
+            expires_at=expires_at,
+            access_count=access_count,
         )
 
     def with_update(
@@ -97,11 +110,15 @@ class MemoryEntry:
         content: str | None = None,
         confidence: MemoryConfidence | None = None,
         metadata_updates: dict[str, Any] | None = None,
+        expires_at: datetime | None = None,
+        increment_access: bool = False,
     ) -> MemoryEntry:
         """Genera una nueva instancia inmutable con campos actualizados manteniendo el entry_id y created_at."""
         new_meta = dict(self.metadata)
         if metadata_updates:
             new_meta.update(metadata_updates)
+
+        new_access_count = self.access_count + 1 if increment_access else self.access_count
 
         return MemoryEntry(
             entry_id=self.entry_id,
@@ -117,6 +134,8 @@ class MemoryEntry:
             session_id=self.session_id,
             tags=self.tags,
             metadata=new_meta,
+            expires_at=expires_at if expires_at is not None else self.expires_at,
+            access_count=new_access_count,
         )
 
     def with_promoted_confidence(
@@ -164,4 +183,6 @@ class MemoryEntry:
             "session_id": self.session_id,
             "tags": list(self.tags),
             "metadata": dict(self.metadata),
+            "expires_at": self.expires_at.isoformat() if self.expires_at else None,
+            "access_count": self.access_count,
         }
