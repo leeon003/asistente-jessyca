@@ -38,3 +38,14 @@ def mock_settings(temp_dir: Path) -> AppSettings:
         ENABLE_WINDOWS_NOTIFICATIONS=False,
         STRICT_WINDOWS_ADMIN_CHECK=False,
     )
+
+
+@pytest.fixture(autouse=True)
+def reset_emergency_stop() -> Generator[None, None, None]:
+    """Garantiza aislamiento estricto del estado de Parada de Emergencia entre tests."""
+    from core.emergency_stop import EmergencyStopManager
+
+    manager = EmergencyStopManager.get_instance()
+    manager.reset("test_setup_cleanup")
+    yield
+    manager.reset("test_teardown_cleanup")
