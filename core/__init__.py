@@ -532,5 +532,25 @@ __all__ = [
     "TaskExecutionResult",
     "PlanExecutionResult",
     "TaskExecutor",
+    # User Profile & Personalization (Fase 22)
+    "ConsentStatus",
+    "InformationScopeType",
+    "PreferenceDetector",
+    "ProfileCategory",
+    "ProfilePreferenceItem",
+    "UserProfileManager",
+    "UserProfileStore",
+    "get_user_profile_manager",
 ]
+
+from core.profile import (
+    ConsentStatus,
+    InformationScopeType,
+    PreferenceDetector,
+    ProfileCategory,
+    ProfilePreferenceItem,
+    UserProfileManager,
+    UserProfileStore,
+    get_user_profile_manager,
+)
 
