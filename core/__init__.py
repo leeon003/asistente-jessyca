@@ -541,8 +541,31 @@ __all__ = [
     "UserProfileManager",
     "UserProfileStore",
     "get_user_profile_manager",
+    # Planning Engine (Fase 23)
+    "PlanBuilder",
+    "PlanExecutor",
+    "PlanStatus",
+    "PlanStep",
+    "PlanStepResult",
+    "PlanValidationError",
+    "PlanValidator",
+    "PlanningEngine",
+    "StepStatus",
+    "get_planning_engine",
 ]
 
+from core.planning import (
+    PlanBuilder,
+    PlanExecutor,
+    PlanStatus,
+    PlanStep,
+    PlanStepResult,
+    PlanValidationError,
+    PlanValidator,
+    PlanningEngine,
+    StepStatus,
+    get_planning_engine,
+)
 from core.profile import (
     ConsentStatus,
     InformationScopeType,
