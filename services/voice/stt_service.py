@@ -62,6 +62,10 @@ class MockSTTService:
         self.should_timeout = False
         self.failure_reason = "Simulated STT Failure"
 
+    def set_transcription(self, text: str) -> None:
+        """Permite actualizar la transcripción simulada para tests dinámicos."""
+        self.predefined_transcription = text
+
     def transcribe(self, audio_data: bytes, sample_rate: int = 16000, timeout_seconds: float = 10.0) -> TranscriptResult:
         if self.should_timeout:
             raise STTTimeoutError("Tiempo límite de transcripción de audio excedido.")

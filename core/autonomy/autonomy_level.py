@@ -32,6 +32,7 @@ class AutonomyLevel(IntEnum):
     LEVEL_2_LOW_RISK_EXECUTION = 2
     LEVEL_3_CONFIRMATION_REQUIRED = 3
     LEVEL_4_CONTROLLED_AUTONOMY = 4
+    LEVEL_1_FULL_AUTONOMY = 4  # Alias de compatibilidad retroactiva
 
     @property
     def label(self) -> str:

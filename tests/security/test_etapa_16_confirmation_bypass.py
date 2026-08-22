@@ -26,7 +26,7 @@ class TestConfirmationAutoApproveM06:
     """AUDIT M-06: Auto-APPROVED cuando no se pasa provider."""
 
     def test_no_provider_uses_mock_approved_by_default(self) -> None:
-        """M-06 AUDIT: submit_request() sin provider auto-aprueba. Verificar comportamiento."""
+        """M-06 AUDIT: submit_request() sin provider debe aplicar Fail-Safe DENY (REJECTED)."""
         manager = ConfirmationManager()
         req = manager.create_request(
             tool_name="dangerous.operation",
@@ -35,15 +35,11 @@ class TestConfirmationAutoApproveM06:
             reason="Test M-06 auto-approve risk",
         )
 
-        # Sin pasar provider — el fallback es MockConfirmationProvider(APPROVED)
+        # Sin pasar provider — el fallback de seguridad es REJECTED
         result = manager.submit_request(req)  # Sin provider
-
-        if str(result.status).lower() == "approved":
-            pytest.xfail(
-                "[AUDIT-M06-CONFIRMED] submit_request() sin provider auto-aprobó la solicitud. "
-                "En producción, si confirmation_provider=None, toda confirmación se auto-aprueba. "
-                "Esto es un hallazgo HIGH de seguridad."
-            )
+        assert str(result.status).lower() == "rejected", (
+            "Fail-Safe DENY: submit_request() sin provider explícito debe resultar en estado REJECTED."
+        )
 
     def test_with_explicit_reject_provider_is_rejected(self) -> None:
         """Con provider REJECTED, la confirmación debe ser rechazada."""

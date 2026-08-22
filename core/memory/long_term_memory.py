@@ -93,6 +93,7 @@ class LongTermMemoryEngine:
     INJECTION_PATTERNS = [
         re.compile(r"(\[INST\]|\[/INST\]|DAN jailbreak|ignore previous instructions)", re.IGNORECASE),
         re.compile(r"(security approved|permission granted to|bypass security pipeline)", re.IGNORECASE),
+        re.compile(r"(always allow|always allow this|grant root access|authorization:\s*allowed|permission:\s*allow|override permission)", re.IGNORECASE),
     ]
 
     def __init__(

@@ -115,30 +115,52 @@ class ContextSecurityManager:
 
 
     def sanitize_text(self, text: str) -> str:
-        """Remueve null bytes, caracteres de control no imprimibles y redacta secretos de seguridad."""
+        """Remueve null bytes, caracteres de control no imprimibles, marcas de override Unicode, BOM y redacta secretos de seguridad."""
         if not text or not isinstance(text, str):
             return ""
 
-        # 1. Limpieza de null bytes y caracteres de control
+        # 1. Limpieza de null bytes y caracteres de control C0 (U+0000–U+001F)
         clean = re.sub(r"[\x00-\x1f]", "", text).strip()
 
-        # 2. Redacción de credenciales y secretos vía SecretRedactor
+        # 2. Limpieza de caracteres Unicode peligrosos (RTL override, BOM, Zero-Width control)
+        # U+202A-U+202E: Directional embedding / override (LRE, RLE, PDF, LRO, RLO)
+        # U+2066-U+2069: Directional isolate (LRI, RLI, FSI, PDI)
+        # U+200E, U+200F: LRM, RLM
+        # U+FEFF: Byte Order Mark (BOM) / Zero-Width No-Break Space
+        # U+200B-U+200D, U+2060: Zero-width space, joiner, non-joiner, word joiner
+        clean = re.sub(r"[\u202a-\u202e\u2066-\u2069\u200e\u200f\ufeff\u200b-\u200d\u2060]", "", clean)
+
+        # 3. Redacción de credenciales y secretos vía SecretRedactor
         redacted, _ = self.redactor.redact(clean)
 
-
-        # 3. Truncamiento al tamaño máximo por elemento si excede
+        # 4. Truncamiento al tamaño máximo por elemento si excede
         if len(redacted) > self.max_item_len:
             return redacted[: self.max_item_len] + "... [TRUNCATED]"
 
         return redacted
 
     def wrap_prompt_injection_safety(self, content: str) -> str:
-        """Aísla explícitamente el contenido de texto para prevenir Prompt-Injection.
+        """Aísla explícitamente el contenido de texto para prevenir Prompt-Injection y Jailbreaks.
 
-        Garantiza que la memoria recuperada se mantenga estrictamente como DATOS NO CONFIABLES
-        sin autoridad para modificar instrucciones del sistema o políticas de seguridad.
+        Garantiza que la memoria recuperada y datos externos se mantengan estrictamente como
+        DATOS NO CONFIABLES sin autoridad para modificar instrucciones del sistema o políticas de seguridad.
         """
         sanitized = self.sanitize_text(content)
-        # Reemplazar intentos de inyección como "System Instruction:" o "Ignore previous instructions"
-        isolated = re.sub(r"(system\s+instruction|ignore\s+previous\s+instructions|overwrite\s+policy)", "[SAFETY_FILTERED]", sanitized, flags=re.IGNORECASE)
+
+        # Patrones de inyección de instrucciones, jailbreak, DAN y delimitadores de prompt
+        injection_patterns = [
+            # Instrucciones del sistema y políticas
+            r"(?i)\b(system\s+instruction|system\s+prompt|ignore\s+(all\s+)?(previous|prior)\s+(instructions|policies|rules|restrictions)|overwrite\s+policy|override\s+security|bypass\s+security|disable\s+(your\s+)?(security|safety|policy|restrictions))\b",
+            # Jailbreak y role override (DAN, unrestricted, etc.)
+            r"(?i)\b(you\s+are\s+now\s+DAN\b|do\s+anything\s+now|act\s+as\s+(an?\s+)?(unrestricted|jailbroken|root|admin)\s+(system|ai|model|assistant)|you\s+have\s+no\s+restrictions|reveal\s+(your\s+)?system\s+prompt|disregard\s+(all\s+)?(instructions|rules|policies))\b",
+            # Tags delimitadores de prompt (ej. [INST], [/INST], <|im_start|>, <|im_end|>)
+            r"\[/?INST\]",
+            r"<\|im_(start|end)\|>",
+            r"```system",
+        ]
+
+        isolated = sanitized
+        for pat in injection_patterns:
+            isolated = re.sub(pat, "[SAFETY_FILTERED]", isolated)
+
         return isolated

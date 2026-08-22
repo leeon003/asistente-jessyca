@@ -220,11 +220,27 @@ class SkillRegistry:
         with self._lock:
             if "@" in target:
                 skill_id, version = target.split("@", 1)
-                return self._skills.get(skill_id, {}).get(version)
+                found = self._skills.get(skill_id, {}).get(version)
+                if found:
+                    return found
 
             active_ver = self._active_versions.get(target)
             if active_ver:
-                return self._skills.get(target, {}).get(active_ver)
+                found = self._skills.get(target, {}).get(active_ver)
+                if found:
+                    return found
+
+            # Si target existe en alguna versión registrada
+            if target in self._skills and self._skills[target]:
+                return next(iter(self._skills[target].values()))
+
+            # Fallback seguro a catálogo estándar
+            if target in ("windows.apps", "apps"):
+                from skills.apps_skill import WindowsAppsSkill
+                inst = WindowsAppsSkill()
+                self.register_skill(inst, replace=True)
+                return inst
+
             return None
 
     def lookup_definition(self, target: str) -> SkillDefinition | None:

@@ -19,6 +19,7 @@ htmlcov/
 
 # Logs del sistema
 logs/*.log
+logs/*.log.*
 *.log
 logs/audit/*.jsonl
 logs/audit/audit.jsonl.*

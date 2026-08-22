@@ -157,18 +157,15 @@ class TestEmergencyStop:
         assert not self.manager.is_stopped()
 
     def test_reset_without_authorization_audit(self) -> None:
-        """H-04 AUDIT: reset() no tiene control de autorización — cualquier módulo puede resetear."""
+        """H-04 AUDIT: reset() no autorizado debe ser rechazado y mantener el estado STOPPED."""
         self.manager.trigger_stop(reason="legitimate_stop", source="user")
 
-        # Cualquier código puede resetear sin autorización
+        # Código no autorizado que intente resetear es rechazado
         self.manager.reset(reason="unauthorized_reset_by_plugin")
 
-        if not self.manager.is_stopped():
-            pytest.xfail(
-                "[AUDIT-H04-CONFIRMED] reset() del EmergencyStopManager no tiene control de acceso. "
-                "Un módulo no autorizado pudo resetear la Parada de Emergencia. "
-                "Cualquier llamada a reset() es efectiva sin verificar origen o privilegios."
-            )
+        assert self.manager.is_stopped() is True, (
+            "[AUDIT-H04] Intento de reset no autorizado no debe restaurar el sistema a RUNNING."
+        )
 
     def test_concurrent_trigger_stop_thread_safe(self) -> None:
         """trigger_stop() desde múltiples hilos debe ser thread-safe."""
@@ -334,7 +331,7 @@ class TestStaleStateExecution:
             # Documentar el comportamiento real
 
     def test_transaction_state_cannot_be_externally_modified(self) -> None:
-        """M-04 AUDIT: ChangeTransaction.state es mutable — cualquiera puede modificarlo."""
+        """M-04 AUDIT: ChangeTransaction.state está protegido contra modificación externa directa."""
         from core.change_transaction import ChangeTransaction, Reversibility, TransactionState
 
         tx = ChangeTransaction(
@@ -345,16 +342,8 @@ class TestStaleStateExecution:
             state=TransactionState.WAITING_CONFIRMATION,
         )
 
-        # Intentar modificar el estado externamente (sin pasar por execute_transaction)
-        original_state = tx.state
-        try:
-            tx.state = TransactionState.COMMITTED  # Bypass directo
-            if tx.state == TransactionState.COMMITTED:
-                pytest.xfail(
-                    "[AUDIT-M04-CONFIRMED] ChangeTransaction.state puede ser modificado "
-                    "externamente sin pasar por execute_transaction(). "
-                    "El dataclass no es frozen=True. Hallazgo M-04 confirmado."
-                )
-        except (AttributeError, TypeError):
-            # Si lanza excepción, el dataclass está protegido (frozen)
-            pass
+        # Intentar modificar el estado externamente debe lanzar AttributeError
+        with pytest.raises(AttributeError):
+            tx.state = TransactionState.COMMITTED  # type: ignore[misc]
+
+        assert tx.state == TransactionState.WAITING_CONFIRMATION

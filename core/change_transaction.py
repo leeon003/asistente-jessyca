@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import threading
 import time
 import uuid
 from collections.abc import Callable
@@ -129,18 +130,37 @@ class RollbackResult:
     completed_at: datetime = field(default_factory=lambda: datetime.now(UTC))
 
 
-@dataclass
 class ChangeTransaction:
-    """Representación formal de una transacción de cambio controlada."""
+    """Representación formal de una transacción de cambio controlada con protección de estado (M-04)."""
 
-    transaction_id: str
-    target_resource: str
-    operation_type: str
-    reversibility: Reversibility
-    state: TransactionState = TransactionState.PREPARING
-    snapshot: ChangeSnapshot | None = None
-    confirmation_id: str | None = None
-    created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+    def __init__(
+        self,
+        transaction_id: str,
+        target_resource: str,
+        operation_type: str,
+        reversibility: Reversibility,
+        state: TransactionState = TransactionState.PREPARING,
+        snapshot: ChangeSnapshot | None = None,
+        confirmation_id: str | None = None,
+        created_at: datetime | None = None,
+    ) -> None:
+        self.transaction_id = transaction_id
+        self.target_resource = target_resource
+        self.operation_type = operation_type
+        self.reversibility = reversibility
+        self._state = state
+        self.snapshot = snapshot
+        self.confirmation_id = confirmation_id
+        self.created_at = created_at or datetime.now(UTC)
+
+    @property
+    def state(self) -> TransactionState:
+        """Estado de la transacción protegido contra modificación externa directa (M-04)."""
+        return self._state
+
+    def _set_state(self, new_state: TransactionState) -> None:
+        """Transición interna de estado gestionada exclusivamente por ChangeTransactionManager."""
+        self._state = new_state
 
 
 @runtime_checkable
@@ -163,18 +183,19 @@ class IChangeTransactionProvider(Protocol):
         ...
 
 
-class ChangeTransactionManager:
-    """Gestor Central de Transacciones de Cambio Controladas (Etapa 15.1).
+class ChangeTransactionManager(IChangeTransactionProvider):
+    """Gestor central e inmutable de transacciones de cambio controladas (Etapa 15.1)."""
 
-    ENFORZA EL FLUJO RIGUROSO OBLIGATORIO DE 6 PASOS:
-    PREPARE -> SNAPSHOT -> CONFIRM -> EXECUTE -> VERIFY -> COMMIT
-    """
-
-    def __init__(self, confirmation_manager: ConfirmationManager | None = None) -> None:
+    def __init__(
+        self,
+        confirmation_manager: ConfirmationManager | None = None,
+        audit_logger: Any = None,
+    ) -> None:
         self.confirmation_manager = confirmation_manager or ConfirmationManager()
+        self.audit_logger = audit_logger or get_audit_logger()
         self._active_transactions: dict[str, ChangeTransaction] = {}
         self._execution_handlers: dict[str, dict[str, Any]] = {}
-        self.audit_logger = get_audit_logger()
+        self._lock = threading.Lock()
 
     def prepare_transaction(
         self,
@@ -186,16 +207,17 @@ class ChangeTransactionManager:
         rollback_fn: Callable[[dict[str, Any]], bool] | None = None,
         verify_fn: Callable[[dict[str, Any]], bool] | None = None,
     ) -> ChangeTransaction:
-        """PASOS 1 & 2: PREPARE -> SNAPSHOT."""
+        """PASO 1 & 2: PREPARE & SNAPSHOT."""
         tx_id = f"tx-{uuid.uuid4().hex[:8]}"
 
-        logger.info(f"[CHANGE TRANSACTION] Preparando transacción '{tx_id}' para recurso '{target_resource}'.")
-
-        # PASO 2: SNAPSHOT (Capturar estado previo)
-        try:
-            pre_data = pre_state_fn()
-        except Exception as e:
-            raise TransactionError(f"Fallo al capturar el snapshot de estado previo en '{target_resource}': {e}") from e
+        # Captura de estado previo inmutable (Pre-State Snapshot)
+        pre_data: dict[str, Any] = {}
+        if callable(pre_state_fn):
+            try:
+                pre_data = pre_state_fn() or {}
+            except Exception as e:
+                logger.error(f"[CHANGE TRANSACTION] Error capturando estado previo de '{target_resource}': {e}")
+                raise TransactionError(f"Error capturando estado previo: {e}") from e
 
         snapshot = ChangeSnapshot.create(target_resource, pre_data)
 
@@ -217,7 +239,6 @@ class ChangeTransactionManager:
             snapshot=snapshot,
             confirmation_id=req.request_id,
         )
-
 
         self._active_transactions[tx_id] = tx
         self._execution_handlers[tx_id] = {
@@ -246,21 +267,20 @@ class ChangeTransactionManager:
         req_id = tx.confirmation_id or ""
         req = self.confirmation_manager.get_pending_request(req_id) or self.confirmation_manager._resolved_requests.get(req_id)
         if not req or req.status != ConfirmationStatus.APPROVED:
-            tx.state = TransactionState.WAITING_CONFIRMATION
+            tx._set_state(TransactionState.WAITING_CONFIRMATION)
             raise TransactionConfirmationRequiredError(
                 f"[CONFIRMATION REQUIRED] La transacción '{transaction_id}' requiere confirmación interactiva aprobada antes de ejecutarse."
             )
 
-
         # PASO 4: EXECUTE
-        tx.state = TransactionState.EXECUTING
+        tx._set_state(TransactionState.EXECUTING)
         logger.info(f"[CHANGE TRANSACTION] Ejecutando transacción '{transaction_id}'...")
 
         post_data: dict[str, Any] = {}
         try:
             if callable(execute_fn):
                 post_data = execute_fn() or {}
-            tx.state = TransactionState.VERIFYING
+            tx._set_state(TransactionState.VERIFYING)
         except Exception as e:
             logger.error(f"[CHANGE TRANSACTION] Fallo durante la ejecución de la transacción '{transaction_id}': {e}")
             return self._handle_transaction_failure(tx, rollback_fn, error_message=f"Fallo en ejecución: {e}", duration_start=start_time)
@@ -276,7 +296,7 @@ class ChangeTransactionManager:
             return self._handle_transaction_failure(tx, rollback_fn, error_message=f"Fallo en verificación: {e}", duration_start=start_time)
 
         # PASO 6: COMMIT (Éxito definitivo)
-        tx.state = TransactionState.COMMITTED
+        tx._set_state(TransactionState.COMMITTED)
         duration_ms = (time.perf_counter() - start_time) * 1000.0
 
         res = ChangeResult(
@@ -298,7 +318,7 @@ class ChangeTransactionManager:
     ) -> ChangeResult:
         """Maneja el fallo durante la ejecución/verificación aplicando Rollback si es posible."""
         if tx.reversibility == Reversibility.IRREVERSIBLE:
-            tx.state = TransactionState.IRREVERSIBLE
+            tx._set_state(TransactionState.IRREVERSIBLE)
             duration_ms = (time.perf_counter() - duration_start) * 1000.0
             err_msg = f"[IRREVERSIBLE FAILURE] Transacción '{tx.transaction_id}' no es reversible. Error: {error_message}"
             self._log_transaction_audit(tx.transaction_id, "irreversible_failure", success=False, reason=err_msg, duration_ms=duration_ms)
@@ -311,7 +331,7 @@ class ChangeTransactionManager:
             )
 
         # Iniciar ROLLBACK
-        tx.state = TransactionState.ROLLING_BACK
+        tx._set_state(TransactionState.ROLLING_BACK)
         logger.warning(f"[CHANGE TRANSACTION] Iniciando ROLLBACK para la transacción '{tx.transaction_id}'...")
 
         rollback_success = False
@@ -327,7 +347,7 @@ class ChangeTransactionManager:
         duration_ms = (time.perf_counter() - duration_start) * 1000.0
 
         if rollback_success:
-            tx.state = TransactionState.ROLLED_BACK
+            tx._set_state(TransactionState.ROLLED_BACK)
             err_msg = f"[ROLLED BACK] La transacción falló pero el estado fue revertido exitosamente. Error original: {error_message}"
             self._log_transaction_audit(tx.transaction_id, "rolled_back", success=True, reason=err_msg, duration_ms=duration_ms)
             return ChangeResult(
@@ -338,7 +358,7 @@ class ChangeTransactionManager:
                 duration_ms=duration_ms,
             )
         else:
-            tx.state = TransactionState.FAILED
+            tx._set_state(TransactionState.FAILED)
             err_msg = f"[ROLLBACK FAILED] La transacción falló y la reversión a pre-state no tuvo éxito. Error: {error_message}"
             self._log_transaction_audit(tx.transaction_id, "rollback_failed", success=False, reason=err_msg, duration_ms=duration_ms)
             return ChangeResult(

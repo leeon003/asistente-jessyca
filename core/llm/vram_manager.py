@@ -57,12 +57,24 @@ class VRAMGovernor:
         self,
         total_vram_mb: int = DEFAULT_TOTAL_VRAM_MB,
         reserved_system_mb: int = DEFAULT_RESERVED_SYSTEM_VRAM_MB,
+        vram_limit_mb: float | None = None,
     ) -> None:
         self._lock = threading.RLock()
-        self.total_vram_mb = total_vram_mb
+        if vram_limit_mb is not None:
+            self.vram_limit_mb = float(vram_limit_mb)
+            self.total_vram_mb = int(vram_limit_mb)
+        else:
+            self.total_vram_mb = total_vram_mb
+            self.vram_limit_mb = float(total_vram_mb)
         self.reserved_system_mb = reserved_system_mb
-        self.usable_budget_mb = max(0, total_vram_mb - reserved_system_mb)
+        self.usable_budget_mb = max(0, self.total_vram_mb - reserved_system_mb)
         self._loaded_models: dict[str, ModelUsageRecord] = {}
+
+    def can_allocate(self, mb: float) -> bool:
+        """Determina si una cantidad de MB puede ser asignada dentro del límite de VRAM."""
+        with self._lock:
+            allocated = sum(m.vram_estimate_mb for m in self._loaded_models.values())
+            return (allocated + mb) <= self.vram_limit_mb
 
     @classmethod
     def get_instance(cls) -> VRAMGovernor:

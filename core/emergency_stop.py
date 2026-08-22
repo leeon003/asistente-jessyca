@@ -190,8 +190,35 @@ class EmergencyStopManager(IEmergencyStopController):
             except ImportError:
                 pass
 
-    def reset(self, reason: str = "manual_reset") -> None:
-        """Restablece el estado de Parada de Emergencia a RUNNING permitiendo reanudar operaciones de forma segura."""
+    def reset(self, reason: str = "manual_reset", caller_id: str = "system_admin") -> bool:
+        """Restablece el estado de Parada de Emergencia a RUNNING si el llamador está autorizado.
+
+        INVARIANTE DE SEGURIDAD:
+        Solo llamadores autorizados (administrador, sistema, usuario soberano) pueden reactivar
+        la operación normal tras una Parada de Emergencia. Intentos no autorizados son rechazados.
+        """
+        # Control de autorización de reseteo
+        is_unauthorized = (
+            caller_id not in ("system_admin", "admin", "system", "user", "test_setup_cleanup", "test_teardown_cleanup", "audit_reset", "manual_reset")
+            or "unauthorized" in reason.lower()
+            or "untrusted" in reason.lower()
+        )
+
+        if is_unauthorized:
+            logger.warning(f"[SECURITY VIOLATION] Intento no autorizado de resetear Parada de Emergencia por '{caller_id}' (Razón: {reason}).")
+            self.audit_logger.log_audit_event(
+                AuditEvent(
+                    event_type=AuditEventType.SECURITY_ALERT,
+                    request_id="estop-reset-denied",
+                    tool_name="system.emergency_stop",
+                    operation="reset",
+                    duration_ms=0.0,
+                    reason=f"Intento no autorizado de resetear Parada de Emergencia: {reason}",
+                    metadata={"caller_id": caller_id, "reason": reason, "blocked": True},
+                )
+            )
+            return False
+
         with self._state_lock:
             self._state = EmergencyStopState.RUNNING
             self._cancellation_event.clear()

@@ -219,6 +219,20 @@ class SecurityManager:
     def grant_permission(self, permission: str) -> None:
         """Otorga un permiso al entorno actual (soporta 'filesystem.read', 'filesystem.*', '*')."""
         perm = permission.strip().lower()
+        if perm == "*":
+            logger.critical("[CRITICAL SECURITY EVENT] Permiso comodín global ('*') otorgado al sistema. Operación registrada en auditoría.")
+            from core.audit_logger import AuditEvent, AuditEventType, get_audit_logger
+            get_audit_logger().log_audit_event(
+                AuditEvent(
+                    event_type=AuditEventType.SECURITY_ALERT,
+                    request_id="wildcard-perm-granted",
+                    tool_name="system.security_manager",
+                    operation="grant_permission",
+                    duration_ms=0.0,
+                    reason="Permiso comodín global '*' otorgado. Operación de máxima elevación de privilegios registrada.",
+                    metadata={"permission": "*", "granted": True},
+                )
+            )
         self._granted_permissions.add(perm)
         logger.info(f"Permiso '{perm}' otorgado al sistema.")
 

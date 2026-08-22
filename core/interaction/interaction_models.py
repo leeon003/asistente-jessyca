@@ -81,7 +81,7 @@ class ConfirmationPrompt:
     target_resource: str = ""
     objective: str = ""
     scope_description: str = ""
-    risk_level: SecurityLevel = SecurityLevel.ELEVATED
+    risk_level: SecurityLevel = SecurityLevel.DANGEROUS
     relevant_parameters: dict[str, Any] = field(default_factory=dict)
     potential_impact: str = ""
     ttl_seconds: float = 120.0

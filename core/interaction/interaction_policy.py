@@ -77,7 +77,7 @@ class InteractionPolicy:
 
         # 4. Requerimiento de Confirmación para Acciones de Riesgo Elevado o Nivel de Autonomía 3
         requires_confirmation = (
-            risk_level in (SecurityLevel.ELEVATED, SecurityLevel.DANGEROUS, SecurityLevel.CRITICAL)
+            risk_level in (SecurityLevel.WARNING, SecurityLevel.DANGEROUS, SecurityLevel.CRITICAL)
             or autonomy_level == AutonomyLevel.LEVEL_3_CONFIRMATION_REQUIRED
         )
         if requires_confirmation:

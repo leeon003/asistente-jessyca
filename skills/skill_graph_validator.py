@@ -14,7 +14,7 @@ GARANTÍA DE SEGURIDAD:
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, NamedTuple
 
 from core.logger import get_logger
 from core.security_architecture import SecurityLevel
@@ -40,6 +40,21 @@ RISK_HIERARCHY: dict[str, int] = {
 }
 
 
+class SkillGraphValidationResult(NamedTuple):
+    """Resultado formal e inmutable de la validación de un SkillGraph.
+
+    Hereda de NamedTuple para garantizar compatibilidad dual:
+    - Desempaquetado de tupla: is_valid, errors, warnings, risk, order = res
+    - Acceso a propiedades: res.is_valid, res.errors, res.warnings, etc.
+    """
+
+    is_valid: bool
+    errors: list[str]
+    warnings: list[str]
+    aggregated_risk: SecurityLevel
+    topological_order: list[str]
+
+
 class SkillGraphValidator:
     """Validador estático y semántico de estructuras SkillGraph."""
 
@@ -58,11 +73,11 @@ class SkillGraphValidator:
     def validate_graph(
         self,
         graph: SkillGraph,
-    ) -> tuple[bool, list[str], list[str], SecurityLevel, list[str]]:
+    ) -> SkillGraphValidationResult:
         """Valida formalmente el SkillGraph.
 
         Returns:
-            tuple[is_valid, errors, warnings, aggregated_risk, topological_order]
+            SkillGraphValidationResult(is_valid, errors, warnings, aggregated_risk, topological_order)
         """
         errors: list[str] = []
         warnings: list[str] = []
@@ -71,7 +86,7 @@ class SkillGraphValidator:
         # 1. Validación de nodos vacíos
         if graph.node_count == 0:
             errors.append(f"El SkillGraph '{graph.graph_id}' no contiene ningún nodo.")
-            return False, errors, warnings, SecurityLevel.SAFE, []
+            return SkillGraphValidationResult(False, errors, warnings, SecurityLevel.SAFE, [])
 
         # 2. Validación individual de nodos y entidades referenciadas
         for node_id, node in graph.nodes.items():
@@ -201,7 +216,7 @@ class SkillGraphValidator:
                 f"[SKILL GRAPH INVALID] '{graph.graph_id}' contiene {len(errors)} errores de validación."
             )
 
-        return is_valid, errors, warnings, aggregated_risk, topological_order
+        return SkillGraphValidationResult(is_valid, errors, warnings, aggregated_risk, topological_order)
 
     def _detect_cycles_and_order(self, graph: SkillGraph) -> tuple[list[str], list[str]]:
         """Detecta ciclos directos e indirectos y calcula el orden topológico de ejecución."""
@@ -244,7 +259,7 @@ class SkillGraphValidator:
                     cycle_start_idx = path.index(neighbor)
                     cycle_nodes = path[cycle_start_idx:] + [neighbor]
                     cycle_str = " -> ".join(cycle_nodes)
-                    errors.append(f"Ciclo de dependencias detectado en el grafo: {cycle_str}")
+                    errors.append(f"Ciclo de dependencias detectado en el grafo (Ciclo detectado: {cycle_str})")
                     cycle_detected = True
                     return True
                 elif state[neighbor] == 0:

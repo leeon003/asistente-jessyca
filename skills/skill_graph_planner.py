@@ -34,6 +34,15 @@ class SkillGraphPlanner:
     def __init__(self, registry: SkillRegistry | None = None) -> None:
         self.registry = registry or get_skill_registry()
 
+    def plan(
+        self,
+        intent: str,
+        inputs: dict[str, Any] | None = None,
+        graph_id: str | None = None,
+    ) -> SkillGraph:
+        """Alias de planificación para compatibilidad con orquestadores del sistema."""
+        return self.plan_from_intent(intent=intent, graph_id=graph_id, context_inputs=inputs)
+
     def plan_from_intent(
         self,
         intent: str,

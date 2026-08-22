@@ -11,6 +11,11 @@ from services.voice.audio_input import (
     SyntheticAudioSource,
 )
 from services.voice.barge_in_controller import BargeInController
+from services.voice.continuous_voice_session import (
+    AudioPreRollBuffer,
+    ContinuousVoiceSession,
+    VoiceSessionMode,
+)
 from services.voice.stt_service import (
     FasterWhisperSTTService,
     ISTTService,
@@ -23,6 +28,11 @@ from services.voice.tts_service import (
     ITTSService,
     MockTTSService,
     TTSResult,
+)
+from services.voice.turn_manager import (
+    PURE_INTERRUPTION_PHRASES,
+    TurnManager,
+    VoiceTurnState,
 )
 from services.voice.vad_service import (
     EnergyVADService,
@@ -65,7 +75,9 @@ from services.voice.wake_word_service import (
 __all__ = [
     "AudioChunk",
     "AudioDeviceDisconnectedError",
+    "AudioPreRollBuffer",
     "BargeInController",
+    "ContinuousVoiceSession",
     "DEFAULT_VOICE_NAME",
     "EdgeTTSService",
     "EnergyVADService",
@@ -81,6 +93,7 @@ __all__ = [
     "MicrophoneUnavailableError",
     "MockSTTService",
     "MockTTSService",
+    "PURE_INTERRUPTION_PHRASES",
     "STTError",
     "STTModelUnavailableError",
     "STTTimeoutError",
@@ -89,6 +102,7 @@ __all__ = [
     "TTSFailureError",
     "TTSResult",
     "TranscriptResult",
+    "TurnManager",
     "VADError",
     "VADEvent",
     "VADResult",
@@ -102,6 +116,8 @@ __all__ = [
     "VoiceInteractionResult",
     "VoiceInterruptedError",
     "VoicePipeline",
+    "VoiceSessionMode",
+    "VoiceTurnState",
     "WakeWordError",
     "WakeWordResult",
 ]

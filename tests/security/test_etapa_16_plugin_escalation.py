@@ -189,7 +189,7 @@ class TestPluginCapabilityMappingM02:
         assert perm.decision in (PermissionDecision.ALLOW, PermissionDecision.REQUIRE_CONFIRMATION)
 
     def test_filesystem_tool_without_network_capability(self) -> None:
-        """M-02 AUDIT: Tool de filesystem que incluye 'network' en nombre puede confundir el mapeo."""
+        """M-02 AUDIT: Tool de filesystem con 'network' en nombre se mapea correctamente a FILESYSTEM_READ."""
         profile = self.policy.validate_plugin_manifest(
             plugin_id="fs-only-plugin",
             requested_capability_names=[PluginDeclaredCapability.FILESYSTEM_READ.value],
@@ -204,12 +204,6 @@ class TestPluginCapabilityMappingM02:
         )
 
         from core.permission_manager import PermissionDecision
-        # M-02: La subcadena 'network' en el nombre puede mapearlo a capability NETWORK
-        # que el plugin NO tiene — resultando en DENY incorrecto para una operación legítima
-        if perm.decision == PermissionDecision.DENY:
-            pytest.xfail(
-                "[AUDIT-M02-CONFIRMED] Tool 'network_file_cache_reader' con sólo capability "
-                "filesystem.read fue DENIED porque '_map_tool_to_required_capability()' "
-                "detectó 'network' en el nombre y requirió capability NETWORK. "
-                "Mapeo frágil por subcadena confirmado."
-            )
+        assert perm.decision in (PermissionDecision.ALLOW, PermissionDecision.REQUIRE_CONFIRMATION), (
+            f"[AUDIT-M02] Tool 'network_file_cache_reader' debe autorizarse bajo capability filesystem.read. Decisión: {perm.decision}"
+        )

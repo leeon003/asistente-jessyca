@@ -127,11 +127,23 @@ class WindowsAppsSkill(BaseSkill):
         if accion in ("abrir", "open", "launch"):
             try:
                 subprocess.Popen(comando, shell=True)
-                return {
-                    "exito": True,
-                    "mensaje": f"Aplicación '{nombre_app}' lanzada con éxito.",
-                    "comando": comando,
-                }
+                from core.execution.execution_verifier import get_execution_verifier
+                evidence = get_execution_verifier().verify_execution("open_application", comando, {"nombre_app": nombre_app}, timeout_seconds=2.0)
+                if evidence.is_verified:
+                    return {
+                        "exito": True,
+                        "mensaje": f"Aplicación '{nombre_app}' lanzada y verificada con éxito.",
+                        "comando": comando,
+                        "evidence": evidence.to_dict(),
+                    }
+                else:
+                    return {
+                        "exito": False,
+                        "mensaje": f"Se envió el comando para abrir '{nombre_app}', pero Windows no confirmó que el proceso esté en ejecución.",
+                        "comando": comando,
+                        "evidence": evidence.to_dict(),
+                        "error_code": "VERIFICATION_FAILED",
+                    }
             except Exception as e:
                 return {"exito": False, "mensaje": f"Error al abrir '{nombre_app}': {e}"}
 
@@ -139,19 +151,56 @@ class WindowsAppsSkill(BaseSkill):
         elif accion in ("cerrar", "close", "stop"):
             proc_name = comando.lower()
             terminados = 0
+            targets_to_check = [proc_name]
+            if "notepad" in proc_name:
+                targets_to_check.extend(["notepad.exe", "notepad"])
+            elif "calc" in proc_name:
+                targets_to_check.extend(["calculatorapp.exe", "calc.exe", "calculator.exe"])
+
+            procs_to_wait = []
             for proc in psutil.process_iter(["name"]):
                 try:
-                    if proc.info["name"] and proc.info["name"].lower() == proc_name:
+                    pname = (proc.info.get("name") or "").lower()
+                    if any(t == pname or t in pname for t in targets_to_check):
                         proc.terminate()
+                        procs_to_wait.append(proc)
                         terminados += 1
                 except (psutil.NoSuchProcess, psutil.AccessDenied):
                     continue
 
-            return {
-                "exito": True,
-                "mensaje": f"Se cerraron {terminados} proceso(s) de '{nombre_app}'.",
-                "terminados": terminados,
-            }
+            if procs_to_wait:
+                _gone, alive = psutil.wait_procs(procs_to_wait, timeout=1.0)
+                for p in alive:
+                    try:
+                        p.kill()
+                    except (psutil.NoSuchProcess, psutil.AccessDenied):
+                        pass
+
+            from core.execution.execution_verifier import get_execution_verifier
+            evidence = get_execution_verifier().verify_execution("close_application", comando, {"nombre_app": nombre_app}, timeout_seconds=2.0)
+
+            if terminados > 0 and evidence.is_verified:
+                return {
+                    "exito": True,
+                    "mensaje": f"Se cerraron {terminados} proceso(s) de '{nombre_app}'.",
+                    "terminados": terminados,
+                    "evidence": evidence.to_dict(),
+                }
+            elif terminados == 0:
+                return {
+                    "exito": False,
+                    "mensaje": f"No se encontraron procesos activos de '{nombre_app}' para cerrar.",
+                    "terminados": 0,
+                    "evidence": evidence.to_dict(),
+                }
+            else:
+                return {
+                    "exito": False,
+                    "mensaje": f"Se intentó cerrar '{nombre_app}', pero el proceso sigue activo.",
+                    "terminados": terminados,
+                    "evidence": evidence.to_dict(),
+                    "error_code": "VERIFICATION_FAILED",
+                }
 
         # 3. ACCIÓN: INSPECCIONAR
         elif accion in ("inspeccionar", "inspect", "status"):

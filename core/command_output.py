@@ -62,7 +62,7 @@ SECRET_PATTERNS: list[tuple[re.Pattern[str], str]] = [
     # 5. Claves genericas / Tokens / Contraseñas en asignaciones key=value o key: value
     (
         re.compile(
-            r"(?i)\b(password|passwd|pwd|pass|api_key|apikey|api-key|api-token|access_token|refresh_token|id_token|client_secret|client-secret|clientSecret|secret|userpassword|user_password|auth_token)\b\s*([=:]\s*)([\"']?)([^\"'\s\r\n;,]+)([\"']?)",
+            r"(?i)\b(password|passwd|pwd|pass|api_key|apikey|api-key|api-token|access_token|refresh_token|id_token|client_secret|client-secret|clientSecret|secret|userpassword|user_password|auth_token|token)\b\s*([=:]\s*)([\"']?)([^\"'\s\r\n;,]+)([\"']?)",
             re.IGNORECASE,
         ),
         r"\1\2\3[REDACTED]\5",

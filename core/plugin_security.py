@@ -252,25 +252,50 @@ class PluginSecurityPolicy:
         return TaskActionRisk.READ_ONLY
 
     def _map_tool_to_required_capability(self, tool_name: str, operation: str) -> str | None:
-        target = f"{tool_name}.{operation}".lower()
-        if "file.read" in target:
+        """Mapea de forma determinista y estructurada una herramienta a su capacidad oficial requerida (M-02)."""
+        name = tool_name.lower()
+        op = operation.lower()
+
+        # 1. Herramientas de Sistema de Archivos (Filesystem)
+        is_fs = any(k in name for k in ("file", "directory", "folder", "path", "document")) or name.startswith("fs_") or name.startswith("filesystem")
+        if is_fs:
+            if (
+                any(k in name for k in ("write", "delete", "create", "save", "remove", "modifier", "writer", "creator"))
+                or any(k in op for k in ("write", "delete", "remove", "create", "modify", "append", "save"))
+            ):
+                return PluginDeclaredCapability.FILESYSTEM_WRITE.value
             return PluginDeclaredCapability.FILESYSTEM_READ.value
-        if "file.write" in target or "file.delete" in target:
-            return PluginDeclaredCapability.FILESYSTEM_WRITE.value
-        if "process" in target or "cmd" in target or "powershell" in target:
+
+        # 2. Procesos / Comandos
+        if any(k in name for k in ("process", "cmd", "powershell", "exec", "terminal", "shell", "bash")):
             return PluginDeclaredCapability.PROCESS_EXECUTE.value
-        if "registry.read" in target:
+
+        # 3. Registro de Windows
+        if "registry" in name or "reg" in name.split("_"):
+            if op in ("write", "delete", "set", "create"):
+                return PluginDeclaredCapability.REGISTRY_WRITE.value
             return PluginDeclaredCapability.REGISTRY_READ.value
-        if "registry.write" in target:
-            return PluginDeclaredCapability.REGISTRY_WRITE.value
-        if "network" in target:
+
+        # 4. Red / Network
+        if any(k in name for k in ("network", "http", "socket", "tcp", "udp", "curl", "download", "fetch", "api_client")):
             return PluginDeclaredCapability.NETWORK.value
-        if "clipboard" in target:
+
+        # 5. Portapapeles
+        if "clipboard" in name:
             return PluginDeclaredCapability.CLIPBOARD.value
-        if "audio" in target:
+
+        # 6. Audio
+        if any(k in name for k in ("audio", "mic", "sound", "speaker", "tts", "stt", "voice")):
             return PluginDeclaredCapability.AUDIO.value
-        if "browser" in target:
+
+        # 7. Navegador
+        if any(k in name for k in ("browser", "web", "html", "selenium", "playwright")):
             return PluginDeclaredCapability.BROWSER.value
+
+        # 8. Información del sistema
+        if any(k in name for k in ("system_info", "sysinfo", "cpu", "memory_info", "disk_info", "device")):
+            return PluginDeclaredCapability.SYSTEM_INFO.value
+
         return None
 
     def _risk_level_to_int(self, risk: TaskActionRisk) -> int:

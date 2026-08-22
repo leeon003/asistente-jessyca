@@ -263,8 +263,13 @@ class ConfirmationManager:
         request: ConfirmationRequest,
         provider: IConfirmationProvider | None = None,
     ) -> ConfirmationResult:
-        """Envía la solicitud al proveedor de confirmación y registra el resultado."""
-        prov = provider or MockConfirmationProvider(ConfirmationStatus.APPROVED)
+        """Envía la solicitud al proveedor de confirmación y registra el resultado.
+        
+        GARANTÍA DE SEGURIDAD (FAIL-SAFE DENY):
+        Si no se suministra un proveedor de confirmación, la solicitud se RECHAZA por defecto.
+        Bajo ninguna circunstancia una confirmación sin proveedor debe auto-aprobarse.
+        """
+        prov = provider or MockConfirmationProvider(ConfirmationStatus.REJECTED)
         status_res = prov.request_confirmation(request)
 
         with self._lock:

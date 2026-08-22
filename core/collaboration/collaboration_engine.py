@@ -318,28 +318,34 @@ class CollaborationEngine:
         actor: str,
         key: str,
         value: Any,
-        context: CollaborationContext,
+        context: CollaborationContext | None = None,
         scope: str = "collaboration_session",
+        ctx: CollaborationContext | None = None,
     ) -> None:
-        """Escribe datos en la vista de memoria compartida con procedencia explícita."""
+        """Escribe datos en la vista de memoria compartida con procedencia explícita y garantía de UNTRUSTED DATA."""
+        target_ctx = context or ctx or CollaborationContext()
         # Sanitización: las aserciones de seguridad en memoria se marcan como UNTRUSTED
-        context.shared_memory_view[key] = {
+        target_ctx.shared_memory_view[key] = {
             "value": value,
             "provenance": actor,
             "scope": scope,
             "timestamp": time.time(),
             "is_untrusted_data": True,
         }
-        context.provenance[key] = actor
+        target_ctx.provenance[key] = actor
 
     def read_shared_memory(
         self,
         actor: str,
         key: str,
-        context: CollaborationContext,
+        context: CollaborationContext | None = None,
+        ctx: CollaborationContext | None = None,
     ) -> Any | None:
         """Lee un valor de memoria compartida preservando las garantías de datos no confiables."""
-        entry = context.shared_memory_view.get(key)
+        target_ctx = context or ctx
+        if target_ctx is None:
+            return None
+        entry = target_ctx.shared_memory_view.get(key)
         if entry is None:
             return None
         return entry.get("value")

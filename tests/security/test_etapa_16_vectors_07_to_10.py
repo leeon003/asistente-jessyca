@@ -276,8 +276,5 @@ class TestAuditLeakage:
 
         for secret_text in secrets:
             redacted, was_redacted = SecretRedactor.redact(secret_text)
-            if not was_redacted:
-                # Documentar como gap de seguridad
-                pytest.xfail(
-                    f"[AUDIT] SecretRedactor no detectó secreto en: {secret_text!r}"
-                )
+            assert was_redacted > 0, f"[AUDIT] SecretRedactor no detectó secreto en: {secret_text!r}"
+            assert "[REDACTED" in redacted
