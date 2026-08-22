@@ -143,6 +143,10 @@ class SkillManifest:
     configuration: dict[str, Any] = field(default_factory=dict)
     entrypoint: str = "main.py"
     min_system_version: str = "3.0.0"
+    max_system_version: str | None = None
+    framework_version: str = "1.0.0"
+    min_framework_version: str = "1.0.0"
+    max_framework_version: str | None = None
     created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
 
     def to_dict(self) -> dict[str, Any]:
@@ -162,6 +166,10 @@ class SkillManifest:
             "configuration": dict(self.configuration),
             "entrypoint": self.entrypoint,
             "min_system_version": self.min_system_version,
+            "max_system_version": self.max_system_version,
+            "framework_version": self.framework_version,
+            "min_framework_version": self.min_framework_version,
+            "max_framework_version": self.max_framework_version,
             "created_at": self.created_at.isoformat(),
         }
 

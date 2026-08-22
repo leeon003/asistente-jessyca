@@ -97,6 +97,34 @@ class SkillManager:
         with self._lock:
             return self.registry.get_status(target)
 
+    def get_active_version(self, skill_id: str) -> str | None:
+        """Obtiene la versión activa instalada de una Skill."""
+        with self._lock:
+            return self.registry.get_installed_versions().get(skill_id)
+
+    def get_known_good_versions(self, skill_id: str) -> list[str]:
+        """Obtiene las versiones funcionales conocidas de una Skill."""
+        with self._lock:
+            return self.registry.get_known_good_versions(skill_id)
+
+    def set_active_version(self, skill_id: str, version: str) -> bool:
+        """Cambia atómicamente la versión activa de una Skill."""
+        with self._lock:
+            return self.registry.set_active_version(skill_id, version)
+
+    def rollback_skill(
+        self,
+        skill_id: str,
+        target_version: str | None = None,
+        reason: str = "Rollback solicitado via SkillManager",
+    ) -> bool:
+        """Revierte una Skill a su versión previa funcional."""
+        with self._lock:
+            from skills.skill_updater import SkillUpdater
+            updater = SkillUpdater(registry=self.registry)
+            res = updater.rollback_skill(skill_id=skill_id, target_version=target_version, reason=reason)
+            return res.success
+
     def verify_dependencies(self, manifest_or_def: SkillManifest | SkillDefinition) -> tuple[bool, str | None]:
         """Verifica si las dependencias de una Skill están satisfechas en el sistema."""
         with self._lock:
@@ -155,7 +183,7 @@ class SkillManager:
                 user=user,
                 metadata=metadata or {},
             )
-            return self.runtime.execute_skill(skill=skill, context=context, budget=budget)
+        return self.runtime.execute_skill(skill=skill, context=context, budget=budget)
 
     def execute_by_intent(
         self,
@@ -185,16 +213,17 @@ class SkillManager:
             logger.info(
                 f"[SKILL ROUTED] Intención '{intent}' -> Skill '{skill_def.skill_id}' (Confianza: {confidence:.2f})"
             )
-            return self.execute_skill(
-                skill_id=skill_def.skill_id,
-                parameters=parameters,
-                session_id=session_id,
-                user=user,
-                cancellation_token=cancellation_token,
-                metadata=metadata,
-                timeout_seconds=timeout_seconds,
-                budget=budget,
-            )
+            target_skill_id = skill_def.skill_id
+        return self.execute_skill(
+            skill_id=target_skill_id,
+            parameters=parameters,
+            session_id=session_id,
+            user=user,
+            cancellation_token=cancellation_token,
+            metadata=metadata,
+            timeout_seconds=timeout_seconds,
+            budget=budget,
+        )
 
 
 def get_skill_manager() -> SkillManager:

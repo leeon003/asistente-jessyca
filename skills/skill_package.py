@@ -109,6 +109,10 @@ class SkillPackage:
     def version(self) -> str:
         return self.manifest.version
 
+    @property
+    def package_path(self) -> Path:
+        return self.source_path
+
     # ── MÉTODOS DE CONSTRUCCIÓN / LECTURA ──
 
     @classmethod
@@ -143,11 +147,16 @@ class SkillPackage:
         global_hash = sha256.hexdigest()
 
         # Inspeccionar contenido de forma segura en un directorio temporal de lectura
-        with tempfile.TemporaryDirectory(prefix="jessyca_inspect_pkg_") as temp_inspect_dir:
-            temp_path = Path(temp_inspect_dir)
-            cls._safe_extract(path, temp_path, pkg_format)
+        try:
+            with tempfile.TemporaryDirectory(prefix="jessyca_inspect_pkg_") as temp_inspect_dir:
+                temp_path = Path(temp_inspect_dir)
+                cls._safe_extract(path, temp_path, pkg_format)
 
-            manifest, integrity_map, sig_bytes, signer_id, files_count, total_bytes = cls._inspect_extracted_directory(temp_path)
+                manifest, integrity_map, sig_bytes, signer_id, files_count, total_bytes = cls._inspect_extracted_directory(temp_path)
+        except Exception as exc:
+            if not isinstance(exc, (SkillPackageError, SkillPackageSecurityError)):
+                raise SkillPackageError(f"Error al procesar el archivo del paquete '{path.name}': {exc}") from exc
+            raise
 
         metadata = SkillPackageMetadata(
             package_name=manifest.name,
@@ -281,6 +290,8 @@ class SkillPackage:
                 raise SkillPackageError(f"Formato de bundle no soportado: '{bundle_format}'.")
 
         return cls.from_archive(out)
+
+    load_bundle = from_archive
 
     def extract_to(self, target_directory: str | Path) -> Path:
         """Extrae de forma segura el paquete en el directorio objetivo."""
@@ -421,6 +432,10 @@ class SkillPackage:
             configuration=dict(raw.get("configuration", {})),
             entrypoint=str(raw.get("entrypoint") or "main.py").strip(),
             min_system_version=str(raw.get("min_system_version") or "3.0.0").strip(),
+            max_system_version=str(raw.get("max_system_version")).strip() if raw.get("max_system_version") else None,
+            framework_version=str(raw.get("framework_version") or "1.0.0").strip(),
+            min_framework_version=str(raw.get("min_framework_version") or "1.0.0").strip(),
+            max_framework_version=str(raw.get("max_framework_version")).strip() if raw.get("max_framework_version") else None,
         )
 
     @staticmethod

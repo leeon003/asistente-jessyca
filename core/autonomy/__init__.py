@@ -35,6 +35,13 @@ from core.autonomy.capability_autonomy_registry import (
     CapabilityRegistryLockedError,
     get_capability_autonomy_registry,
 )
+from core.autonomy.personal_autonomy_engine import (
+    GoalScheduleType,
+    GoalStatus,
+    PersonalAutonomyEngine,
+    PersonalAutonomyLevel,
+    UserGoal,
+)
 
 __all__ = [
     # Autonomous Tasks (Fase 15)
@@ -64,4 +71,10 @@ __all__ = [
     "get_capability_autonomy_registry",
     "CapabilityProfileNotFoundError",
     "CapabilityRegistryLockedError",
+    # Personal Autonomy (Fase 43)
+    "PersonalAutonomyEngine",
+    "PersonalAutonomyLevel",
+    "GoalScheduleType",
+    "GoalStatus",
+    "UserGoal",
 ]

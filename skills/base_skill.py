@@ -59,6 +59,11 @@ class BaseSkill(ABC):
         return self._definition.skill_id
 
     @property
+    def version(self) -> str:
+        """Versión de la skill."""
+        return self._definition.version
+
+    @property
     def definition(self) -> SkillDefinition:
         """Metadatos formales e inmutables de la skill."""
         return self._definition

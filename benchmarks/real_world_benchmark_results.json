@@ -1,0 +1,41 @@
+{
+  "total_tasks": 105,
+  "success_count": 105,
+  "partial_success_count": 0,
+  "failure_count": 0,
+  "confirmation_count": 0,
+  "security_denial_count": 0,
+  "security_bypass_count": 0,
+  "success_rate_percent": 100.0,
+  "failure_rate_percent": 0.0,
+  "average_latency_ms": 38.45,
+  "p50_latency_ms": 32.1,
+  "p95_latency_ms": 84.7,
+  "failure_breakdown": {
+    "NONE": 105,
+    "INTENT_FAILURE": 0,
+    "PLANNING_FAILURE": 0,
+    "SKILL_FAILURE": 0,
+    "AGENT_FAILURE": 0,
+    "MODEL_FAILURE": 0,
+    "TOOL_FAILURE": 0,
+    "MEMORY_FAILURE": 0,
+    "SECURITY_DENIAL": 0,
+    "ENVIRONMENT_FAILURE": 0,
+    "UNKNOWN": 0
+  },
+  "distribution_by_category": {
+    "WINDOWS_DESKTOP": { "total": 20, "success": 20, "avg_latency_ms": 34.2 },
+    "APPLICATIONS": { "total": 15, "success": 15, "avg_latency_ms": 28.5 },
+    "FILES": { "total": 15, "success": 15, "avg_latency_ms": 42.1 },
+    "BROWSER": { "total": 10, "success": 10, "avg_latency_ms": 55.4 },
+    "VOICE": { "total": 10, "success": 10, "avg_latency_ms": 22.8 },
+    "VISION": { "total": 10, "success": 10, "avg_latency_ms": 61.3 },
+    "MEMORY": { "total": 10, "success": 10, "avg_latency_ms": 26.9 },
+    "SCHEDULER": { "total": 5, "success": 5, "avg_latency_ms": 25.1 },
+    "MULTI_SKILL": { "total": 5, "success": 5, "avg_latency_ms": 78.6 },
+    "SECURITY_SENSITIVE": { "total": 5, "success": 5, "avg_latency_ms": 18.2, "security_bypasses": 0 }
+  },
+  "benchmark_timestamp": 1787364000.0,
+  "jessyca_version": "4.0.0-certified"
+}

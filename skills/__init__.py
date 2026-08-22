@@ -1,13 +1,10 @@
-"""Módulo y Framework de Habilidades (Skills) de JESSYCA 3.0 (Fases 28.0 - 32.0).
+"""Módulo y Framework de Habilidades (Skills) de JESSYCA 3.0 (Fases 28.0 - 35.0).
 
-Proporciona el Skill Framework completo junto con el Catálogo Oficial de Skills y el
-Subsistema Seguro de Empaquetado, Instalación, Validación Transaccional y Desinstalación (Fase 32):
-- Windows: windows.apps, windows.screenshot, windows.clipboard, windows.notifications, windows.audio, windows.display
-- Files: files.search, files.read, files.create, files.copy, files.move, files.rename, files.organize
-- Browser: browser.open, browser.search, browser.navigate, browser.read, browser.download
-- Documents: documents.read, documents.create, documents.summarize, documents.convert
-- Installer & Security: SkillPackage, SkillIntegrityVerifier, SkillSignatureVerifier, SkillCompatibilityChecker,
-  SkillDependencyValidator, SkillSecurityAnalyzer, SkillPermissionReviewer, IsolatedSkillLoader, SkillInstaller.
+Proporciona el Skill Framework completo junto con el Catálogo Oficial de Skills, el
+Subsistema Seguro de Empaquetado, Instalación, Validación Transaccional y Desinstalación (Fase 32),
+el Subsistema Formal de Versionado Semántico, Compatibilidad Técnica y Rollback Determinista (Fase 33),
+el Subsistema de Marketplace / Repositorio Confiable de Skills con Trust Model y Caché Segura (Fase 34),
+y el Motor de Composición de Skills (Skill Composition Engine) con soporte Secuencial, Paralelo y Condicional (Fase 35).
 """
 
 from __future__ import annotations
@@ -47,10 +44,60 @@ from skills.skill_compatibility import (
     CompatibilityCheckResult,
     SkillCompatibilityChecker,
 )
+from skills.skill_composer import (
+    ComposedSkill,
+    SkillComposer,
+)
+from skills.skill_composition_dataflow import (
+    DataFlowResolutionError,
+    SkillConditionEvaluator,
+    SkillDataFlowResolver,
+)
+from skills.skill_composition_executor import (
+    SkillCompositionExecutionError,
+    SkillCompositionExecutor,
+)
+from skills.skill_composition_models import (
+    CompositionErrorPolicy,
+    CompositionExecutionMode,
+    CompositionStatus,
+    SkillComposition,
+    SkillCompositionContext,
+    SkillCompositionResult,
+    SkillCompositionStep,
+    SkillCompositionStepResult,
+)
+from skills.skill_composition_validator import (
+    CompositionValidationError,
+    SkillCompositionValidator,
+)
 from skills.skill_dependency import (
     DependencyValidationResult,
     SkillDependencyValidator,
 )
+from skills.skill_diff import (
+    SkillChangeReport,
+    SkillDiffer,
+)
+from skills.skill_graph import SkillGraph
+from skills.skill_graph_builder import SkillGraphBuilder
+from skills.skill_graph_executor import SkillGraphExecutor
+from skills.skill_graph_models import (
+    GraphCacheEntry,
+    SkillGraphContext,
+    SkillGraphEdge,
+    SkillGraphEdgeType,
+    SkillGraphNode,
+    SkillGraphNodeStatus,
+    SkillGraphNodeType,
+    SkillGraphResult,
+    SkillGraphStatus,
+)
+from skills.skill_graph_planner import (
+    SkillGraphOptimizer,
+    SkillGraphPlanner,
+)
+from skills.skill_graph_validator import SkillGraphValidator
 from skills.skill_installer import (
     InstallationResult,
     SkillInstallationError,
@@ -65,6 +112,10 @@ from skills.skill_integrity import (
 from skills.skill_manager import (
     SkillManager,
     get_skill_manager,
+)
+from skills.skill_marketplace import (
+    SkillMarketplaceError,
+    SkillMarketplaceService,
 )
 from skills.skill_models import (
     ALLOWED_SKILL_CAPABILITIES,
@@ -90,6 +141,29 @@ from skills.skill_permission_reviewer import (
 from skills.skill_registry import (
     SkillRegistry,
     get_skill_registry,
+)
+from skills.skill_repository import (
+    BaseSkillRepository,
+    CachingSkillRepository,
+    CorruptedDownloadError,
+    LocalDirectorySkillRepository,
+    MockNetworkSkillRepository,
+    PackageNotFoundError,
+    RepositoryError,
+    RepositoryTimeoutError,
+    RepositoryUnavailableError,
+)
+from skills.skill_repository_models import (
+    RepositorySkillEntry,
+    SignatureTrustStatus,
+    SkillReport,
+    SkillReportType,
+    SkillReputation,
+    TrustStatus,
+    redact_sensitive_data,
+)
+from skills.skill_revocation import (
+    SkillRevocationRegistry,
 )
 from skills.skill_router import (
     SkillRouteDecision,
@@ -117,9 +191,21 @@ from skills.skill_signature import (
     SignatureVerificationResult,
     SkillSignatureVerifier,
 )
+from skills.skill_updater import (
+    RollbackResult,
+    SkillUpdateError,
+    SkillUpdater,
+    UpdateResult,
+)
 from skills.skill_validator import (
     SkillValidationError,
     SkillValidator,
+)
+from skills.skill_version import (
+    SemVer,
+    SemVerConstraint,
+    SkillLifecycleState,
+    VersionBumpType,
 )
 from skills.windows_skills import (
     WindowsAudioSkill,
@@ -252,4 +338,69 @@ __all__ = [
     "UninstallResult",
     "SkillInstaller",
     "SkillInstallationError",
+    # Skill Versioning & Rollback (Fase 33)
+    "SemVer",
+    "SemVerConstraint",
+    "VersionBumpType",
+    "SkillLifecycleState",
+    "SkillChangeReport",
+    "SkillDiffer",
+    "SkillUpdater",
+    "UpdateResult",
+    "RollbackResult",
+    "SkillUpdateError",
+    # Skill Marketplace & Repository (Fase 34)
+    "TrustStatus",
+    "SignatureTrustStatus",
+    "SkillReputation",
+    "RepositorySkillEntry",
+    "SkillReportType",
+    "SkillReport",
+    "redact_sensitive_data",
+    "BaseSkillRepository",
+    "LocalDirectorySkillRepository",
+    "MockNetworkSkillRepository",
+    "CachingSkillRepository",
+    "RepositoryError",
+    "RepositoryUnavailableError",
+    "RepositoryTimeoutError",
+    "PackageNotFoundError",
+    "CorruptedDownloadError",
+    "SkillRevocationRegistry",
+    "SkillMarketplaceService",
+    "SkillMarketplaceError",
+    # Skill Composition Engine (Fase 35)
+    "CompositionExecutionMode",
+    "CompositionErrorPolicy",
+    "CompositionStatus",
+    "SkillCompositionStep",
+    "SkillComposition",
+    "SkillCompositionStepResult",
+    "SkillCompositionContext",
+    "SkillCompositionResult",
+    "SkillDataFlowResolver",
+    "SkillConditionEvaluator",
+    "DataFlowResolutionError",
+    "SkillCompositionValidator",
+    "CompositionValidationError",
+    "SkillCompositionExecutor",
+    "SkillCompositionExecutionError",
+    "SkillComposer",
+    "ComposedSkill",
+    # Skill Graph Engine (Fase 36)
+    "SkillGraphNodeType",
+    "SkillGraphEdgeType",
+    "SkillGraphNodeStatus",
+    "SkillGraphStatus",
+    "SkillGraphNode",
+    "SkillGraphEdge",
+    "GraphCacheEntry",
+    "SkillGraphContext",
+    "SkillGraphResult",
+    "SkillGraph",
+    "SkillGraphBuilder",
+    "SkillGraphValidator",
+    "SkillGraphPlanner",
+    "SkillGraphOptimizer",
+    "SkillGraphExecutor",
 ]

@@ -1,10 +1,11 @@
-"""Registro central formal, multi-versión y thread-safe de habilidades (skill_registry.py - Fase 28.3).
+"""Registro central formal, multi-versión y thread-safe de habilidades (skill_registry.py - Fases 28.3 y 33).
 
 Garantiza:
-1. IDENTIDAD ÚNICA Y VERSIONADO: Coexistencia de versiones (ej: browser.search@1.0 y @1.1) sin conflictos silenciosos.
-2. DISCOVERY MULTIDIMENSIONAL: Búsqueda por ID, capability, categoría, tool, agent y nivel de riesgo.
-3. CICLO DE VIDA Y ESTADOS: REGISTERED, VALID, INVALID, ENABLED, DISABLED.
-4. AISLAMIENTO DE SEGURIDAD: Registrar una Skill no concede autorización.
+1. IDENTIDAD ÚNICA Y VERSIONADO: Coexistencia de versiones (ej: browser.search@1.0.0 y @1.1.0) sin conflictos silenciosos.
+2. KNOWN-GOOD VERSIONS: Rastreo formal de versiones operativas verificadas para rollback determinista.
+3. DISCOVERY MULTIDIMENSIONAL: Búsqueda por ID, capability, categoría, tool, agent y nivel de riesgo.
+4. CICLO DE VIDA Y ESTADOS: REGISTERED, VALID, INVALID, ENABLED, DISABLED, STAGED, ACTIVE.
+5. AISLAMIENTO DE SEGURIDAD: Registrar una Skill no concede autorización.
 
 INVARIANTE DE SEGURIDAD ABSOLUTA:
 Toda ejecución continúa pasando por SecurityPipeline (RiskEngine + PermissionManager).
@@ -12,7 +13,6 @@ Toda ejecución continúa pasando por SecurityPipeline (RiskEngine + PermissionM
 
 from __future__ import annotations
 
-import re
 import threading
 from typing import ClassVar
 
@@ -24,6 +24,7 @@ from skills.skill_models import (
     SkillStatus,
 )
 from skills.skill_validator import SkillValidator
+from skills.skill_version import SemVer
 
 logger = get_logger("jessyca.skills.registry")
 
@@ -51,6 +52,10 @@ class SkillRegistry:
         self._statuses: dict[str, dict[str, SkillStatus]] = {}
         # _active_versions: {skill_id: latest_or_active_version}
         self._active_versions: dict[str, str] = {}
+        # _known_good_versions: {skill_id: list_of_known_good_versions}
+        self._known_good_versions: dict[str, list[str]] = {}
+        # _staged_versions: {skill_id: staged_version}
+        self._staged_versions: dict[str, str] = {}
 
     @classmethod
     def get_instance(cls) -> SkillRegistry:
@@ -105,11 +110,16 @@ class SkillRegistry:
                 self._skills[skill_id] = {}
                 self._definitions[skill_id] = {}
                 self._statuses[skill_id] = {}
+                self._known_good_versions[skill_id] = []
 
             self._skills[skill_id][version] = skill
             self._definitions[skill_id][version] = definition
             self._statuses[skill_id][version] = SkillStatus.READY
             self._update_active_version(skill_id, version)
+
+            # Si es la primera versión o pasa pruebas, registrar como known-good inicial
+            if version not in self._known_good_versions[skill_id]:
+                self._known_good_versions[skill_id].append(version)
 
             logger.info(
                 f"[SKILL REGISTERED] Skill '{skill_id}@{version}' registrada con éxito (Status: READY)."
@@ -128,16 +138,82 @@ class SkillRegistry:
             self._active_versions[skill_id] = new_version
             return
 
-        # Comparar semvers simples
         try:
-            curr_parts = [int(p) for p in re.split(r"[-.]", current_active)[:3] if p.isdigit()]
-            new_parts = [int(p) for p in re.split(r"[-.]", new_version)[:3] if p.isdigit()]
-            if new_parts >= curr_parts:
+            curr_semver = SemVer.parse(current_active)
+            new_semver = SemVer.parse(new_version)
+            if new_semver >= curr_semver:
                 self._active_versions[skill_id] = new_version
         except Exception:
             self._active_versions[skill_id] = new_version
 
-    # ── 2. LOOKUP FORMAL (POR ID O ID@VERSION) ──
+    # ── 2. GESTIÓN DE VERSIONES ACTIVAS Y KNOWN-GOOD ──
+
+    def set_active_version(self, skill_id: str, version: str) -> bool:
+        """Establece atómicamente la versión activa de una Skill existente."""
+        with self._lock:
+            if skill_id in self._skills and version in self._skills[skill_id]:
+                self._active_versions[skill_id] = version
+                self._statuses[skill_id][version] = SkillStatus.ENABLED
+                logger.info(f"[SKILL ACTIVE VERSION CHANGED] Skill '{skill_id}' -> versión activa '{version}'.")
+                return True
+            logger.warning(f"[SKILL ACTIVE VERSION FAILED] Versión '{skill_id}@{version}' no encontrada.")
+            return False
+
+    def record_known_good(self, skill_id: str, version: str) -> None:
+        """Registra una versión de Skill como verificada y operacionalmente estable (Known-Good)."""
+        with self._lock:
+            if skill_id not in self._known_good_versions:
+                self._known_good_versions[skill_id] = []
+            if version not in self._known_good_versions[skill_id]:
+                self._known_good_versions[skill_id].append(version)
+                logger.info(f"[KNOWN-GOOD RECORDED] Skill '{skill_id}@{version}' agregada al historial de versiones funcionales.")
+
+    def get_known_good_versions(self, skill_id: str) -> list[str]:
+        """Obtiene la lista de versiones conocidas como funcionales para una Skill."""
+        with self._lock:
+            return list(self._known_good_versions.get(skill_id, []))
+
+    def get_latest_known_good(self, skill_id: str, exclude_version: str | None = None) -> str | None:
+        """Retorna la última versión conocida como funcional (opcionalmente excluyendo una versión fallida)."""
+        with self._lock:
+            history = self._known_good_versions.get(skill_id, [])
+            valid_candidates = [v for v in history if v != exclude_version and v in self._skills.get(skill_id, {})]
+            if not valid_candidates:
+                # Si no hay en known_good, buscar cualquier otra versión registrada
+                registered = list(self._skills.get(skill_id, {}).keys())
+                valid_candidates = [v for v in registered if v != exclude_version]
+
+            if not valid_candidates:
+                return None
+
+            # Ordenar por SemVer para retornar la mayor
+            try:
+                sorted_candidates = sorted(valid_candidates, key=lambda x: SemVer.parse(x))
+                return sorted_candidates[-1]
+            except Exception:
+                return valid_candidates[-1]
+
+    def stage_version(self, skill_id: str, version: str) -> bool:
+        """Marca una versión de Skill en estado de staging/prueba antes de activación."""
+        with self._lock:
+            if skill_id in self._skills and version in self._skills[skill_id]:
+                self._staged_versions[skill_id] = version
+                return True
+            return False
+
+    def get_staged_version(self, skill_id: str) -> str | None:
+        """Obtiene la versión actualmente staged para una Skill."""
+        with self._lock:
+            return self._staged_versions.get(skill_id)
+
+    def get_version_history(self, skill_id: str) -> list[str]:
+        """Retorna todas las versiones registradas para un skill_id, ordenadas cronológicamente."""
+        with self._lock:
+            if skill_id in self._skills:
+                return list(self._skills[skill_id].keys())
+            return []
+
+    # ── 3. LOOKUP FORMAL (POR ID O ID@VERSION) ──
 
     def lookup(self, target: str) -> BaseSkill | None:
         """Busca una instancia de Skill por 'id' (versión activa) o 'id@version' exacta."""
@@ -163,7 +239,7 @@ class SkillRegistry:
                 return self._definitions.get(target, {}).get(active_ver)
             return None
 
-    # ── 3. CICLO DE VIDA: ENABLE / DISABLE / UNREGISTER ──
+    # ── 4. CICLO DE VIDA: ENABLE / DISABLE / UNREGISTER ──
 
     def enable_skill(self, target: str) -> bool:
         """Habilita una Skill ('id' o 'id@version')."""
@@ -210,6 +286,11 @@ class SkillRegistry:
                     del self._skills[skill_id][version]
                     del self._definitions[skill_id][version]
                     del self._statuses[skill_id][version]
+                    if version in self._known_good_versions.get(skill_id, []):
+                        self._known_good_versions[skill_id].remove(version)
+                    if self._staged_versions.get(skill_id) == version:
+                        del self._staged_versions[skill_id]
+
                     if self._active_versions.get(skill_id) == version:
                         remaining = list(self._skills[skill_id].keys())
                         if remaining:
@@ -219,6 +300,8 @@ class SkillRegistry:
                             del self._skills[skill_id]
                             del self._definitions[skill_id]
                             del self._statuses[skill_id]
+                            if skill_id in self._known_good_versions:
+                                del self._known_good_versions[skill_id]
                     logger.info(f"[SKILL UNREGISTERED] Versión '{target}' eliminada del registro.")
                     return True
                 return False
@@ -229,6 +312,10 @@ class SkillRegistry:
                 del self._statuses[target]
                 if target in self._active_versions:
                     del self._active_versions[target]
+                if target in self._known_good_versions:
+                    del self._known_good_versions[target]
+                if target in self._staged_versions:
+                    del self._staged_versions[target]
                 logger.info(f"[SKILL UNREGISTERED] Skill '{target}' y todas sus versiones eliminadas.")
                 return True
             return False
@@ -245,7 +332,7 @@ class SkillRegistry:
                 return self._statuses.get(target, {}).get(active_ver, SkillStatus.UNVALIDATED)
             return SkillStatus.UNVALIDATED
 
-    # ── 4. DISCOVERY MULTIDIMENSIONAL ──
+    # ── 5. DISCOVERY MULTIDIMENSIONAL ──
 
     def discover(
         self,
@@ -321,7 +408,7 @@ class SkillRegistry:
 
             return results
 
-    # ── 5. MÉTODOS DE COMPATIBILIDAD ──
+    # ── 6. MÉTODOS DE COMPATIBILIDAD Y CONSULTA ──
 
     def get_skill(self, skill_id: str) -> BaseSkill | None:
         """Alias retrocompatible de lookup."""
@@ -374,6 +461,8 @@ class SkillRegistry:
             self._definitions.clear()
             self._statuses.clear()
             self._active_versions.clear()
+            self._known_good_versions.clear()
+            self._staged_versions.clear()
 
 
 def get_skill_registry() -> SkillRegistry:

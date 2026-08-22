@@ -1,4 +1,10 @@
 from core.memory.contradiction_detector import ContradictionDetector
+from core.memory.long_term_memory import (
+    LongTermMemoryEngine,
+    LongTermMemoryRecord,
+    MemoryRecordType,
+    MemorySensitivity,
+)
 from core.memory.memory_access import (
     MemoryAccessControl,
     MemoryPromotionRequest,
@@ -45,6 +51,8 @@ __all__ = [
     "ContradictionResolution",
     "ContradictionType",
     "InvalidProvenanceError",
+    "LongTermMemoryEngine",
+    "LongTermMemoryRecord",
     "MemoryAccessControl",
     "MemoryAccessDeniedError",
     "MemoryConfidence",
@@ -62,8 +70,10 @@ __all__ = [
     "MemoryPromotionRequest",
     "MemoryProvenance",
     "MemoryRanker",
+    "MemoryRecordType",
     "MemoryScope",
     "MemoryScopeError",
+    "MemorySensitivity",
     "MemoryShareRequest",
     "ProvenanceSource",
     "RankedMemoryItem",

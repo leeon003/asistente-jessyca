@@ -1,7 +1,7 @@
-"""Instalador seguro y transaccional de Skills (skill_installer.py - Fase 32).
+"""Instalador seguro y transaccional de Skills (skill_installer.py - Fases 32 y 33).
 
 Implementa el ciclo de vida completo de instalación, validación, staging, commit atómico,
-rollback determinista y desinstalación de paquetes de Skills externas.
+rollback determinista, actualización de versiones y desinstalación de paquetes de Skills.
 
 Flujo transaccional:
     PREPARE -> VALIDATE -> STAGE -> VERIFY -> COMMIT -> REGISTER
@@ -33,6 +33,7 @@ from core.logger import get_logger
 from skills.isolated_loader import IsolatedSkillLoader
 from skills.skill_compatibility import SkillCompatibilityChecker
 from skills.skill_dependency import SkillDependencyValidator
+from skills.skill_diff import SkillChangeReport, SkillDiffer
 from skills.skill_integrity import SkillIntegrityVerifier
 from skills.skill_manager import SkillManager
 from skills.skill_models import (
@@ -45,11 +46,13 @@ from skills.skill_permission_reviewer import (
     SkillPermissionReviewer,
 )
 from skills.skill_registry import SkillRegistry, get_skill_registry
+from skills.skill_revocation import SkillRevocationRegistry
 from skills.skill_security_analyzer import SkillSecurityAnalyzer
 from skills.skill_signature import (
     SignatureStatus,
     SkillSignatureVerifier,
 )
+from skills.skill_updater import RollbackResult, SkillUpdater, UpdateResult
 from skills.skill_validator import SkillValidator
 
 logger = get_logger("jessyca.skills.installer")
@@ -154,6 +157,13 @@ class SkillInstaller:
         self.signature_verifier = signature_verifier or SkillSignatureVerifier()
         self.dependency_validator = dependency_validator or SkillDependencyValidator(self.registry)
         self.emergency_stop = emergency_stop or EmergencyStopManager.get_instance()
+        self.updater = SkillUpdater(
+            install_root=self.install_root,
+            registry=self.registry,
+            signature_verifier=self.signature_verifier,
+            dependency_validator=self.dependency_validator,
+            emergency_stop=self.emergency_stop,
+        )
 
     @classmethod
     def get_instance(cls) -> SkillInstaller:
@@ -219,29 +229,38 @@ class SkillInstaller:
                 # ── ETAPA 2: VALIDATE (Manifiesto, Compatibilidad y Dependencias) ──
                 current_state = TransactionState.VALIDATE
 
-                # 2.1 Validación de Manifiesto
+                # 2.1 Comprobar Revocación previa
+                is_revoked, rev_reason = SkillRevocationRegistry.get_instance().is_skill_revoked(skill_id, version)
+                if is_revoked:
+                    raise SkillInstallationError(f"La Skill '{skill_id}@{version}' ha sido REVOCADA: {rev_reason}")
+
+                # 2.2 Validación de Manifiesto
                 val_ok, val_err = SkillValidator.validate_manifest(
                     manifest, installed_skills=self.registry.get_installed_versions()
                 )
                 if not val_ok:
                     raise SkillInstallationError(f"Validación de manifiesto rechazada: {val_err}")
 
-                # 2.2 Verificación de Compatibilidad
+                # 2.3 Verificación de Compatibilidad
                 comp_res = SkillCompatibilityChecker.check_compatibility(manifest)
                 if not comp_res.is_compatible:
                     raise SkillInstallationError(f"Incompatibilidad de entorno: {comp_res.reason}")
                 warnings.extend(comp_res.warnings)
 
-                # 2.3 Validación de Dependencias
+                # 2.4 Validación de Dependencias
                 dep_res = self.dependency_validator.validate_dependencies(manifest)
                 if not dep_res.is_valid:
-                    raise SkillInstallationError(f"Fallo en dependencias requeridas: {dep_res.reason}")
+                    raise SkillInstallationError(
+                        f"Validación de dependencias falló: {dep_res.reason}"
+                    )
+                if hasattr(dep_res, "warnings") and dep_res.warnings:
+                    warnings.extend(dep_res.warnings)
 
-                # ── ETAPA 3: STAGE (Desempaquetar y analizar en sandbox de staging) ──
+                # ── ETAPA 3: STAGE & SECURITY CHECK (Extracción, Integridad, Firma, Sandbox y AST) ──
                 current_state = TransactionState.STAGE
                 package.extract_to(staging_dir)
 
-                # 3.1 Verificación de Integridad SHA-256
+                # 3.1 Verificación de Integridad
                 integ_res = SkillIntegrityVerifier.verify_package(package, staged_dir=staging_dir)
                 if not integ_res.is_valid:
                     raise SkillInstallationError(f"Violación de integridad: {integ_res.reason}")
@@ -250,6 +269,8 @@ class SkillInstaller:
                 sig_res = self.signature_verifier.verify_package(package, staged_dir=staging_dir)
                 if sig_res.status == SignatureStatus.INVALID_SIGNATURE:
                     raise SkillInstallationError(f"Firma digital corrupta o inválida: {sig_res.reason}")
+                if sig_res.status == SignatureStatus.REVOKED_SIGNER:
+                    raise SkillInstallationError(f"Firma digital rechazada (firmante revocado): {sig_res.reason}")
                 if enforce_signed and sig_res.status != SignatureStatus.SIGNED:
                     raise SkillInstallationError(
                         f"Política de seguridad exige firma digital válida, pero el paquete es '{sig_res.status}'."
@@ -334,7 +355,81 @@ class SkillInstaller:
                     warnings=tuple(warnings),
                 )
 
-    # ── 2. FLUJO DE DESINSTALACIÓN SEGURO ──
+    # ── 2. FLUJO DE ACTUALIZACIÓN Y ROLLBACK (FASE 33) ──
+
+    def update_package(
+        self,
+        package_source: str | Path | SkillPackage,
+        enforce_signed: bool = False,
+        require_confirmation: bool = False,
+        user_confirmed: bool = False,
+        simulate_verify_failure: bool = False,
+    ) -> UpdateResult:
+        """Actualiza una Skill a una nueva versión mediante el SkillUpdater."""
+        return self.updater.update_skill(
+            package_source=package_source,
+            enforce_signed=enforce_signed,
+            require_confirmation=require_confirmation,
+            user_confirmed=user_confirmed,
+            simulate_verify_failure=simulate_verify_failure,
+        )
+
+    def update_skill(
+        self,
+        package_source: str | Path | SkillPackage,
+        enforce_signed: bool = False,
+        require_confirmation: bool = False,
+        user_confirmed: bool = False,
+        simulate_verify_failure: bool = False,
+    ) -> UpdateResult:
+        """Alias retrocompatible de update_package."""
+        return self.update_package(
+            package_source=package_source,
+            enforce_signed=enforce_signed,
+            require_confirmation=require_confirmation,
+            user_confirmed=user_confirmed,
+            simulate_verify_failure=simulate_verify_failure,
+        )
+
+    def rollback_skill(
+        self,
+        skill_id: str,
+        target_version: str | None = None,
+        reason: str = "Rollback explícito",
+    ) -> RollbackResult:
+        """Revierte una Skill a su versión previa funcional."""
+        return self.updater.rollback_skill(skill_id=skill_id, target_version=target_version, reason=reason)
+
+    def get_change_report(
+        self,
+        package_source: str | Path | SkillPackage,
+    ) -> SkillChangeReport:
+        """Genera un SkillChangeReport comparando el paquete con la versión activa instalada."""
+        if isinstance(package_source, SkillPackage):
+            package = package_source
+        else:
+            path = Path(package_source)
+            if path.is_dir():
+                package = SkillPackage.from_directory(path)
+            else:
+                package = SkillPackage.from_archive(path)
+
+        skill_id = package.skill_id
+        old_def = self.registry.lookup_definition(skill_id)
+        old_manifest = old_def.manifest if old_def else None
+
+        sig_res = self.signature_verifier.verify_package(package)
+        comp_res = SkillCompatibilityChecker.check_compatibility(package.manifest)
+
+        return SkillDiffer.compare(
+            old_manifest=old_manifest,
+            new_manifest=package.manifest,
+            signature_status=sig_res.status,
+            integrity_valid=True,
+            compatibility_result=comp_res,
+        )
+
+    # ── 3. FLUJO DE DESINSTALACIÓN SEGURO ──
 
     def uninstall_skill(self, skill_id: str, version: str | None = None) -> UninstallResult:
         """Desinstala de forma segura y limpia una Skill instalada."""

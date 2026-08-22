@@ -36,6 +36,7 @@ class SignatureStatus(StrEnum):
     UNSIGNED = "UNSIGNED"
     INVALID_SIGNATURE = "INVALID_SIGNATURE"
     UNKNOWN_SIGNER = "UNKNOWN_SIGNER"
+    REVOKED_SIGNER = "REVOKED_SIGNER"
 
 
 @dataclass(frozen=True)
@@ -63,7 +64,11 @@ class SignatureVerificationResult:
 class SkillSignatureVerifier:
     """Verificador de firmas criptográficas y almacén de firmantes confiables de JESSYCA."""
 
-    def __init__(self, trusted_signers: dict[str, bytes] | None = None) -> None:
+    def __init__(
+        self,
+        trusted_signers: dict[str, bytes] | None = None,
+        revoked_signers: set[str] | None = None,
+    ) -> None:
         # trusted_signers: {signer_id: secret_or_public_key_bytes}
         self._trusted_signers: dict[str, bytes] = (
             dict(trusted_signers)
@@ -73,19 +78,28 @@ class SkillSignatureVerifier:
                 "verified_partner": b"partner_verified_signing_key_2026",
             }
         )
+        self._revoked_signers: set[str] = set(revoked_signers) if revoked_signers is not None else set()
 
     def register_trusted_signer(self, signer_id: str, key_bytes: bytes) -> None:
         """Registra un firmante de confianza con su clave criptográfica asociada."""
+        if signer_id in self._revoked_signers:
+            self._revoked_signers.remove(signer_id)
         self._trusted_signers[signer_id] = key_bytes
         logger.info(f"[SIGNATURE TRUST STORE] Firmante de confianza '{signer_id}' registrado.")
 
     def revoke_trusted_signer(self, signer_id: str) -> bool:
-        """Revoca un firmante de la lista de confianza."""
+        """Revoca un firmante de la lista de confianza y lo marca formalmente como revocado."""
+        self._revoked_signers.add(signer_id)
         if signer_id in self._trusted_signers:
             del self._trusted_signers[signer_id]
             logger.info(f"[SIGNATURE TRUST STORE] Firmante '{signer_id}' revocado.")
             return True
-        return False
+        logger.info(f"[SIGNATURE TRUST STORE] Firmante '{signer_id}' agregado a la lista de revocación.")
+        return True
+
+    def is_signer_revoked(self, signer_id: str) -> bool:
+        """Indica si un firmante ha sido revocado formalmente."""
+        return signer_id in self._revoked_signers
 
     def verify_package(self, package: SkillPackage, staged_dir: str | Path | None = None) -> SignatureVerificationResult:
         """Verifica la firma criptográfica del paquete de Skill."""
@@ -134,7 +148,17 @@ class SkillSignatureVerifier:
                 reason="Estructura de firma digital incompleta (falta signer_id o signature_hex).",
             )
 
-        # 3. Comprobar si el firmante está en la lista de confianza
+        # 3. Comprobar si el firmante está revocado
+        if signer_id in self._revoked_signers:
+            logger.warning(f"[SIGNATURE REVOKED SIGNER] Firmante '{signer_id}' ha sido revocado.")
+            return SignatureVerificationResult(
+                status=SignatureStatus.REVOKED_SIGNER,
+                is_valid=False,
+                signer_id=signer_id,
+                reason=f"El firmante '{signer_id}' ha sido revocado formalmente de la lista de confianza de JESSYCA.",
+            )
+
+        # 4. Comprobar si el firmante está en la lista de confianza
         if signer_id not in self._trusted_signers:
             logger.warning(f"[SIGNATURE UNKNOWN SIGNER] Firmante '{signer_id}' no figura en el almacén de confianza.")
             return SignatureVerificationResult(

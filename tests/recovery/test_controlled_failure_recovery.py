@@ -44,13 +44,13 @@ class TestFailureClassifier:
         assert FailureClassifier.is_retryable(FileNotFoundError()) is False
 
     def test_security_exceptions_are_always_permanent(self) -> None:
-        class SecurityViolationException(Exception):
+        class SecurityViolationError(Exception):
             pass
 
         class AutonomyPermissionDeniedError(Exception):
             pass
 
-        assert FailureClassifier.classify(SecurityViolationException()) == FailureClassification.PERMANENT
+        assert FailureClassifier.classify(SecurityViolationError()) == FailureClassification.PERMANENT
         assert FailureClassifier.classify(AutonomyPermissionDeniedError()) == FailureClassification.PERMANENT
 
 
@@ -278,3 +278,4 @@ class TestControlledFailureRecovery:
         coord1 = get_recovery_coordinator()
         coord2 = ControlledFailureRecovery()
         assert coord1 is not None
+        assert coord2 is not None
