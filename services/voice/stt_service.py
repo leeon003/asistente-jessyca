@@ -112,7 +112,7 @@ class FasterWhisperSTTService:
         if self._is_loaded:
             return
         try:
-            from faster_whisper import WhisperModel
+            from faster_whisper import WhisperModel  # type: ignore[import-untyped]
             self._model = WhisperModel(self.model_size, device=self.device, compute_type=self.compute_type)
             self._is_loaded = True
             logger.info(f"[FASTER-WHISPER] Modelo '{self.model_size}' cargado exitosamente.")

@@ -213,9 +213,12 @@ class ConversationContextManager:
             if lower in ("hola", "hola jessica", "jessica hola", "jessica, hola", "hola, jessica", "buenas", "buenos días", "buenas tardes"):
                 return "general_query", {"query": text}, False, "Hola, ¿en qué te puedo ayudar?"
 
-            # 4.0.2 CAPACIDADES ("¿Qué puedes hacer?")
-            if lower in ("¿qué puedes hacer?", "¿que puedes hacer?", "qué puedes hacer", "que puedes hacer", "qué sabes hacer", "que sabes hacer"):
-                return "general_query", {"query": text}, False, "Puedo ayudarte a controlar aplicaciones, buscar información y realizar tareas en tu computadora."
+            # 4.0.2 CAPACIDADES ("¿Qué puedes hacer?", "¿Puedes abrir aplicaciones?")
+            if any(p in lower for p in ("qué puedes hacer", "que puedes hacer", "qué sabes hacer", "que sabes hacer")):
+                return "general_query", {"query": text}, False, "Soy Jessyca, tu asistente local e inteligente para Windows. Puedo ayudarte a controlar aplicaciones (abrir y cerrar aplicaciones), buscar información y realizar tareas en tu computadora."
+
+            if any(p in lower for p in ("puedes abrir aplicaciones", "qué aplicaciones puedes abrir", "que aplicaciones puedes abrir", "qué aplicaciones abres", "que aplicaciones abres", "puedes controlar aplicaciones")):
+                return "general_query", {"query": text}, False, "Sí, puedo abrir aplicaciones como el Bloc de notas, la Calculadora o el navegador, entre otras."
 
             # 4.0.3 PRONOMBRE SIN ANTECEDENTE ("Haz algo con eso")
             if lower in ("haz algo con eso", "haz algo con aquello", "haz algo con esto", "qué hago con eso", "abre eso") and not session.get_context("last_referenced_entity") and not session.get_context("current_application"):
@@ -229,6 +232,21 @@ class ConversationContextManager:
                     expected_slot="list_items",
                 )
                 return "write_list", {"immediate_response": "Claro. ¿Qué quieres incluir?"}, True, "Claro. ¿Qué quieres incluir?"
+
+            # 4.0.5 CORRECCIÓN DE ELEMENTOS DE LISTA O TEXTO ("No, cambia café por té", "Cambia café por té")
+            list_corr = re.match(
+                r"^(?:no,?\s*)?(?:cambia|cámbialo|reemplaza)\s+([a-záéíóúñ\s]+)\s+por\s+([a-záéíóúñ\s]+)$",
+                lower,
+            )
+            if list_corr:
+                old_item = list_corr.group(1).strip()
+                new_item = list_corr.group(2).strip()
+                last_list = session.get_context("last_list_items") or ""
+                if old_item in last_list.lower():
+                    updated_list = re.sub(re.escape(old_item), new_item, last_list, flags=re.IGNORECASE)
+                    session.set_context_item("last_list_items", updated_list, relevance=0.9)
+                resp = f"Listo, cambié {old_item} por {new_item}."
+                return "user_correction", {"old_item": old_item, "new_item": new_item, "immediate_response": resp}, False, resp
 
             # 4.1 INTERRUPCIÓN PURA ("Déjame hablar", "Un momento", "Pausa", "Silencio", "Alto")
             if lower in ("déjame hablar", "dejame hablar", "un momento", "pausa", "silencio", "alto"):
@@ -354,6 +372,63 @@ class ConversationContextManager:
                     expected_slot="numbers_to_sum",
                 )
                 return "math_sum", {"immediate_response": "Claro. ¿Qué números quieres sumar?"}, True, "Claro. ¿Qué números quieres sumar?"
+
+            # Follow-up deíctico sobre cálculo previo ("Súmale 25 a eso", "Ahora súmale 60 a eso", "Réstale 10", "Multiplícalo por 2")
+            followup_math = re.match(
+                r"^(?:ahora\s*)?(?:y\s*)?(?:súmale|sumale|suma|réstale|restale|resta|multiplícalo por|multiplicalo por|multiplica por|divídelo entre|dividelo entre|divide entre)\s*(\d+(?:\.\d+)?)(?:\s*a\s*(?:eso|esto|ese resultado|el resultado))?$",
+                lower,
+            )
+            if followup_math:
+                last_calc = session.get_context("last_calculation")
+                delta = float(followup_math.group(1))
+                if last_calc:
+                    prev_val = float(last_calc.get("result", 0))
+                    if any(k in lower for k in ("suma", "súmale", "sumale")):
+                        res = prev_val + delta
+                    elif any(k in lower for k in ("resta", "réstale", "restale")):
+                        res = prev_val - delta
+                    elif any(k in lower for k in ("multiplica", "multiplícalo", "multiplicalo")):
+                        res = prev_val * delta
+                    elif any(k in lower for k in ("divide", "divídelo", "dividelo")):
+                        res = prev_val / delta if delta != 0 else 0.0
+                    else:
+                        res = prev_val + delta
+                    res_str = str(int(res)) if res.is_integer() else f"{res:.2f}"
+                    resp_text = f"El resultado es {res_str}."
+                    session.set_context_item("last_calculation", {"operation": "followup_calc", "numbers": [prev_val, delta], "result": res}, relevance=0.95)
+                    session.set_context_item("last_referenced_entity", res_str, relevance=0.95)
+                    session.dialogue_state = DialogueState.TASK_ACTIVE
+                    return "math_calculation", {"numbers": [prev_val, delta], "result": res_str, "immediate_response": resp_text}, False, resp_text
+                else:
+                    return "math_calculation", {}, True, f"¿A qué número deseas sumarle {delta}?"
+
+            # Operaciones aritméticas directas ("¿Cuánto es 50 por 8?", "¿Cuánto es 45 por 12?", "Calcula 100 más 50", etc.)
+            direct_math = re.match(
+                r"^(?:¿)?(?:cuánto|cuanto|calcula|calculame)\s*(?:es)?\s*(\d+(?:\.\d+)?)\s*(?:por|x|\*|multiplicado por|dividido por|dividido entre|entre|/|más|\+|mas|menos|\-)\s*(\d+(?:\.\d+)?)\??$",
+                lower,
+            )
+            if direct_math:
+                n1 = float(direct_math.group(1))
+                n2 = float(direct_math.group(2))
+                op_raw = lower
+                if any(k in op_raw for k in ("por", "x", "*", "multiplicado")):
+                    res = n1 * n2
+                    op_type = "multiplication"
+                elif any(k in op_raw for k in ("entre", "/", "dividido")):
+                    res = n1 / n2 if n2 != 0 else 0.0
+                    op_type = "division"
+                elif any(k in op_raw for k in ("más", "mas", "+")):
+                    res = n1 + n2
+                    op_type = "sum"
+                else:
+                    res = n1 - n2
+                    op_type = "subtraction"
+                res_str = str(int(res)) if res.is_integer() else f"{res:.2f}"
+                resp_text = f"El resultado es {res_str}."
+                session.set_context_item("last_calculation", {"operation": op_type, "numbers": [n1, n2], "result": res}, relevance=0.95)
+                session.set_context_item("last_referenced_entity", res_str, relevance=0.95)
+                session.dialogue_state = DialogueState.TASK_ACTIVE
+                return "math_calculation", {"numbers": [n1, n2], "result": res_str, "immediate_response": resp_text}, False, resp_text
 
             if lower.startswith("hazla con ") or lower.startswith("con ") or lower.startswith("hazlo con "):
                 numbers = [float(n) for n in re.findall(r"\b\d+(?:\.\d+)?\b", lower)]

@@ -17,7 +17,6 @@ from enum import StrEnum
 from typing import Any, Protocol
 from urllib.parse import urlparse
 
-from config.settings import AppSettings
 from core.emergency_stop import EmergencyStopManager, get_emergency_stop_manager
 from core.exceptions import MCPError
 from core.logger import get_logger
@@ -176,7 +175,8 @@ class URLAllowlistPolicy:
     """Evaluador determinista de seguridad de URLs (Política Deny by Default)."""
 
     def __init__(self) -> None:
-        settings = AppSettings()
+        from config.manager import get_settings
+        settings = get_settings()
         self.enabled = getattr(settings, "BROWSER_URL_ALLOWLIST_ENABLED", True)
         self.allowed_schemes = getattr(settings, "BROWSER_ALLOWED_SCHEMES", {"http", "https"})
         self.blocked_schemes = getattr(settings, "BROWSER_BLOCKED_SCHEMES", {"javascript", "data", "file", "chrome", "edge", "about"})

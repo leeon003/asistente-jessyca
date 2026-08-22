@@ -38,6 +38,18 @@ from core.cancellation import CancellationToken
 from core.collaboration.collaboration_engine import CollaborationEngine
 from core.control_plane.models import AgentBudget
 from core.emergency_stop import EmergencyStopManager, get_emergency_stop_manager
+from core.experience import (
+    ExecutionStatus as ExpExecutionStatus,
+)
+from core.experience import (
+    ExperienceCategory,
+    ExperienceLogger,
+    InputSource,
+    get_experience_logger,
+)
+from core.experience import (
+    VerificationStatus as ExpVerificationStatus,
+)
 from core.interaction.interaction_models import (
     ConfirmationPrompt,
 )
@@ -82,10 +94,12 @@ class JessycaLocalAgent:
         audit_logger: AuditLogger | None = None,
         risk_engine: RiskEngine | None = None,
         permission_manager: PermissionManager | None = None,
+        experience_logger: ExperienceLogger | None = None,
     ) -> None:
         self._lock = threading.RLock()
         self.emergency_stop_mgr = emergency_stop or get_emergency_stop_manager()
         self.audit_logger = audit_logger or get_audit_logger()
+        self.experience_logger = experience_logger or get_experience_logger()
         self.risk_engine = risk_engine or RiskEngine()
         self.permission_manager = permission_manager or PermissionManager()
         self.model_router = model_router or get_model_router()
@@ -252,7 +266,7 @@ class JessycaLocalAgent:
             # ── PASO 0: VERIFICACIÓN DE PARADA DE EMERGENCIA Y CANCELACIÓN ──
             if self.emergency_stop_mgr.is_stopped():
                 metrics.total_latency_ms = (time.perf_counter() - start_time) * 1000
-                return JessycaResponse(
+                resp = JessycaResponse(
                     request_id=req.request_id,
                     session_id=req.session_id,
                     success=False,
@@ -262,11 +276,13 @@ class JessycaLocalAgent:
                     error="Emergency Stop active",
                     metrics=metrics,
                 )
+                self._log_turn_experience(req, resp, category=ExperienceCategory.ACTION_BLOCKED)
+                return resp
 
             if token.is_cancelled:
                 metrics.interruption_handled = True
                 metrics.total_latency_ms = (time.perf_counter() - start_time) * 1000
-                return JessycaResponse(
+                resp = JessycaResponse(
                     request_id=req.request_id,
                     session_id=req.session_id,
                     success=False,
@@ -275,12 +291,14 @@ class JessycaLocalAgent:
                     error="Operation cancelled",
                     metrics=metrics,
                 )
+                self._log_turn_experience(req, resp, category=ExperienceCategory.CANCELLED)
+                return resp
 
             # ── PASO 1: PROCESAMIENTO MULTIMODAL & UNTRUSTED DATA SANITIZATION ──
             is_mm_valid, mm_err, mm_context = MultimodalProcessor.process_request(req)
             if not is_mm_valid:
                 metrics.total_latency_ms = (time.perf_counter() - start_time) * 1000
-                return JessycaResponse(
+                resp = JessycaResponse(
                     request_id=req.request_id,
                     session_id=req.session_id,
                     success=False,
@@ -289,6 +307,8 @@ class JessycaLocalAgent:
                     error=mm_err,
                     metrics=metrics,
                 )
+                self._log_turn_experience(req, resp, category=ExperienceCategory.ACTION_FAILED)
+                return resp
 
             user_text = req.user_input.strip()
 
@@ -305,7 +325,7 @@ class JessycaLocalAgent:
             if not q_res.is_acceptable:
                 clarification_msg = q_res.suggested_prompt or "No te entendí bien. ¿Puedes repetirlo?"
                 metrics.total_latency_ms = (time.perf_counter() - start_time) * 1000
-                return JessycaResponse(
+                resp = JessycaResponse(
                     request_id=req.request_id,
                     session_id=req.session_id,
                     success=False,
@@ -317,6 +337,8 @@ class JessycaLocalAgent:
                     clarification_question=clarification_msg,
                     metrics=metrics,
                 )
+                self._log_turn_experience(req, resp, category=ExperienceCategory.LOW_STT_CONFIDENCE)
+                return resp
 
             # Analizar completitud de la orden
             c_checker = IntentCompletenessChecker()
@@ -330,7 +352,7 @@ class JessycaLocalAgent:
                     original_intent=c_res.intent_category,
                 )
                 metrics.total_latency_ms = (time.perf_counter() - start_time) * 1000
-                return JessycaResponse(
+                resp = JessycaResponse(
                     request_id=req.request_id,
                     session_id=req.session_id,
                     success=False,
@@ -342,6 +364,8 @@ class JessycaLocalAgent:
                     clarification_question=clarification_msg,
                     metrics=metrics,
                 )
+                self._log_turn_experience(req, resp, category=ExperienceCategory.CLARIFICATION_REQUESTED, target_type="slot", target_value=c_res.missing_slot)
+                return resp
 
             # Usar texto normalizado limpio
             user_text = q_res.normalized_text
@@ -351,7 +375,7 @@ class JessycaLocalAgent:
                 self.context_manager.close_session(req.session_id)
                 closing_text = "¡Hasta luego! Que tengas un excelente día."
                 metrics.total_latency_ms = (time.perf_counter() - start_time) * 1000
-                return JessycaResponse(
+                resp = JessycaResponse(
                     request_id=req.request_id,
                     session_id=req.session_id,
                     success=True,
@@ -361,6 +385,8 @@ class JessycaLocalAgent:
                     intent="close_conversation",
                     metrics=metrics,
                 )
+                self._log_turn_experience(req, resp, category=ExperienceCategory.GENERAL)
+                return resp
 
             # ── PASO 2: ANÁLISIS DE INTENCIÓN Y RESOLUCIÓN DE CONTEXTO ──
             t_intent_0 = time.perf_counter()
@@ -372,7 +398,7 @@ class JessycaLocalAgent:
                 default_msg = "Te escucho, dime." if intent == "interrupt_assistant" else "Entendido, operación cancelada."
                 cancel_msg = extracted_params.get("immediate_response") or default_msg
                 metrics.total_latency_ms = (time.perf_counter() - start_time) * 1000
-                return JessycaResponse(
+                resp = JessycaResponse(
                     request_id=req.request_id,
                     session_id=req.session_id,
                     success=True,
@@ -382,12 +408,14 @@ class JessycaLocalAgent:
                     intent=intent,
                     metrics=metrics,
                 )
+                self._log_turn_experience(req, resp, category=ExperienceCategory.CANCELLED)
+                return resp
 
             # Manejo de respuesta inmediata de diálogo contextual (ej. "¿Qué números quieres sumar?", "¿Para qué día?", "¿Qué quieres incluir?")
             if (intent in ("math_sum", "write_list") or (intent == "set_alarm" and is_ambiguous)) and extracted_params.get("immediate_response") and is_ambiguous:
                 clarification_msg = extracted_params["immediate_response"]
                 metrics.total_latency_ms = (time.perf_counter() - start_time) * 1000
-                return JessycaResponse(
+                resp = JessycaResponse(
                     request_id=req.request_id,
                     session_id=req.session_id,
                     success=True,
@@ -399,12 +427,14 @@ class JessycaLocalAgent:
                     clarification_question=clarification_msg,
                     metrics=metrics,
                 )
+                self._log_turn_experience(req, resp, category=ExperienceCategory.CLARIFICATION_REQUESTED)
+                return resp
 
-            # Manejo de diálogo contextual completado (ej. resultado matemático, alarma configurada, respuesta afirmativa, lista completada, consulta general)
-            if (intent in ("math_calculation", "set_alarm", "write_list") or (intent == "general_query" and extracted_params.get("immediate_response"))) and extracted_params.get("immediate_response") and not is_ambiguous:
+            # Manejo de diálogo contextual completado (ej. resultado matemático, alarma configurada, respuesta afirmativa, lista completada, consulta general, corrección)
+            if (intent in ("math_calculation", "set_alarm", "write_list", "user_correction") or (intent == "general_query" and extracted_params.get("immediate_response"))) and extracted_params.get("immediate_response") and not is_ambiguous:
                 resp_msg = extracted_params["immediate_response"]
                 metrics.total_latency_ms = (time.perf_counter() - start_time) * 1000
-                return JessycaResponse(
+                resp = JessycaResponse(
                     request_id=req.request_id,
                     session_id=req.session_id,
                     success=True,
@@ -412,9 +442,12 @@ class JessycaLocalAgent:
                     response_text=resp_msg,
                     spoken_text=resp_msg,
                     intent=intent,
-                    tools_executed=(),
+                    tools_executed=[],
                     metrics=metrics,
                 )
+                cat = ExperienceCategory.USER_CORRECTION if intent == "user_correction" else ExperienceCategory.ACTION_SUCCESS
+                self._log_turn_experience(req, resp, category=cat, is_correction=(intent == "user_correction"))
+                return resp
 
             # Manejo de Aclaración si la intención es ambigua o faltan parámetros críticos
             if is_ambiguous:
@@ -426,7 +459,7 @@ class JessycaLocalAgent:
                     original_intent=intent,
                 )
                 metrics.total_latency_ms = (time.perf_counter() - start_time) * 1000
-                return JessycaResponse(
+                resp = JessycaResponse(
                     request_id=req.request_id,
                     session_id=req.session_id,
                     success=False,
@@ -438,6 +471,8 @@ class JessycaLocalAgent:
                     clarification_question=clarification_msg,
                     metrics=metrics,
                 )
+                self._log_turn_experience(req, resp, category=ExperienceCategory.AMBIGUOUS_INTENT)
+                return resp
 
             # ── PASO 3: ENRUTAMIENTO DE MODELO Y AGENTE ──
             t_model_0 = time.perf_counter()
@@ -493,7 +528,7 @@ class JessycaLocalAgent:
                         security_level=sec_level.value,
                     )
                     metrics.total_latency_ms = (time.perf_counter() - start_time) * 1000
-                    return JessycaResponse(
+                    resp = JessycaResponse(
                         request_id=req.request_id,
                         session_id=req.session_id,
                         success=True,
@@ -509,6 +544,8 @@ class JessycaLocalAgent:
                         requires_confirmation=True,
                         metrics=metrics,
                     )
+                    self._log_turn_experience(req, resp, category=ExperienceCategory.ACTION_BLOCKED, tool_name=proposed_tool)
+                    return resp
 
             # ── PASO 6: EJECUCIÓN SEGURA Y VERIFICACIÓN POST-EJECUCIÓN REAL ──
             t_exec_0 = time.perf_counter()
@@ -537,54 +574,110 @@ class JessycaLocalAgent:
             elif intent in ("open_application", "close_application"):
                 accion_app = "abrir" if intent == "open_application" else "cerrar"
                 app_name = extracted_params.get("app_name", "notepad")
-                skill_res = self.skill_manager.execute_skill(
-                    "windows.apps",
-                    parameters={"accion": accion_app, "nombre_app": app_name},
+
+                from core.execution.idempotency_guard import (
+                    ExecutionFingerprint,
+                    get_idempotency_guard,
                 )
 
-                raw_evidence = skill_res.output.get("evidence") if isinstance(skill_res.output, dict) else None
-                evidence_obj = None
-                if raw_evidence:
-                    evidence_obj = ExecutionEvidence(
-                        verification_type=raw_evidence.get("verification_type", "process"),
-                        target=raw_evidence.get("target", app_name),
-                        is_verified=bool(raw_evidence.get("is_verified", False)),
-                        details=raw_evidence.get("details", {}),
+                idempotency_guard = get_idempotency_guard()
+                fingerprint = ExecutionFingerprint(
+                    session_id=req.session_id,
+                    request_id=req.request_id,
+                    intent=intent,
+                    skill="windows.apps",
+                    action=accion_app,
+                    target=app_name,
+                )
+
+                is_acquired, exec_record = idempotency_guard.acquire_execution(fingerprint)
+                if not is_acquired:
+                    logger.warning(
+                        f"[IDEMPOTENCY DUPLICATE BLOCKED] Reutilizando resultado previo para request_id={req.request_id} "
+                        f"execution_id={exec_record.execution_id} intent={intent} target={app_name}"
+                    )
+                    exec_success = (exec_record.status == "SUCCEEDED")
+                    msg_cached = exec_record.result_message or "Ejecución duplicada prevenida por idempotencia."
+                    execution_result = ExecutionResult(
+                        status=ExecutionStatus.SUCCEEDED if exec_success else ExecutionStatus.FAILED,
+                        action=intent,
+                        target=app_name,
+                        message=msg_cached,
+                    )
+                    sys_resp = SystemResponse(
+                        task_id=req.request_id,
+                        correlation_id=req.request_id,
+                        success=exec_success,
+                        status=exec_record.status,
+                        output=exec_record.details.get("output", {}),
+                        error=None if exec_success else msg_cached,
+                    )
+                else:
+                    skill_res = self.skill_manager.execute_skill(
+                        "windows.apps",
+                        parameters={"accion": accion_app, "nombre_app": app_name},
                     )
 
-                is_skill_ok = bool(skill_res.success and isinstance(skill_res.output, dict) and skill_res.output.get("exito"))
-                is_verif_ok = bool(evidence_obj and evidence_obj.is_verified)
+                    raw_evidence = skill_res.output.get("evidence") if isinstance(skill_res.output, dict) else None
+                    evidence_obj = None
+                    if raw_evidence:
+                        evidence_obj = ExecutionEvidence(
+                            verification_type=raw_evidence.get("verification_type", "process"),
+                            target=raw_evidence.get("target", app_name),
+                            is_verified=bool(raw_evidence.get("is_verified", False)),
+                            details=raw_evidence.get("details", {}),
+                        )
 
-                if is_skill_ok and is_verif_ok:
-                    exec_status = ExecutionStatus.SUCCEEDED
-                    exec_success = True
-                elif skill_res.output and isinstance(skill_res.output, dict) and skill_res.output.get("error_code") == "VERIFICATION_FAILED":
-                    exec_status = ExecutionStatus.VERIFICATION_FAILED
-                    exec_success = False
-                elif not skill_res.success or (isinstance(skill_res.output, dict) and not skill_res.output.get("exito")):
-                    exec_status = ExecutionStatus.FAILED
-                    exec_success = False
-                else:
-                    exec_status = ExecutionStatus.VERIFICATION_FAILED
-                    exec_success = False
+                    is_skill_ok = bool(skill_res.success and isinstance(skill_res.output, dict) and skill_res.output.get("exito"))
+                    is_verif_ok = bool(evidence_obj and evidence_obj.is_verified)
+                    reused_instance = bool(isinstance(skill_res.output, dict) and skill_res.output.get("reused_instance", False))
+                    execution_count = int(skill_res.output.get("execution_count", 1 if is_skill_ok and not reused_instance else 0)) if isinstance(skill_res.output, dict) else (1 if is_skill_ok else 0)
 
-                execution_result = ExecutionResult(
-                    status=exec_status,
-                    action=intent,
-                    target=app_name,
-                    message=skill_res.output.get("mensaje") if isinstance(skill_res.output, dict) else skill_res.error,
-                    evidence=evidence_obj,
-                    output=skill_res.output,
-                )
+                    idempotency_guard.record_execution_invoked(
+                        execution_id=exec_record.execution_id,
+                        count=execution_count,
+                        is_reused=reused_instance,
+                    )
 
-                sys_resp = SystemResponse(
-                    task_id=req.request_id,
-                    correlation_id=req.request_id,
-                    success=exec_success,
-                    status=exec_status.value,
-                    output=skill_res.output,
-                    error=None if exec_success else (execution_result.message or "Fallo en ejecución/verificación"),
-                )
+                    if is_skill_ok and is_verif_ok:
+                        exec_status = ExecutionStatus.SUCCEEDED
+                        exec_success = True
+                    elif skill_res.output and isinstance(skill_res.output, dict) and skill_res.output.get("error_code") == "VERIFICATION_FAILED":
+                        exec_status = ExecutionStatus.VERIFICATION_FAILED
+                        exec_success = False
+                    elif not skill_res.success or (isinstance(skill_res.output, dict) and not skill_res.output.get("exito")):
+                        exec_status = ExecutionStatus.FAILED
+                        exec_success = False
+                    else:
+                        exec_status = ExecutionStatus.VERIFICATION_FAILED
+                        exec_success = False
+
+                    msg_out = skill_res.output.get("mensaje") if isinstance(skill_res.output, dict) else skill_res.error
+
+                    idempotency_guard.record_verification_completed(
+                        execution_id=exec_record.execution_id,
+                        status=exec_status.value.upper(),
+                        result_message=msg_out,
+                        details={"output": skill_res.output if isinstance(skill_res.output, dict) else {}},
+                    )
+
+                    execution_result = ExecutionResult(
+                        status=exec_status,
+                        action=intent,
+                        target=app_name,
+                        message=msg_out,
+                        evidence=evidence_obj,
+                        output=skill_res.output,
+                    )
+
+                    sys_resp = SystemResponse(
+                        task_id=req.request_id,
+                        correlation_id=req.request_id,
+                        success=exec_success,
+                        status=exec_status.value,
+                        output=skill_res.output,
+                        error=None if exec_success else (execution_result.message or "Fallo en ejecución/verificación"),
+                    )
 
             # 6.2 Flujo Coordinado Multidimensional
             else:
@@ -619,7 +712,7 @@ class JessycaLocalAgent:
             metrics.total_latency_ms = (time.perf_counter() - start_time) * 1000
             self._latest_metrics = metrics
 
-            return JessycaResponse(
+            resp = JessycaResponse(
                 request_id=req.request_id,
                 session_id=req.session_id,
                 success=exec_success,
@@ -639,9 +732,95 @@ class JessycaLocalAgent:
                 metrics=metrics,
             )
 
+            if execution_result and execution_result.status == ExecutionStatus.VERIFICATION_FAILED:
+                cat = ExperienceCategory.VERIFICATION_FAILED
+            elif exec_success:
+                cat = ExperienceCategory.USER_CORRECTION if extracted_params.get("is_correction") else ExperienceCategory.ACTION_SUCCESS
+            else:
+                cat = ExperienceCategory.ACTION_FAILED
+
+            target_val = extracted_params.get("app_name") or extracted_params.get("query") or extracted_params.get("path") or extracted_params.get("topic")
+            is_verif = bool(execution_result and execution_result.evidence and execution_result.evidence.is_verified)
+
+            self._log_turn_experience(
+                req,
+                resp,
+                category=cat,
+                target_type="application" if "application" in intent else "general",
+                target_value=str(target_val) if target_val else None,
+                tool_name=proposed_tool,
+                action=intent,
+                is_verified=is_verif,
+                is_correction=bool(extracted_params.get("is_correction")),
+            )
+
+            return resp
+
         finally:
             with self._lock:
                 self._active_tokens.pop(req.request_id, None)
+
+    def _log_turn_experience(
+        self,
+        req: JessycaRequest,
+        resp: JessycaResponse,
+        category: ExperienceCategory,
+        target_type: str | None = None,
+        target_value: str | None = None,
+        tool_name: str | None = None,
+        action: str | None = None,
+        is_verified: bool = False,
+        is_correction: bool = False,
+    ) -> None:
+        """Emite la experiencia al ExperienceLogger de forma fail-safe sin propagar excepciones."""
+        try:
+            source_map = {
+                InputModality.TEXT: InputSource.TEXT,
+                InputModality.VOICE: InputSource.VOICE,
+                InputModality.MULTIMODAL: InputSource.OTHER,
+            }
+            inp_source = source_map.get(req.modality, InputSource.TEXT)
+            stt_conf = float(req.metadata.get("stt_confidence", 1.0)) if req.metadata else 1.0
+
+            exec_status = ExpExecutionStatus.SUCCESS if resp.success else ExpExecutionStatus.FAILED
+            if resp.status == AgentExecutionState.INTERRUPTED:
+                exec_status = ExpExecutionStatus.CANCELLED
+            elif resp.status in (AgentExecutionState.STOPPED, AgentExecutionState.AWAITING_CONFIRMATION):
+                exec_status = ExpExecutionStatus.BLOCKED
+            elif resp.status == AgentExecutionState.AWAITING_CLARIFICATION:
+                exec_status = ExpExecutionStatus.NOT_EXECUTED
+
+            verif_status = ExpVerificationStatus.SUCCESS if is_verified else (
+                ExpVerificationStatus.FAILED if category == ExperienceCategory.VERIFICATION_FAILED else ExpVerificationStatus.NOT_PERFORMED
+            )
+
+            self.experience_logger.log_interaction(
+                user_input=req.user_input,
+                response_text=resp.response_text,
+                session_id=req.session_id,
+                correlation_id=req.request_id,
+                source=inp_source,
+                category=category,
+                stt_text=req.user_input if req.modality == InputModality.VOICE else None,
+                stt_confidence=stt_conf,
+                intent_name=resp.intent,
+                intent_confidence=1.0,
+                target_type=target_type,
+                target_value=target_value,
+                execution_status=exec_status,
+                tool_name=tool_name,
+                action=action,
+                verification_status=verif_status,
+                is_verified=is_verified,
+                total_latency_ms=resp.metrics.total_latency_ms,
+                error_message=resp.error,
+                is_correction=is_correction,
+                model_used=resp.selected_model,
+                agent_used=resp.selected_agent,
+                skill_used=resp.selected_skill,
+            )
+        except Exception as ex:
+            logger.warning(f"[LOCAL AGENT EXPERIENCE LOGGING FAILED - NON-FATAL] {ex}")
 
     # ── MÉTODOS AUXILIARES DE RESOLUCIÓN Y ENRUTAMIENTO ──
 

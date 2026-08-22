@@ -12,6 +12,7 @@ from benchmarks.real_world_benchmark_100 import (
     RealWorldBenchmarkRunner,
     TaskOutcome,
 )
+import psutil
 from core.emergency_stop import EmergencyStopManager
 
 
@@ -21,6 +22,13 @@ class TestRealWorldBenchmark100:
     def setup_method(self) -> None:
         self.emergency_stop = EmergencyStopManager.get_instance()
         self.emergency_stop.reset("benchmark_test_setup")
+        # Limpiar procesos residuales de pruebas previas
+        for proc in psutil.process_iter(["name"]):
+            try:
+                if proc.info["name"] and proc.info["name"].lower() in ("notepad.exe", "calc.exe"):
+                    proc.kill()
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                pass
 
     def test_run_full_100_tasks_benchmark(self) -> None:
         """Ejecuta el dataset completo de 100 tareas y valida métricas clave."""

@@ -182,7 +182,7 @@ class EdgeTTSService:
             try:
                 loop = asyncio.get_event_loop()
                 if loop.is_running():
-                    import nest_asyncio
+                    import nest_asyncio  # type: ignore[import-not-found]
                     nest_asyncio.apply()
                 audio_data = loop.run_until_complete(_run_edge_tts())
             except RuntimeError:

@@ -12,9 +12,18 @@ from core.execution.execution_verifier import (
     StateChangedVerificationStrategy,
     get_execution_verifier,
 )
+from core.execution.idempotency_guard import (
+    ExecutionFingerprint,
+    ExecutionIdempotencyGuard,
+    ExecutionRecord,
+    get_idempotency_guard,
+)
 
 __all__ = [
     "ExecutionEvidence",
+    "ExecutionFingerprint",
+    "ExecutionIdempotencyGuard",
+    "ExecutionRecord",
     "ExecutionResult",
     "ExecutionStatus",
     "ExecutionVerifier",
@@ -24,4 +33,5 @@ __all__ = [
     "ProcessTerminatedVerificationStrategy",
     "StateChangedVerificationStrategy",
     "get_execution_verifier",
+    "get_idempotency_guard",
 ]

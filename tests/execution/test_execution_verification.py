@@ -10,6 +10,7 @@ Valida:
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -22,8 +23,10 @@ from core.execution.execution_verifier import (
     ProcessTerminatedVerificationStrategy,
 )
 from core.local_agent.local_agent import (
-    AgentExecutionState,
     JessycaLocalAgent,
+)
+from core.local_agent.local_agent_models import (
+    AgentExecutionState,
     JessycaRequest,
 )
 from core.local_agent.quality_analyzer import (
@@ -36,7 +39,7 @@ from core.local_agent.quality_analyzer import (
 
 
 @pytest.fixture(autouse=True)
-def reset_local_agent():
+def reset_local_agent() -> Iterator[None]:
     agent = JessycaLocalAgent.get_instance()
     agent.reset()
     yield
@@ -46,7 +49,7 @@ def reset_local_agent():
 # ── 1. PRUEBAS DEL MODELO DE RESULTADO Y EVIDENCIA ──
 
 
-def test_success_requires_execution_evidence():
+def test_success_requires_execution_evidence() -> None:
     """Valida que claims_success solo sea True si status es SUCCEEDED y la evidencia está verificada."""
     # Sin evidencia
     res_no_ev = ExecutionResult(
@@ -86,7 +89,7 @@ def test_success_requires_execution_evidence():
     assert res_verified.claims_success
 
 
-def test_failed_execution_cannot_report_success():
+def test_failed_execution_cannot_report_success() -> None:
     """Un estado FAILED o VERIFICATION_FAILED nunca debe declarar éxito."""
     ev_verified = ExecutionEvidence(
         verification_type="process_exists",
@@ -113,7 +116,7 @@ def test_failed_execution_cannot_report_success():
 # ── 2. PRUEBAS DE ESTRATEGIAS DE VERIFICACIÓN ──
 
 
-def test_process_exists_strategy_success():
+def test_process_exists_strategy_success() -> None:
     """Verifica que la estrategia detecte un proceso simulado."""
     strat = ProcessExistsVerificationStrategy()
     fake_proc = MagicMock()
@@ -125,7 +128,7 @@ def test_process_exists_strategy_success():
         assert evidence.details["pids"] == [1234]
 
 
-def test_process_exists_strategy_failure():
+def test_process_exists_strategy_failure() -> None:
     """Verifica que la estrategia informe fallo si el proceso no existe."""
     strat = ProcessExistsVerificationStrategy()
     with patch("psutil.process_iter", return_value=[]):
@@ -133,7 +136,7 @@ def test_process_exists_strategy_failure():
         assert evidence.is_verified is False
 
 
-def test_process_terminated_strategy():
+def test_process_terminated_strategy() -> None:
     """Verifica que la estrategia de terminación confirme cuando el proceso no está corriendo."""
     strat = ProcessTerminatedVerificationStrategy()
     with patch("psutil.process_iter", return_value=[]):
@@ -144,7 +147,7 @@ def test_process_terminated_strategy():
 # ── 3. PRUEBAS DE CALIDAD DE TRANSCRIPCIÓN Y COMPLETITUD ──
 
 
-def test_defective_transcript_handling():
+def test_defective_transcript_handling() -> None:
     """La transcripción defectuosa 'pre calculadora' debe marcarse como ambigua y solicitar aclaración."""
     analyzer = TranscriptQualityAnalyzer()
     res = analyzer.analyze("pre calculadora")
@@ -153,7 +156,7 @@ def test_defective_transcript_handling():
     assert any(phrase in (res.suggested_prompt or "").lower() for phrase in ("repetirlo", "abriera una aplicación", "no te entendí"))
 
 
-def test_incomplete_phrase_handling():
+def test_incomplete_phrase_handling() -> None:
     """La frase 'Jessica dame un informe de lo' debe detectarse como incompleta."""
     checker = IntentCompletenessChecker()
     cleaned, _ = SafeTextNormalizer.normalize_wake_prefix("Jessica dame un informe de lo")
@@ -163,7 +166,7 @@ def test_incomplete_phrase_handling():
     assert "¿De qué tema quieres el informe?" in (res.clarification_question or "")
 
 
-def test_name_variation_handling():
+def test_name_variation_handling() -> None:
     """Variaciones del nombre deben removerse como prefijo sin alterar el resto."""
     for prefix in ("Jessica", "Jessyca", "Jessi", "Jessy", "oye jessica"):
         cleaned, had = SafeTextNormalizer.normalize_wake_prefix(f"{prefix}, abre el bloc de notas")
@@ -174,15 +177,15 @@ def test_name_variation_handling():
 # ── 4. PRUEBA END-TO-END DE APERTURA DE BLOC DE NOTAS ──
 
 
-def test_notepad_verified_execution_flow():
-    """Flujo exitoso: 'Jessica abre el bloc de notas' con proceso verificado."""
+def test_notepad_verified_execution_flow() -> None:
+    """Flujo exitoso: 'Jessica abre el bloc de notas' con proceso verificado (nueva instancia)."""
     agent = JessycaLocalAgent.get_instance()
 
-    # Simular que subprocess lanza y psutil encuentra el proceso
+    # Simular que no está corriendo inicialmente, subprocess lanza y psutil encuentra el nuevo proceso
     fake_proc = MagicMock()
     fake_proc.info = {"pid": 9999, "name": "notepad.exe"}
 
-    with patch("subprocess.Popen") as mock_popen, patch("psutil.process_iter", return_value=[fake_proc]):
+    with patch("subprocess.Popen") as mock_popen, patch("psutil.process_iter", side_effect=[[], [fake_proc]]):
         req = JessycaRequest(user_input="Jessica abre el bloc de notas")
         res = agent.interact(req)
 
@@ -195,7 +198,25 @@ def test_notepad_verified_execution_flow():
         mock_popen.assert_called_once()
 
 
-def test_notepad_verification_failure_flow():
+def test_notepad_single_instance_reuse_flow() -> None:
+    """Flujo de ejecución con proceso preexistente: 'Jessica abre el bloc de notas' ejecuta 1 vez y verifica."""
+    agent = JessycaLocalAgent.get_instance()
+
+    fake_proc = MagicMock()
+    fake_proc.info = {"pid": 5555, "name": "notepad.exe"}
+
+    with patch("subprocess.Popen") as mock_popen, patch("psutil.process_iter", return_value=[fake_proc]):
+        req = JessycaRequest(user_input="Jessica abre el bloc de notas")
+        res = agent.interact(req)
+
+        assert res.success is True
+        assert res.status == AgentExecutionState.COMPLETED
+        assert res.intent == "open_application"
+        mock_popen.assert_called_once()
+        assert "Listo, abrí el Bloc de notas." in res.response_text
+
+
+def test_notepad_verification_failure_flow() -> None:
     """Flujo fallido: 'Jessica abre el bloc de notas' donde el proceso NUNCA aparece."""
     agent = JessycaLocalAgent.get_instance()
 
@@ -211,7 +232,7 @@ def test_notepad_verification_failure_flow():
         assert "Listo, abrí" not in res.response_text
 
 
-def test_incomplete_phrase_end_to_end():
+def test_incomplete_phrase_end_to_end() -> None:
     """Flujo incompleto: 'Jessica dame un informe de lo' solicita aclaración."""
     agent = JessycaLocalAgent.get_instance()
 
@@ -223,7 +244,7 @@ def test_incomplete_phrase_end_to_end():
     assert "¿De qué tema quieres el informe?" in res.response_text
 
 
-def test_defective_transcript_end_to_end():
+def test_defective_transcript_end_to_end() -> None:
     """Flujo defectuoso: 'pre calculadora' solicita repetición sin ejecutar nada."""
     agent = JessycaLocalAgent.get_instance()
 
@@ -236,7 +257,7 @@ def test_defective_transcript_end_to_end():
         mock_popen.assert_not_called()
 
 
-def test_capability_query_response():
+def test_capability_query_response() -> None:
     """Flujo descriptivo: 'Hola Jessica Qué puedes hacer' describe capacidades reales."""
     agent = JessycaLocalAgent.get_instance()
 

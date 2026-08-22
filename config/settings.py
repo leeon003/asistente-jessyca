@@ -5,6 +5,7 @@ Soporta lectura automática de variables de entorno desde archivos .env y del si
 
 from __future__ import annotations
 
+from enum import StrEnum
 from pathlib import Path
 
 from pydantic import Field, field_validator
@@ -13,7 +14,25 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 DEFAULT_ENVIRONMENT = "development"
 DEFAULT_LOG_LEVEL = "INFO"
 DEFAULT_MCP_SERVER_NAME = "jessyca-windows-mcp"
-from core.types import EnvironmentMode, LogLevel
+
+
+class EnvironmentMode(StrEnum):
+    """Entornos de ejecución de la aplicación."""
+
+    DEVELOPMENT = "development"
+    STAGING = "staging"
+    PRODUCTION = "production"
+    TESTING = "testing"
+
+
+class LogLevel(StrEnum):
+    """Niveles de registro para el sistema de logging centralizado."""
+
+    DEBUG = "DEBUG"
+    INFO = "INFO"
+    WARNING = "WARNING"
+    ERROR = "ERROR"
+    CRITICAL = "CRITICAL"
 
 
 
@@ -765,6 +784,134 @@ class AppSettings(BaseSettings):
     SESSION_SQLITE_PATH: str = Field(
         default="data/sessions.db",
         description="Ruta del archivo de base de datos SQLite para persistencia de sesiones.",
+    )
+
+    # Configuración de Experience Logger (Fase 57)
+    EXPERIENCE_LOGGING_ENABLED: bool = Field(
+        default=True,
+        description="Habilita el registro estructurado de experiencias para aprendizaje futuro.",
+    )
+    EXPERIENCE_SQLITE_PATH: str = Field(
+        default="data/experiences.db",
+        description="Ruta del archivo de base de datos SQLite para persistencia de experiencias.",
+    )
+
+    # Configuración de Learning Proposal Engine (Fase 59)
+    PROPOSAL_SQLITE_PATH: str = Field(
+        default="data/proposals.db",
+        description="Ruta del archivo de base de datos SQLite para persistencia de propuestas de aprendizaje.",
+    )
+
+    # Configuración de Regression Learning Engine (Fase 61)
+    REGRESSION_SQLITE_PATH: str = Field(
+        default="data/regressions.db",
+        description="Ruta del archivo de base de datos SQLite para persistencia de casos de regresión.",
+    )
+
+    # Configuración de Personalization Engine (Fase 62)
+    PREFERENCE_SQLITE_PATH: str = Field(
+        default="data/preferences.db",
+        description="Ruta del archivo de base de datos SQLite para persistencia de preferencias del usuario.",
+    )
+
+    # Configuración de Daily Learning Cycle (Fase 63)
+    LEARNING_ENABLED: bool = Field(
+        default=True,
+        description="Habilita globalmente el motor de aprendizaje y automejora de JESSYCA.",
+    )
+    DAILY_LEARNING_ENABLED: bool = Field(
+        default=True,
+        description="Habilita la ejecución programada del ciclo diario de aprendizaje.",
+    )
+    DAILY_LEARNING_TIME: str = Field(
+        default="23:00",
+        description="Hora del día (formato HH:MM) para ejecutar el ciclo de aprendizaje diario.",
+    )
+    LEARNING_MAX_PROPOSALS: int = Field(
+        default=10,
+        description="Límite máximo de propuestas procesadas por ciclo diario.",
+    )
+    LEARNING_REQUIRE_APPROVAL: bool = Field(
+        default=True,
+        description="Exige aprobación explícita humana o de política antes de cualquier despliegue.",
+    )
+    LEARNING_AUTO_DEPLOY: bool = Field(
+        default=False,
+        description="Despliegue automático de mejoras (DESACTIVADO por defecto por seguridad).",
+    )
+    LEARNING_MAX_RUNTIME_SEC: float = Field(
+        default=300.0,
+        description="Tiempo máximo de ejecución en segundos antes de abortar por timeout.",
+    )
+    LEARNING_MAX_TEST_FAILURES: int = Field(
+        default=3,
+        description="Umbral de fallos en pruebas antes de activar el Circuit Breaker.",
+    )
+    DAILY_REPORT_STORAGE_PATH: str = Field(
+        default="data/learning_reports/",
+        description="Directorio de persistencia de reportes diarios de aprendizaje.",
+    )
+
+    # Configuración de Voice Capture, Calibration & Diagnostics (Fase 51.1)
+    VOICE_SAMPLE_RATE: int = Field(
+        default=16000,
+        description="Frecuencia de muestreo en Hz para la captura de audio por voz.",
+    )
+    VOICE_CHANNELS: int = Field(
+        default=1,
+        description="Canales de audio para captura (1 = mono, 2 = estéreo).",
+    )
+    VOICE_CALIBRATION_DURATION_SEC: float = Field(
+        default=1.0,
+        description="Duración en segundos de la calibración de ruido ambiente al inicio.",
+    )
+    VOICE_VAD_ENABLED: bool = Field(
+        default=True,
+        description="Habilita la detección de actividad de voz (VAD) basada en energía e histeresis.",
+    )
+    VOICE_VAD_START_THRESHOLD: float = Field(
+        default=350.0,
+        description="Umbral de energía RMS para disparar SPEECH_START (histeresis alta).",
+    )
+    VOICE_VAD_END_THRESHOLD: float = Field(
+        default=200.0,
+        description="Umbral de energía RMS para mantener SPEECH_CONTINUE / transicionar a silencio (histeresis baja).",
+    )
+    VOICE_PRE_ROLL_MS: int = Field(
+        default=400,
+        description="Ventana de pre-roll en milisegundos conservada antes de la detección de voz.",
+    )
+    VOICE_POST_ROLL_MS: int = Field(
+        default=600,
+        description="Ventana de post-roll en milisegundos conservada tras el fin de la detección de voz.",
+    )
+    VOICE_MIN_SPEECH_MS: int = Field(
+        default=300,
+        description="Duración mínima de habla en milisegundos para filtrar ruidos o clics.",
+    )
+    VOICE_MAX_CAPTURE_MS: int = Field(
+        default=15000,
+        description="Duración máxima de captura de audio por turno antes de forzar procesamiento.",
+    )
+    VOICE_SILENCE_TIMEOUT_MS: int = Field(
+        default=2500,
+        description="Tiempo de silencio continuo en milisegundos para marcar el fin del turno de voz.",
+    )
+    VOICE_STT_LANGUAGE: str = Field(
+        default="es",
+        description="Idioma predeterminado para el reconocimiento de voz (STT).",
+    )
+    VOICE_STT_CONFIDENCE_THRESHOLD: float = Field(
+        default=0.50,
+        description="Umbral mínimo de confianza para aceptar una transcripción STT.",
+    )
+    VOICE_MAX_EMPTY_RETRIES: int = Field(
+        default=5,
+        description="Límite máximo de reintentos consecutivos de captura vacía antes de notificar.",
+    )
+    VOICE_DIAGNOSTICS: bool = Field(
+        default=False,
+        description="Habilita la telemetría y logging diagnóstico detallado de audio y VAD.",
     )
 
     # Configuración de Context Builder & Memory Retrieval (Subetapa 10.2)

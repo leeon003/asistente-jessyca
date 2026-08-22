@@ -1,9 +1,17 @@
-"""Paquete del subsistema de voz (services.voice - Fase 30: Voice Assistant 2.0).
+"""Paquete del subsistema de voz (services.voice - Fases 30, 51, 51.1 & 52).
 
-Exporta los servicios de captura de audio, VAD, Wake Word, STT (faster-whisper), TTS (edge-tts),
-controlador de Barge-in, evaluador seguro de confirmaciones por voz y el pipeline de orquestación.
+Exporta los servicios de captura de audio, calibración, diagnósticos, VAD, Wake Word,
+STT, TTS, controlador de Barge-in, sesiones continuas y el pipeline de orquestación.
 """
 
+from services.voice.audio_capture import (
+    AmbientNoiseCalibrator,
+    CalibratedVoiceCaptureEngine,
+    MicrophoneDeviceInfo,
+    MicrophoneDiagnostics,
+    NoiseCalibrationResult,
+    VoiceCaptureResult,
+)
 from services.voice.audio_input import (
     AudioChunk,
     IAudioSource,
@@ -44,6 +52,12 @@ from services.voice.voice_confirmation import (
     VoiceConfirmationDecision,
     VoiceConfirmationEvaluator,
 )
+from services.voice.voice_diagnostics import (
+    VoiceCaptureDiagnostic,
+    VoiceDiscardReason,
+    VoiceTelemetryCollector,
+    get_voice_telemetry,
+)
 from services.voice.voice_errors import (
     AudioDeviceDisconnectedError,
     MicrophonePermissionDeniedError,
@@ -73,10 +87,12 @@ from services.voice.wake_word_service import (
 )
 
 __all__ = [
+    "AmbientNoiseCalibrator",
     "AudioChunk",
     "AudioDeviceDisconnectedError",
     "AudioPreRollBuffer",
     "BargeInController",
+    "CalibratedVoiceCaptureEngine",
     "ContinuousVoiceSession",
     "DEFAULT_VOICE_NAME",
     "EdgeTTSService",
@@ -89,10 +105,13 @@ __all__ = [
     "IWakeWordService",
     "KeywordWakeWordService",
     "MicrophoneAudioSource",
+    "MicrophoneDeviceInfo",
+    "MicrophoneDiagnostics",
     "MicrophonePermissionDeniedError",
     "MicrophoneUnavailableError",
     "MockSTTService",
     "MockTTSService",
+    "NoiseCalibrationResult",
     "PURE_INTERRUPTION_PHRASES",
     "STTError",
     "STTModelUnavailableError",
@@ -109,15 +128,20 @@ __all__ = [
     "VADTimeoutError",
     "VoiceAmbiguousConfirmationError",
     "VoiceCancelledError",
+    "VoiceCaptureDiagnostic",
+    "VoiceCaptureResult",
     "VoiceConfirmationDecision",
     "VoiceConfirmationError",
     "VoiceConfirmationEvaluator",
+    "VoiceDiscardReason",
     "VoiceError",
     "VoiceInteractionResult",
     "VoiceInterruptedError",
     "VoicePipeline",
     "VoiceSessionMode",
+    "VoiceTelemetryCollector",
     "VoiceTurnState",
     "WakeWordError",
     "WakeWordResult",
+    "get_voice_telemetry",
 ]

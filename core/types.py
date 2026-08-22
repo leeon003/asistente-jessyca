@@ -5,28 +5,11 @@ from __future__ import annotations
 from enum import StrEnum
 from typing import Any, Generic, TypeVar
 
+from config.settings import EnvironmentMode, LogLevel
+
 # Generic TypeVars
 T = TypeVar("T")
 E = TypeVar("E", bound=Exception)
-
-
-class EnvironmentMode(StrEnum):
-    """Entornos de ejecución de la aplicación."""
-
-    DEVELOPMENT = "development"
-    STAGING = "staging"
-    PRODUCTION = "production"
-    TESTING = "testing"
-
-
-class LogLevel(StrEnum):
-    """Niveles de registro para el sistema de logging centralizado."""
-
-    DEBUG = "DEBUG"
-    INFO = "INFO"
-    WARNING = "WARNING"
-    ERROR = "ERROR"
-    CRITICAL = "CRITICAL"
 
 
 class WindowsVersion(StrEnum):
@@ -59,35 +42,35 @@ class Result(Generic[T]):
         self._value = value
         self._error = error
 
+    @property
+    def value(self) -> T:
+        if not self.is_success:
+            raise ValueError(f"No se puede obtener el valor de un Result fallido: {self._error}")
+        return self._value  # type: ignore[return-value]
+
+    @property
+    def error(self) -> Exception | str | None:
+        return self._error
+
     @classmethod
     def ok(cls, value: T) -> Result[T]:
-        """Crea un resultado exitoso."""
         return cls(is_success=True, value=value)
 
     @classmethod
     def fail(cls, error: Exception | str) -> Result[T]:
-        """Crea un resultado con fallo."""
         return cls(is_success=False, error=error)
-
-    @property
-    def value(self) -> T:
-        """Obtiene el valor del resultado si fue exitoso."""
-        if not self.is_success or self._value is None:
-            raise ValueError("No se puede obtener el valor de un Result fallido o nulo.")
-        return self._value
-
-    @property
-    def error(self) -> Exception | str:
-        """Obtiene el error asociado si la operación falló."""
-        if self.is_success or self._error is None:
-            raise ValueError("No se puede obtener el error de un Result exitoso.")
-        return self._error
-
-    def unwrap_or(self, default: T) -> T:
-        """Devuelve el valor contenido o un valor predeterminado en caso de fallo."""
-        return self._value if self.is_success and self._value is not None else default
 
     def __repr__(self) -> str:
         if self.is_success:
-            return f"Result.Ok({self._value!r})"
-        return f"Result.Fail({self._error!r})"
+            return f"Result.ok({self._value!r})"
+        return f"Result.fail({self._error!r})"
+
+
+__all__ = [
+    "EnvironmentMode",
+    "JSONDict",
+    "JSONValue",
+    "LogLevel",
+    "Result",
+    "WindowsVersion",
+]

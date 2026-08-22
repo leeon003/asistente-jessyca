@@ -235,7 +235,7 @@ def test_voice_to_response():
     fake_proc = MagicMock()
     fake_proc.info = {"pid": 4040, "name": "notepad.exe"}
 
-    with patch("subprocess.Popen"), patch("psutil.process_iter", return_value=[fake_proc]):
+    with patch("subprocess.Popen"), patch("psutil.process_iter", side_effect=[[], [fake_proc]]):
         r = agent.interact(JessycaRequest(
             user_input="Jessica, abre el Bloc de notas",
             session_id=session_id,

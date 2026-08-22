@@ -1,12 +1,15 @@
 """interfaces/modo_voz.py
-Interfaz de voz interactiva en tiempo real para JESSYCA con soporte de Sesión Continua (Fase 51).
-Captura audio desde el micrófono, transcribe la voz a texto (STT),
-procesa la orden con el Agente Local Unificado de JESSYCA en múltiples turnos sin repetir wake word,
-y responde con síntesis de voz (TTS) y texto en pantalla.
+Interfaz de voz interactiva en tiempo real para JESSYCA con soporte de Sesión Continua (Fase 51)
+y Motor de Captura Calibrada con Diagnósticos y Telemetría (Fase 51.1).
+
+Captura audio desde el micrófono con pre-roll/post-roll e histeresis VAD, transcribe a texto en español,
+procesa la orden con el Agente Local Unificado en múltiples turnos sin repetir wake word,
+y responde con síntesis de voz (TTS) y feedback visual diferenciado.
 
 Ejecutar con:
     python -m interfaces.modo_voz
 """
+
 from __future__ import annotations
 
 import os
@@ -21,20 +24,26 @@ if sys.stdout and hasattr(sys.stdout, "reconfigure"):
     except Exception:
         pass
 
+from config.manager import get_settings
 from core.local_agent.local_agent import JessycaLocalAgent
 from core.local_agent.local_agent_models import InputModality, JessycaRequest
 from core.logger import get_logger
+from services.voice.audio_capture import (
+    CalibratedVoiceCaptureEngine,
+    MicrophoneDiagnostics,
+)
 from services.voice.continuous_voice_session import (
     ContinuousVoiceSession,
     VoiceSessionMode,
 )
+from services.voice.voice_diagnostics import VoiceDiscardReason
 
 logger = get_logger("jessyca.interfaces.modo_voz")
 
 BANNER_VOZ = r"""
   +===============================================================+
   |              J E S S Y C A   3 . 0  —  MODO VOZ               |
-  |         Sesión Conversacional Continua (Fase 51)              |
+  |         Sesión Conversacional Continua (Fase 51 / 51.1)       |
   |                                                               |
   |   * Activa con: "Jessica, [tu orden]"                         |
   |   * Luego habla directamente sin repetir "Jessica"            |
@@ -53,18 +62,22 @@ class VoiceSpeaker:
 
     def _init_tts(self) -> None:
         try:
-            import pyttsx3
-            self._engine = pyttsx3.init()
-            voices = self._engine.getProperty("voices")
+            import pyttsx3  # type: ignore[import-untyped]
+
+            engine = pyttsx3.init()
+            voices = engine.getProperty("voices")
             # Buscar voz en español (ej. Sabina o cualquier voz 'es')
             selected_voice = None
             for v in voices:
-                if "spanish" in v.name.lower() or "sabina" in v.name.lower() or "es-" in v.id.lower() or "es_" in v.id.lower():
+                v_name = getattr(v, "name", "").lower()
+                v_id = getattr(v, "id", "").lower()
+                if "spanish" in v_name or "sabina" in v_name or "es-" in v_id or "es_" in v_id:
                     selected_voice = v.id
                     break
             if selected_voice:
-                self._engine.setProperty("voice", selected_voice)
-            self._engine.setProperty("rate", 175)  # Velocidad natural
+                engine.setProperty("voice", selected_voice)
+            engine.setProperty("rate", 175)  # Velocidad natural
+            self._engine = engine
         except Exception as e:
             logger.warning(f"[VOICE TTS] Fallback a motor SAPI directo: {e}")
             self._engine = None
@@ -82,7 +95,8 @@ class VoiceSpeaker:
                         self._engine.runAndWait()
                     else:
                         # Fallback a Windows SAPI directo vía win32com
-                        import win32com.client
+                        import win32com.client  # type: ignore[import-untyped]
+
                         speaker = win32com.client.Dispatch("SAPI.SpVoice")
                         speaker.Speak(text)
                 except Exception as e:
@@ -94,58 +108,37 @@ class VoiceSpeaker:
         t.join(timeout=15.0)
 
 
-class VoiceListener:
-    """Motor de reconocimiento de voz (STT) desde micrófono."""
-
-    def __init__(self) -> None:
-        import speech_recognition as sr
-        self.recognizer = sr.Recognizer()
-        self.recognizer.energy_threshold = 300
-        self.recognizer.dynamic_energy_threshold = True
-        self.recognizer.pause_threshold = 0.8
-        self.microphone = sr.Microphone()
-
-        # Calibrar ruido ambiente inicial
-        try:
-            with self.microphone as source:
-                print("  [Calibrando microfono para ruido ambiente...]")
-                self.recognizer.adjust_for_ambient_noise(source, duration=1.0)
-        except Exception as e:
-            logger.warning(f"[VOICE STT] Advertencia calibrando microfono: {e}")
-
-    def listen_user(self, timeout: float = 8.0, phrase_time_limit: float = 12.0) -> str | None:
-        """Escucha el micrófono del usuario y retorna el texto transcrito en español."""
-        import speech_recognition as sr
-        try:
-            with self.microphone as source:
-                audio = self.recognizer.listen(source, timeout=timeout, phrase_time_limit=phrase_time_limit)
-
-            print("  [Procesando voz...]")
-            # Transcripción con Google Speech Recognition en español
-            text = self.recognizer.recognize_google(audio, language="es-ES")
-            return text.strip()
-        except sr.WaitTimeoutError:
-            return None
-        except sr.UnknownValueError:
-            return ""  # No se entendió el audio
-        except sr.RequestError as e:
-            logger.error(f"[VOICE STT] Error del servicio STT: {e}")
-            return None
-        except Exception as e:
-            logger.error(f"[VOICE STT] Error general de microfono: {e}")
-            return None
-
-
 def iniciar_modo_voz() -> None:
     """Inicia el bucle interactivo de voz continua con JESSYCA."""
     print(BANNER_VOZ)
 
+    settings = get_settings()
+
+    # 1. Diagnóstico e inspección de dispositivos de entrada
+    default_dev = MicrophoneDiagnostics.get_default_device()
+    print(f"  [Dispositivo de Micrófono: {default_dev.name} | Frecuencia: {settings.VOICE_SAMPLE_RATE}Hz]")
+
     speaker = VoiceSpeaker()
+
+    # 2. Inicialización del motor de captura calibrado (Fase 51.1)
     try:
-        listener = VoiceListener()
+        capture_engine = CalibratedVoiceCaptureEngine(
+            sample_rate=settings.VOICE_SAMPLE_RATE,
+            channels=settings.VOICE_CHANNELS,
+            pre_roll_ms=settings.VOICE_PRE_ROLL_MS,
+            post_roll_ms=settings.VOICE_POST_ROLL_MS,
+            min_speech_ms=settings.VOICE_MIN_SPEECH_MS,
+            max_capture_ms=settings.VOICE_MAX_CAPTURE_MS,
+            silence_timeout_ms=settings.VOICE_SILENCE_TIMEOUT_MS,
+            confidence_threshold=settings.VOICE_STT_CONFIDENCE_THRESHOLD,
+            language=settings.VOICE_STT_LANGUAGE,
+        )
+        print("  [Calibrando micrófono para ruido ambiente...]")
+        calib_res = capture_engine.calibrate_ambient_noise(duration_sec=settings.VOICE_CALIBRATION_DURATION_SEC)
+        print(f"  [Calibración completada | Ruido base: {calib_res.noise_floor_rms:.1f} RMS | Umbral VAD: {calib_res.recommended_start_threshold:.1f}]")
     except Exception as e:
         print(f"\n  [ERROR] No se pudo inicializar el micrófono: {e}")
-        print("  Verifica que tu micrófono esté conectado.")
+        print("  Verifica que tu micrófono esté conectado y habilitado.")
         return
 
     agent = JessycaLocalAgent.get_instance()
@@ -159,6 +152,8 @@ def iniciar_modo_voz() -> None:
     print(f"\n  Jessyca: {saludo}\n")
     speaker.speak(saludo)
 
+    consecutive_empty_count = 0
+
     while True:
         try:
             # Comprobar expiración por inactividad
@@ -170,17 +165,33 @@ def iniciar_modo_voz() -> None:
                 print("\n  [En espera de 'Jessica' | Habla ahora...]")
 
             logger.info(f"[VOICE_CAPTURE_STARTED] Modo: {voice_session.mode.value}...")
-            texto = listener.listen_user(timeout=7.0, phrase_time_limit=10.0)
-            logger.info("[VOICE_CAPTURE_STOPPED] Captura de audio finalizada.")
+            capture_result = capture_engine.capture_and_transcribe(
+                mode=voice_session.mode.value,
+                timeout=7.0,
+                phrase_time_limit=10.0,
+            )
+            logger.info(f"[VOICE_CAPTURE_STOPPED] Captura finalizada. Descarte: {capture_result.discard_reason.value}")
 
-            if texto is None:
+            # 3. Manejo de silencios normales en espera
+            if capture_result.discard_reason == VoiceDiscardReason.NO_AUDIO:
+                consecutive_empty_count += 1
+                if consecutive_empty_count >= settings.VOICE_MAX_EMPTY_RETRIES:
+                    if voice_session.mode != VoiceSessionMode.IDLE:
+                        print("  [No se detectó actividad. Sesión en pausa hasta tu próxima llamada.]")
+                    consecutive_empty_count = 0
                 continue
 
-            if texto == "":
-                print("  [No se detectó voz clara. Intenta de nuevo...]")
+            # 4. Manejo de fallos con feedback diferenciado
+            if not capture_result.is_success:
+                consecutive_empty_count += 1
+                if capture_result.user_feedback_message:
+                    print(f"  {capture_result.user_feedback_message}")
                 continue
 
-            logger.info(f"[VOICE_TRANSCRIPT] Texto reconocido: '{texto}'")
+            # 5. Captura exitosa
+            consecutive_empty_count = 0
+            texto = capture_result.text
+            logger.info(f"[VOICE_TRANSCRIPT] Texto reconocido: '{texto}' (Confianza: {capture_result.confidence:.2f})")
             print(f"\n  Tú (Voz): {texto}")
 
             # Comando de salida
@@ -222,9 +233,11 @@ def iniciar_modo_voz() -> None:
                 speaker.speak(msg)
 
             voice_session.on_speaking_finished()
+            # Breve pausa de estabilización de audio para evitar que el micrófono capture el eco del altavoz
+            time.sleep(0.3)
 
             if os.getenv("VOICE_DEBUG", "").lower() in ("1", "true", "yes"):
-                print(f"  [DEBUG | Intent: {res.intent} | Confidence: {res.intent_confidence:.2f} | Agent: {res.selected_agent} | Skill: {res.selected_skill} | Estado: {res.status.value} | Latencia: {res.metrics.total_latency_ms:.1f}ms]")
+                print(f"  [DEBUG | Intent: {res.intent} | Agent: {res.selected_agent} | Skill: {res.selected_skill} | Estado: {res.status.value} | Latencia: {res.metrics.total_latency_ms:.1f}ms]")
 
         except (KeyboardInterrupt, EOFError):
             despedida = "¡Hasta luego! Modo voz detenido."
