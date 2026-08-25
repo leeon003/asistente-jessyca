@@ -86,6 +86,9 @@ class SkillCapability(StrEnum):
     DOCUMENT_CONVERT = "document_convert"
     TEXT_PROCESSING = "text_processing"
     USER_INTERACTION = "user_interaction"
+    MEDIA = "media"
+    MEDIA_PLAYBACK = "media_playback"
+    VIDEO_PLAYBACK = "video_playback"
 
 
 # Catálogo extendido de capacidades reconocidas por el sistema
@@ -97,6 +100,9 @@ ALLOWED_SKILL_CAPABILITIES: set[str] = {
     "files.organize",
     "documents.summarize",
     "windows.apps",
+    "windows.media",
+    "media.playback",
+    "media.play_random_video",
     "system.diagnostics",
     "filesystem.read",
     "filesystem.write",

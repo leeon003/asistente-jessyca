@@ -31,6 +31,8 @@ PARAMETROS_REQUERIDOS_SKILLS: dict[str, list[tuple[str, ...]]] = {
     "abrir_aplicacion": [("nombre_app", "app", "nombre")],
     "cerrar_aplicacion": [("nombre_proceso", "nombre_app", "app", "nombre")],
     "buscar_archivo": [("nombre_archivo", "extension", "nombre", "patron", "ruta")],
+    "windows.media": [],
+    "play_random_video": [],
 }
 
 PREGUNTAS_ACLARATORIAS_DEFAULT: dict[str, dict[str, str]] = {

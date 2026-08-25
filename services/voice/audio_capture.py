@@ -22,6 +22,11 @@ from typing import Any
 from core.logger import get_logger
 from services.voice.audio_input import AudioChunk
 from services.voice.continuous_voice_session import AudioPreRollBuffer
+from services.voice.device_resolver import (
+    ResolvedAudioDevice,
+    VoiceDeviceResolver,
+    get_voice_device_resolver,
+)
 from services.voice.vad_service import EnergyVADService
 from services.voice.voice_diagnostics import (
     VoiceCaptureDiagnostic,
@@ -97,6 +102,12 @@ class MicrophoneDiagnostics:
             if d.is_default:
                 return d
         return devices[0] if devices else MicrophoneDeviceInfo(0, "Default Microphone", 16000, 1, True, True)
+
+    @staticmethod
+    def resolve_best_microphone(preferred_patterns: list[str] | None = None) -> ResolvedAudioDevice:
+        """Resuelve el mejor micrófono físico disponible delegando en VoiceDeviceResolver (Fase 51.2)."""
+        resolver = VoiceDeviceResolver(preferred_microphones=preferred_patterns)
+        return resolver.resolve_input_device()
 
 
 @dataclass(frozen=True)
@@ -204,6 +215,9 @@ class CalibratedVoiceCaptureEngine:
         confidence_threshold: float = 0.50,
         language: str = "es",
         vad_service: EnergyVADService | None = None,
+        device_index: int | None = None,
+        device_resolver: VoiceDeviceResolver | None = None,
+        resolved_device: ResolvedAudioDevice | None = None,
     ) -> None:
         self.sample_rate = sample_rate
         self.channels = channels
@@ -214,6 +228,20 @@ class CalibratedVoiceCaptureEngine:
         self.silence_timeout_ms = silence_timeout_ms
         self.confidence_threshold = confidence_threshold
         self.language = language
+        self.device_resolver = device_resolver or get_voice_device_resolver()
+
+        self.resolved_device: ResolvedAudioDevice | None = resolved_device
+        if resolved_device is not None:
+            self.device_index: int | None = resolved_device.index
+        elif device_index is not None:
+            self.device_index = device_index
+        else:
+            try:
+                self.resolved_device = self.device_resolver.resolve_input_device()
+                self.device_index = self.resolved_device.index
+            except Exception as e:
+                logger.warning(f"[VOICE CAPTURE] Fallo al resolver dispositivo ({e}). Usando índice predeterminado.")
+                self.device_index = None
 
         # Configuración del buffer de pre-roll (chunks de ~50ms)
         max_preroll_chunks = max(4, int(pre_roll_ms / 50))
@@ -235,7 +263,7 @@ class CalibratedVoiceCaptureEngine:
         self._init_speech_recognition()
 
     def _init_speech_recognition(self) -> None:
-        """Inicializa el reconocedor nativo con parámetros optimizados."""
+        """Inicializa el reconocedor nativo con el micrófono resuelto."""
         try:
             import speech_recognition as sr
             self._recognizer = sr.Recognizer()
@@ -243,7 +271,12 @@ class CalibratedVoiceCaptureEngine:
             self._recognizer.dynamic_energy_threshold = False  # Usamos nuestra propia histeresis adaptativa
             self._recognizer.pause_threshold = max(0.5, self.post_roll_ms / 1000.0)
             self._recognizer.phrase_threshold = max(0.2, self.min_speech_ms / 1000.0)
-            self._microphone = sr.Microphone(sample_rate=self.sample_rate)
+            self._microphone = sr.Microphone(
+                device_index=self.device_index,
+                sample_rate=self.sample_rate,
+            )
+            dev_desc = self.resolved_device.display_name if self.resolved_device else f"Índice {self.device_index}"
+            logger.info(f"[VOICE CAPTURE] Micrófono inicializado: {dev_desc} (sample_rate: {self.sample_rate}Hz)")
         except Exception as e:
             logger.warning(f"[VOICE CAPTURE] Advertencia inicializando SpeechRecognition: {e}")
 
@@ -256,8 +289,9 @@ class CalibratedVoiceCaptureEngine:
                 return res
 
             try:
+                dev_desc = self.resolved_device.display_name if self.resolved_device else "micrófono"
+                logger.info(f"[VOICE CAPTURE] Calibrando micrófono ({dev_desc}) durante {duration_sec:.1f}s...")
                 with self._microphone as source:
-                    logger.info(f"[VOICE CAPTURE] Calibrando micrófono durante {duration_sec:.1f}s...")
                     self._recognizer.adjust_for_ambient_noise(source, duration=duration_sec)
 
                 energy = float(getattr(self._recognizer, "energy_threshold", 300.0))

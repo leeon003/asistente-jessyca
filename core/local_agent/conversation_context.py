@@ -205,13 +205,88 @@ class ConversationContextManager:
                 else:
                     session.clear_pending_confirmation()
 
-            # REGLA: "Sí" sin confirmación pendiente es conversación general (No confusión)
-            if lower in ("sí", "si", "sí.", "si."):
-                return "general_query", {"query": text}, False, "¿En qué puedo ayudarte?"
+            # 4.0.0 REFERENCIAS DEÍCTICAS CONTEXTUALES ("Ponla", "Reprodúcela", "Dale play")
+            if lower in ("ponla", "reprodúcela", "reproducela", "pon esa canción", "pon esa cancion", "dale play", "dale reproducir", "claro ponla", "reproduce esa", "reprodúcelo", "reproducelo"):
+                last_media = session.get_context("last_found_media") or session.get_context("last_search_query")
+                if last_media:
+                    return "search_and_play", {"query": str(last_media), "action": "play"}, False, None
+
+            if lower in ("sí", "si", "sí por favor", "si por favor", "claro", "por favor"):
+                last_media = session.get_context("last_found_media") or session.get_context("last_search_query")
+                if last_media:
+                    return "search_and_play", {"query": str(last_media), "action": "play"}, False, None
+                return "general_query", {"query": text}, False, "Hola, ¿en qué te puedo ayudar?"
+
+            # 4.0.0.1 ÓRDENES COMPUESTAS ("Busca y reproduce La Yerba del Rey de Morodo")
+            if any(w in lower for w in ("busca y reproduce", "busca y pon", "reproduce y busca")):
+                query_comp = re.sub(r"^(?:jessyca,?\s*|jessica,?\s*)?(?:busca\s+y\s+reproduce|busca\s+y\s+pon|reproduce\s+y\s+busca)\s+", "", lower).strip()
+                session.set_context_item("last_found_media", query_comp, relevance=0.95)
+                session.set_context_item("last_search_query", query_comp, relevance=0.95)
+                return "search_and_play", {"query": query_comp}, False, None
+
+            # 4.0.0.2 DESAMBIGUACIÓN: "Abre YouTube"
+            if lower in ("abre youtube", "abrir youtube", "youtube", "pon youtube", "inicia youtube", "abrir la app de youtube"):
+                session.set_pending_question(
+                    question="Claro. ¿Quieres que solo abra YouTube o quieres que busque o reproduzca algo?",
+                    intent="youtube_clarification",
+                    expected_slot="action_choice",
+                )
+                return "youtube_clarification", {"immediate_response": "Claro. ¿Quieres que solo abra YouTube o quieres que busque o reproduzca algo?", "requires_clarification": True}, True, "Claro. ¿Quieres que solo abra YouTube o quieres que busque o reproduzca algo?"
+
+            # 4.0.0.3 DESAMBIGUACIÓN: "Busca una canción" / "Busca"
+            if lower in ("busca una canción", "busca una cancion", "buscar una canción", "buscar una cancion", "pon una canción", "pon una cancion"):
+                session.set_pending_question(
+                    question="¿Qué canción quieres que busque?",
+                    intent="youtube_search",
+                    expected_slot="search_query",
+                )
+                return "browser_search", {"immediate_response": "¿Qué canción quieres que busque?", "requires_clarification": True}, True, "¿Qué canción quieres que busque?"
+
+            if lower in ("busca", "buscar", "busca algo", "buscar algo"):
+                session.set_pending_question(
+                    question="Perfecto, ¿qué quieres que busque?",
+                    intent="youtube_search",
+                    expected_slot="search_query",
+                )
+                return "browser_search", {"immediate_response": "Perfecto, ¿qué quieres que busque?", "requires_clarification": True}, True, "Perfecto, ¿qué quieres que busque?"
+
+            # 4.0.0.4 BÚSQUEDA DIRECTA DE CANCIÓN ("Busca La Yerba del Rey de Morodo")
+            if lower.startswith("busca ") or lower.startswith("buscar "):
+                q_media = re.sub(r"^(?:jessyca,?\s*|jessica,?\s*)?(?:busca|buscar)\s+", "", text, flags=re.IGNORECASE).strip()
+                is_media_related = any(kw in q_media.lower() for kw in ("cancion", "canción", "tema", "musica", "música", "video", "vídeo", "morodo", "yerba del rey", "baile", "bailame", "báilame"))
+                if is_media_related and q_media.lower() not in ("una canción", "una cancion", "algo", "un archivo", "en internet"):
+                    session.set_context_item("last_found_media", q_media, relevance=0.95)
+                    session.set_context_item("last_search_query", q_media, relevance=0.95)
+                    resp_text = "Encontré la canción. ¿Quieres que la reproduzca?"
+                    return "browser_search", {"query": q_media, "immediate_response": resp_text}, False, resp_text
 
             # 4.0.1 SALUDO NATURAL ("Jessica, hola", "Hola")
             if lower in ("hola", "hola jessica", "jessica hola", "jessica, hola", "hola, jessica", "buenas", "buenos días", "buenas tardes"):
                 return "general_query", {"query": text}, False, "Hola, ¿en qué te puedo ayudar?"
+
+            # 4.0.1.1 SALUDO A TERCERO ("Jessyca saluda a Carmen", "Saluda a Carmen")
+            saludo_match = re.match(
+                r"^(?:(?:jessyca|jessica),?\s*)?(?:saluda\s+a|manda\s+(?:un\s+)?saludo\s+a|envía\s+(?:un\s+)?saludo\s+a|dile\s+hola\s+a)\s+([a-záéíóúñ]+)$",
+                lower,
+            )
+            if saludo_match:
+                p_name = saludo_match.group(1).capitalize()
+                if p_name.lower() not in ("jessyca", "jessica", "todos", "alguien", "un", "una", "el", "la"):
+                    session.set_context_item("last_mentioned_person", p_name, relevance=1.0, source="entity_extractor")
+                    session.set_context_item("last_referenced_entity", p_name, relevance=1.0, source="entity_extractor")
+                    return "general_query", {"query": text, "target_person": p_name}, False, None
+
+            # 4.0.1.2 MENSAJE O SEGUIMIENTO A PERSONA EN CONTEXTO ("Ahora dile que espero verla pronto", "Dile que...")
+            # Solo aplica si hay una PERSONA (no app ni entidad genérica) referenciada activamente
+            last_person_candidate = session.get_context("last_mentioned_person")
+            if last_person_candidate:
+                dile_match = re.match(
+                    r"^(?:ahora\s*)?(?:y\s*)?(?:dile|menciónale|mencionale|coméntale|comentale|avísale|avisale|escríbele)\s*(?:a\s*(?:ella|él|el)\s*)?que\s+(.+)$",
+                    lower,
+                )
+                if dile_match:
+                    msg_body = dile_match.group(1).strip()
+                    return "general_query", {"query": text, "target_person": last_person_candidate, "message": msg_body}, False, None
 
             # 4.0.2 CAPACIDADES ("¿Qué puedes hacer?", "¿Puedes abrir aplicaciones?")
             if any(p in lower for p in ("qué puedes hacer", "que puedes hacer", "qué sabes hacer", "que sabes hacer")):
@@ -297,6 +372,24 @@ class ConversationContextManager:
                 expected_slot = session.expected_slot or "target"
                 partial_params = dict(session.pending_parameters)
                 session.clear_pending()
+
+                # Caso: Aclaración de YouTube / Búsqueda
+                if pending_intent in ("youtube_clarification", "youtube_search", "browser_search"):
+                    if lower in ("busca", "buscar", "busca algo", "buscar algo"):
+                        session.set_pending_question(
+                            question="Perfecto, ¿qué quieres que busque?",
+                            intent="youtube_search",
+                            expected_slot="search_query",
+                        )
+                        return "browser_search", {"immediate_response": "Perfecto, ¿qué quieres que busque?", "requires_clarification": True}, True, "Perfecto, ¿qué quieres que busque?"
+                    elif lower in ("solo abre", "solo ábrelo", "solo abrelo", "solo youtube", "abrir"):
+                        return "open_application", {"app_name": "chrome", "url": "https://www.youtube.com"}, False, "Listo, abrí YouTube."
+                    else:
+                        query_val = text.strip()
+                        session.set_context_item("last_found_media", query_val, relevance=0.95)
+                        session.set_context_item("last_search_query", query_val, relevance=0.95)
+                        resp_text = "Encontré la canción. ¿Quieres que la reproduzca?"
+                        return "browser_search", {"query": query_val, "immediate_response": resp_text}, False, resp_text
 
                 # Caso: Slot-filling para alarmas (hora -> día)
                 if pending_intent == "set_alarm":
@@ -538,6 +631,18 @@ class ConversationContextManager:
             if search_query:
                 session.set_context_item("last_search_query", search_query, relevance=0.95, source="entity_extractor")
                 session.set_context_item("last_referenced_entity", search_query, relevance=0.95, source="entity_extractor")
+
+        # Persona referenciada o destinatario de mensaje/saludo
+        person_match = re.search(
+            r"(?:saluda\s+a|saludo\s+a|dile\s+a|habla\s+con|mensaje\s+a|para|hola\s+a|de\s+parte\s+de)\s+([a-záéíóúñ]+)",
+            prompt_lower,
+            re.IGNORECASE,
+        )
+        if person_match:
+            p_name = person_match.group(1).capitalize()
+            if p_name.lower() not in ("jessyca", "jessica", "todos", "alguien", "un", "una", "el", "la"):
+                session.set_context_item("last_mentioned_person", p_name, relevance=1.0, source="entity_extractor")
+                session.set_context_item("last_referenced_entity", p_name, relevance=1.0, source="entity_extractor")
 
         # Tarea activa
         if intent and intent not in ("unknown", "general_query", "cancel_task"):

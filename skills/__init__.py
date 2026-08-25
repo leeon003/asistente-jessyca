@@ -207,6 +207,7 @@ from skills.skill_version import (
     SkillLifecycleState,
     VersionBumpType,
 )
+from skills.windows_media_skill import WindowsMediaSkill
 from skills.windows_skills import (
     WindowsAudioSkill,
     WindowsClipboardSkill,
@@ -218,6 +219,7 @@ from skills.windows_skills import (
 SKILLS_DISPONIBLES: dict[str, BaseSkill] = {
     # ── 1. GRUPO WINDOWS ──
     "windows.apps": WindowsAppsSkill(),
+    "windows.media": WindowsMediaSkill(),
     "windows.screenshot": WindowsScreenshotSkill(),
     "windows.clipboard": WindowsClipboardSkill(),
     "windows.notifications": WindowsNotificationsSkill(),
@@ -262,6 +264,7 @@ __all__ = [
     "SKILLS_DISPONIBLES",
     # Grupo Windows
     "WindowsAppsSkill",
+    "WindowsMediaSkill",
     "WindowsScreenshotSkill",
     "WindowsClipboardSkill",
     "WindowsNotificationsSkill",

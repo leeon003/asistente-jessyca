@@ -24,6 +24,11 @@ from services.voice.continuous_voice_session import (
     ContinuousVoiceSession,
     VoiceSessionMode,
 )
+from services.voice.device_resolver import (
+    ResolvedAudioDevice,
+    VoiceDeviceResolver,
+    get_voice_device_resolver,
+)
 from services.voice.stt_service import (
     FasterWhisperSTTService,
     ISTTService,
@@ -113,6 +118,7 @@ __all__ = [
     "MockTTSService",
     "NoiseCalibrationResult",
     "PURE_INTERRUPTION_PHRASES",
+    "ResolvedAudioDevice",
     "STTError",
     "STTModelUnavailableError",
     "STTTimeoutError",
@@ -133,6 +139,7 @@ __all__ = [
     "VoiceConfirmationDecision",
     "VoiceConfirmationError",
     "VoiceConfirmationEvaluator",
+    "VoiceDeviceResolver",
     "VoiceDiscardReason",
     "VoiceError",
     "VoiceInteractionResult",
@@ -143,5 +150,6 @@ __all__ = [
     "VoiceTurnState",
     "WakeWordError",
     "WakeWordResult",
+    "get_voice_device_resolver",
     "get_voice_telemetry",
 ]

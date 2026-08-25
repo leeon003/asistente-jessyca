@@ -27,5 +27,6 @@ REGLAS DE DECISIÓN DE SKILLS:
 - Si el usuario dice "abre X" (donde X es una aplicación como "bloc de notas"), selecciona "abrir_aplicacion" con {"nombre_app": "X"}.
 - Si el usuario dice "cierra X", selecciona "cerrar_aplicacion" con {"nombre_app": "X"}.
 - Si el usuario dice "busca archivos X", selecciona "buscar_archivo" con {"extension": "X"} o {"nombre_archivo": "X"}.
+- Si el usuario dice "bailame", "báilame", "ponme un baile", "reproduce un baile", "quiero ver un baile" o similar, selecciona "windows.media" con {"accion": "play_random_video"}.
 - Si el comando es una conversación habitual o la skill requerida no está disponible, establece "skill": null y "parametros": null.
 - "respuesta_hablada" siempre debe incluir una frase apropiada en español indicando la acción o respuesta.

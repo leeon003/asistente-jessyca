@@ -12,13 +12,16 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import StrEnum
-from typing import Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
 
 from core.logger import get_logger
 from server.context import RequestContext
 from server.errors import InvalidAuthorizationEvidenceError
 from server.evidence import AuthorizationEvidence
 from server.execution_request import ExecutionRequest
+
+if TYPE_CHECKING:
+    from server.executor import IToolExecutor
 
 logger = get_logger("jessyca.server.boundary")
 
@@ -57,9 +60,6 @@ class ExecutionResult:
             "duration_ms": self.duration_ms,
             "timestamp": self.timestamp.isoformat(),
         }
-
-
-from server.executor import IToolExecutor
 
 
 class IExecutionBoundary(Protocol):

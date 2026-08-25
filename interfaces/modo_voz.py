@@ -28,14 +28,12 @@ from config.manager import get_settings
 from core.local_agent.local_agent import JessycaLocalAgent
 from core.local_agent.local_agent_models import InputModality, JessycaRequest
 from core.logger import get_logger
-from services.voice.audio_capture import (
-    CalibratedVoiceCaptureEngine,
-    MicrophoneDiagnostics,
-)
+from services.voice.audio_capture import CalibratedVoiceCaptureEngine
 from services.voice.continuous_voice_session import (
     ContinuousVoiceSession,
     VoiceSessionMode,
 )
+from services.voice.device_resolver import VoiceDeviceResolver
 from services.voice.voice_diagnostics import VoiceDiscardReason
 
 logger = get_logger("jessyca.interfaces.modo_voz")
@@ -53,74 +51,140 @@ BANNER_VOZ = r"""
 
 
 class VoiceSpeaker:
-    """Motor de síntesis de voz (TTS) para respuestas habladas."""
+    """Motor de síntesis de voz neuronal (Edge-TTS con es-PE-CamilaNeural) con fallback robusto."""
 
-    def __init__(self) -> None:
-        self._engine = None
+    def __init__(self, default_voice: str | None = None) -> None:
         self._lock = threading.Lock()
-        self._init_tts()
+        settings = get_settings()
+        self.voice_name = default_voice or getattr(settings, "VOICE_DEFAULT_VOICE", "es-PE-CamilaNeural")
+        self._sapi_voice_id: str | None = None
+        self._init_sapi_fallback()
 
-    def _init_tts(self) -> None:
+    def _init_sapi_fallback(self) -> None:
+        """Inicializa el fallback SAPI de Windows en caso de no haber conexión."""
         try:
-            import pyttsx3  # type: ignore[import-untyped]
+            import pythoncom  # type: ignore[import-untyped]
+            import win32com.client  # type: ignore[import-untyped]
 
-            engine = pyttsx3.init()
-            voices = engine.getProperty("voices")
-            # Buscar voz en español (ej. Sabina o cualquier voz 'es')
-            selected_voice = None
-            for v in voices:
-                v_name = getattr(v, "name", "").lower()
-                v_id = getattr(v, "id", "").lower()
-                if "spanish" in v_name or "sabina" in v_name or "es-" in v_id or "es_" in v_id:
-                    selected_voice = v.id
+            pythoncom.CoInitialize()
+            sp = win32com.client.Dispatch("SAPI.SpVoice")
+            voices = sp.GetVoices()
+            for i in range(voices.Count):
+                v = voices.Item(i)
+                desc = v.GetDescription().lower()
+                if "sabina" in desc or "spanish" in desc or "español" in desc or "mexico" in desc or "spain" in desc:
+                    self._sapi_voice_id = v.Id
                     break
-            if selected_voice:
-                engine.setProperty("voice", selected_voice)
-            engine.setProperty("rate", 175)  # Velocidad natural
-            self._engine = engine
         except Exception as e:
-            logger.warning(f"[VOICE TTS] Fallback a motor SAPI directo: {e}")
-            self._engine = None
+            logger.debug(f"[VOICE TTS] Info al inicializar fallback SAPI: {e}")
 
     def speak(self, text: str) -> None:
-        """Sintetiza y reproduce el texto por los altavoces de forma no bloqueante o controlada."""
+        """Sintetiza y reproduce el texto con voz Camila Neural de forma no bloqueante/segura."""
         if not text or not text.strip():
             return
 
-        def _run_speak() -> None:
-            with self._lock:
+        with self._lock:
+            # 1. Intentar con Edge-TTS (es-PE-CamilaNeural) y reproducción pygame
+            try:
+                import asyncio
+                import io
+
+                import edge_tts
+                import pygame
+
+                async def _synth() -> bytes:
+                    communicate = edge_tts.Communicate(text.strip(), str(self.voice_name))
+                    chunks: list[bytes] = []
+                    async for chunk in communicate.stream():
+                        if chunk["type"] == "audio":
+                            chunks.append(chunk["data"])
+                    return b"".join(chunks)
+
                 try:
-                    if self._engine:
-                        self._engine.say(text)
-                        self._engine.runAndWait()
-                    else:
-                        # Fallback a Windows SAPI directo vía win32com
-                        import win32com.client  # type: ignore[import-untyped]
+                    loop = asyncio.get_event_loop()
+                    if loop.is_running():
+                        import nest_asyncio  # type: ignore[import-not-found]
 
-                        speaker = win32com.client.Dispatch("SAPI.SpVoice")
-                        speaker.Speak(text)
-                except Exception as e:
-                    logger.error(f"[VOICE TTS] Error al reproducir voz: {e}")
+                        nest_asyncio.apply()
+                    audio_bytes = loop.run_until_complete(_synth())
+                except RuntimeError:
+                    audio_bytes = asyncio.run(_synth())
 
-        # Ejecutar en hilo desacoplado
-        t = threading.Thread(target=_run_speak, daemon=True)
-        t.start()
-        t.join(timeout=15.0)
+                if audio_bytes:
+                    if not pygame.mixer.get_init():
+                        pygame.mixer.init()
+                    sound = pygame.mixer.Sound(io.BytesIO(audio_bytes))
+                    sound.play()
+                    while pygame.mixer.get_busy():
+                        pygame.time.wait(20)
+                    return
+            except Exception as e:
+                logger.warning(f"[VOICE TTS] Edge-TTS ({self.voice_name}) falló ({e}), intentando fallback SAPI...")
+
+            # 2. Fallback a SAPI (Sabina)
+            try:
+                import pythoncom
+                import win32com.client
+
+                pythoncom.CoInitialize()
+                speaker = win32com.client.Dispatch("SAPI.SpVoice")
+                if self._sapi_voice_id:
+                    voices = speaker.GetVoices()
+                    for i in range(voices.Count):
+                        v = voices.Item(i)
+                        if v.Id == self._sapi_voice_id:
+                            speaker.Voice = v
+                            break
+                speaker.Rate = 1
+                speaker.Volume = 100
+                speaker.Speak(text.strip())
+                return
+            except Exception as ex2:
+                logger.warning(f"[VOICE TTS] SAPI directo falló ({ex2}), intentando fallback con pyttsx3...")
+
+            # 3. Fallback a pyttsx3
+            try:
+                import pyttsx3  # type: ignore[import-untyped]
+
+                engine = pyttsx3.init()
+                engine.setProperty("rate", 175)
+                engine.say(text.strip())
+                engine.runAndWait()
+                engine.stop()
+            except Exception as ex3:
+                logger.error(f"[VOICE TTS FATAL] Fallo en todos los motores de voz: {ex3}")
 
 
-def iniciar_modo_voz() -> None:
+def iniciar_modo_voz(
+    show_header: bool = True,
+    custom_banner: str | None = None,
+    mcp_info: str | None = None,
+) -> None:
     """Inicia el bucle interactivo de voz continua con JESSYCA."""
-    print(BANNER_VOZ)
+    if custom_banner:
+        print(custom_banner)
+    elif show_header:
+        print(BANNER_VOZ)
 
     settings = get_settings()
 
-    # 1. Diagnóstico e inspección de dispositivos de entrada
-    default_dev = MicrophoneDiagnostics.get_default_device()
-    print(f"  [Dispositivo de Micrófono: {default_dev.name} | Frecuencia: {settings.VOICE_SAMPLE_RATE}Hz]")
+    # 1. Diagnóstico e inspección de dispositivos de entrada con auto-detección (Fase 51.2)
+    resolver = VoiceDeviceResolver()
+    try:
+        resolved_dev = resolver.resolve_input_device()
+        speaker = VoiceSpeaker()
+        fb_text = " (Fallback por señal)" if resolved_dev.fallback_used else ""
+        print(f"  Micrófono: {resolved_dev.display_name} [Índice: {resolved_dev.index}]{fb_text}")
+        if mcp_info:
+            print(f"  MCP: {mcp_info}")
+        print(f"  Voz: {speaker.voice_name}")
+        logger.info(f"[DEMO] Microphone: {resolved_dev.display_name} (Index: {resolved_dev.index})")
+        logger.info(f"[DEMO] TTS: {speaker.voice_name}")
+    except Exception as e:
+        print(f"\n  [ERROR] No se pudo encontrar micrófono de entrada: {e}")
+        return
 
-    speaker = VoiceSpeaker()
-
-    # 2. Inicialización del motor de captura calibrado (Fase 51.1)
+    # 2. Inicialización del motor de captura calibrado (Fases 51.1 y 51.2)
     try:
         capture_engine = CalibratedVoiceCaptureEngine(
             sample_rate=settings.VOICE_SAMPLE_RATE,
@@ -132,8 +196,11 @@ def iniciar_modo_voz() -> None:
             silence_timeout_ms=settings.VOICE_SILENCE_TIMEOUT_MS,
             confidence_threshold=settings.VOICE_STT_CONFIDENCE_THRESHOLD,
             language=settings.VOICE_STT_LANGUAGE,
+            device_index=resolved_dev.index,
+            device_resolver=resolver,
+            resolved_device=resolved_dev,
         )
-        print("  [Calibrando micrófono para ruido ambiente...]")
+        print(f"  [Calibrando micrófono ({resolved_dev.display_name}) para ruido ambiente...]")
         calib_res = capture_engine.calibrate_ambient_noise(duration_sec=settings.VOICE_CALIBRATION_DURATION_SEC)
         print(f"  [Calibración completada | Ruido base: {calib_res.noise_floor_rms:.1f} RMS | Umbral VAD: {calib_res.recommended_start_threshold:.1f}]")
     except Exception as e:
@@ -219,8 +286,8 @@ def iniciar_modo_voz() -> None:
 
             voice_session.on_speaking_started()
 
-            if res.requires_clarification and res.clarification_question:
-                msg = res.clarification_question
+            if res.requires_clarification or res.status.value == "AWAITING_CLARIFICATION":
+                msg = res.clarification_question or res.spoken_text or res.response_text or "¿Podrías aclararme qué deseas hacer?"
                 print(f"\n  Jessyca (Aclaración): {msg}")
                 speaker.speak(msg)
             elif res.requires_confirmation:
@@ -228,7 +295,7 @@ def iniciar_modo_voz() -> None:
                 print(f"\n  Jessyca (Confirmación): {msg}")
                 speaker.speak(msg)
             else:
-                msg = res.response_text
+                msg = res.spoken_text or res.response_text
                 print(f"\n  Jessyca: {msg}")
                 speaker.speak(msg)
 

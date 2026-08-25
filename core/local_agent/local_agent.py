@@ -37,6 +37,10 @@ from core.audit_logger import AuditLogger, get_audit_logger
 from core.cancellation import CancellationToken
 from core.collaboration.collaboration_engine import CollaborationEngine
 from core.control_plane.models import AgentBudget
+from core.dialogue import (
+    DialogueActionType,
+    NaturalActionDialogueManager,
+)
 from core.emergency_stop import EmergencyStopManager, get_emergency_stop_manager
 from core.experience import (
     ExecutionStatus as ExpExecutionStatus,
@@ -56,6 +60,7 @@ from core.interaction.interaction_models import (
 from core.interaction.trusted_interaction_engine import TrustedInteractionEngine
 from core.llm.model_router import ModelRouter, get_model_router
 from core.local_agent.conversation_context import ConversationContextManager
+from core.local_agent.conversational_handler import ConversationalDialogueHandler
 from core.local_agent.local_agent_models import (
     AgentExecutionState,
     InputModality,
@@ -95,6 +100,8 @@ class JessycaLocalAgent:
         risk_engine: RiskEngine | None = None,
         permission_manager: PermissionManager | None = None,
         experience_logger: ExperienceLogger | None = None,
+        dialogue_manager: NaturalActionDialogueManager | None = None,
+        conversational_handler: ConversationalDialogueHandler | None = None,
     ) -> None:
         self._lock = threading.RLock()
         self.emergency_stop_mgr = emergency_stop or get_emergency_stop_manager()
@@ -108,6 +115,8 @@ class JessycaLocalAgent:
         self.interaction_engine = interaction_engine or TrustedInteractionEngine(emergency_stop=self.emergency_stop_mgr)
         self.context_manager = context_manager or ConversationContextManager()
         self.voice_interface = voice_interface or LocalVoiceInterface(emergency_stop=self.emergency_stop_mgr)
+        self.dialogue_manager = dialogue_manager or NaturalActionDialogueManager.get_instance()
+        self.conversational_handler = conversational_handler or ConversationalDialogueHandler(model_router=self.model_router)
         self.coordinator = coordinator or SystemCoordinator4(
             collaboration_engine=self.collaboration_engine,
             emergency_stop=self.emergency_stop_mgr,
@@ -340,32 +349,36 @@ class JessycaLocalAgent:
                 self._log_turn_experience(req, resp, category=ExperienceCategory.LOW_STT_CONFIDENCE)
                 return resp
 
-            # Analizar completitud de la orden
-            c_checker = IntentCompletenessChecker()
-            c_res = c_checker.check_completeness(q_res.normalized_text)
-            if c_res.completeness == IntentCompleteness.INCOMPLETE:
-                clarification_msg = c_res.clarification_question or "¿Puedes completar tu solicitud?"
-                self.context_manager.set_pending_clarification(
-                    session_id=req.session_id,
-                    question=clarification_msg,
-                    expected_slot=c_res.missing_slot or "target",
-                    original_intent=c_res.intent_category,
-                )
-                metrics.total_latency_ms = (time.perf_counter() - start_time) * 1000
-                resp = JessycaResponse(
-                    request_id=req.request_id,
-                    session_id=req.session_id,
-                    success=False,
-                    status=AgentExecutionState.AWAITING_CLARIFICATION,
-                    response_text=clarification_msg,
-                    spoken_text=clarification_msg,
-                    intent=c_res.intent_category,
-                    requires_clarification=True,
-                    clarification_question=clarification_msg,
-                    metrics=metrics,
-                )
-                self._log_turn_experience(req, resp, category=ExperienceCategory.CLARIFICATION_REQUESTED, target_type="slot", target_value=c_res.missing_slot)
-                return resp
+            # Analizar completitud de la orden solo si no hay contexto o pregunta pendiente en la sesión
+            session_obj = self.context_manager.get_session(req.session_id)
+            has_pending_context = session_obj is not None and (bool(session_obj.pending_intent) or bool(session_obj.pending_confirmation))
+
+            if not has_pending_context:
+                c_checker = IntentCompletenessChecker()
+                c_res = c_checker.check_completeness(q_res.normalized_text)
+                if c_res.completeness == IntentCompleteness.INCOMPLETE:
+                    clarification_msg = c_res.clarification_question or "¿Puedes completar tu solicitud?"
+                    self.context_manager.set_pending_clarification(
+                        session_id=req.session_id,
+                        question=clarification_msg,
+                        expected_slot=c_res.missing_slot or "target",
+                        original_intent=c_res.intent_category,
+                    )
+                    metrics.total_latency_ms = (time.perf_counter() - start_time) * 1000
+                    resp = JessycaResponse(
+                        request_id=req.request_id,
+                        session_id=req.session_id,
+                        success=False,
+                        status=AgentExecutionState.AWAITING_CLARIFICATION,
+                        response_text=clarification_msg,
+                        spoken_text=clarification_msg,
+                        intent=c_res.intent_category,
+                        requires_clarification=True,
+                        clarification_question=clarification_msg,
+                        metrics=metrics,
+                    )
+                    self._log_turn_experience(req, resp, category=ExperienceCategory.CLARIFICATION_REQUESTED, target_type="slot", target_value=c_res.missing_slot)
+                    return resp
 
             # Usar texto normalizado limpio
             user_text = q_res.normalized_text
@@ -411,6 +424,62 @@ class JessycaLocalAgent:
                 self._log_turn_experience(req, resp, category=ExperienceCategory.CANCELLED)
                 return resp
 
+            # 2.1 EVALUACIÓN DE DIÁLOGO Y CONCIENCIA DE CAPACIDADES (FASE 52.1)
+            dialogue_decision = self.dialogue_manager.evaluate_dialogue(
+                user_input=user_text,
+                intent=intent,
+                params=extracted_params,
+                is_ambiguous=is_ambiguous,
+            )
+
+            # Caso: Capacidad No Soportada
+            if dialogue_decision.action_type == DialogueActionType.UNSUPPORTED_CAPABILITY:
+                metrics.total_latency_ms = (time.perf_counter() - start_time) * 1000
+                resp = JessycaResponse(
+                    request_id=req.request_id,
+                    session_id=req.session_id,
+                    success=True,
+                    status=AgentExecutionState.COMPLETED,
+                    response_text=dialogue_decision.response_text,
+                    spoken_text=dialogue_decision.response_text,
+                    intent=intent,
+                    metrics=metrics,
+                )
+                self._log_turn_experience(req, resp, category=ExperienceCategory.GENERAL)
+                return resp
+
+            # Caso: Capacidad Parcialmente Soportada
+            if dialogue_decision.action_type == DialogueActionType.PARTIAL_CAPABILITY:
+                metrics.total_latency_ms = (time.perf_counter() - start_time) * 1000
+                resp = JessycaResponse(
+                    request_id=req.request_id,
+                    session_id=req.session_id,
+                    success=True,
+                    status=AgentExecutionState.COMPLETED,
+                    response_text=dialogue_decision.response_text,
+                    spoken_text=dialogue_decision.response_text,
+                    intent=intent,
+                    metrics=metrics,
+                )
+                self._log_turn_experience(req, resp, category=ExperienceCategory.GENERAL)
+                return resp
+
+            # Caso: Explicación de Capacidades
+            if dialogue_decision.action_type == DialogueActionType.EXPLAIN_CAPABILITY:
+                metrics.total_latency_ms = (time.perf_counter() - start_time) * 1000
+                resp = JessycaResponse(
+                    request_id=req.request_id,
+                    session_id=req.session_id,
+                    success=True,
+                    status=AgentExecutionState.COMPLETED,
+                    response_text=dialogue_decision.response_text,
+                    spoken_text=dialogue_decision.response_text,
+                    intent="explain_capability",
+                    metrics=metrics,
+                )
+                self._log_turn_experience(req, resp, category=ExperienceCategory.GENERAL)
+                return resp
+
             # Manejo de respuesta inmediata de diálogo contextual (ej. "¿Qué números quieres sumar?", "¿Para qué día?", "¿Qué quieres incluir?")
             if (intent in ("math_sum", "write_list") or (intent == "set_alarm" and is_ambiguous)) and extracted_params.get("immediate_response") and is_ambiguous:
                 clarification_msg = extracted_params["immediate_response"]
@@ -430,8 +499,8 @@ class JessycaLocalAgent:
                 self._log_turn_experience(req, resp, category=ExperienceCategory.CLARIFICATION_REQUESTED)
                 return resp
 
-            # Manejo de diálogo contextual completado (ej. resultado matemático, alarma configurada, respuesta afirmativa, lista completada, consulta general, corrección)
-            if (intent in ("math_calculation", "set_alarm", "write_list", "user_correction") or (intent == "general_query" and extracted_params.get("immediate_response"))) and extracted_params.get("immediate_response") and not is_ambiguous:
+            # Manejo de diálogo contextual completado (ej. resultado matemático, alarma configurada, respuesta afirmativa, lista completada, consulta general, corrección, búsqueda informada)
+            if extracted_params.get("immediate_response") and not is_ambiguous:
                 resp_msg = extracted_params["immediate_response"]
                 metrics.total_latency_ms = (time.perf_counter() - start_time) * 1000
                 resp = JessycaResponse(
@@ -450,12 +519,12 @@ class JessycaLocalAgent:
                 return resp
 
             # Manejo de Aclaración si la intención es ambigua o faltan parámetros críticos
-            if is_ambiguous:
-                clarification_msg = extracted_params.get("immediate_response") or "¿Podrías especificar qué archivo o aplicación deseas que revise?"
+            if is_ambiguous or dialogue_decision.action_type == DialogueActionType.CLARIFICATION:
+                clarification_msg = dialogue_decision.clarification_question or extracted_params.get("immediate_response") or "¿Podrías darme más detalles sobre lo que deseas hacer?"
                 self.context_manager.set_pending_clarification(
                     session_id=req.session_id,
                     question=clarification_msg,
-                    expected_slot="target",
+                    expected_slot=dialogue_decision.expected_slot or "target",
                     original_intent=intent,
                 )
                 metrics.total_latency_ms = (time.perf_counter() - start_time) * 1000
@@ -472,6 +541,49 @@ class JessycaLocalAgent:
                     metrics=metrics,
                 )
                 self._log_turn_experience(req, resp, category=ExperienceCategory.AMBIGUOUS_INTENT)
+                return resp
+
+            # ── PASO 2.2: CONSULTAS Y DIÁLOGO CONVERSACIONAL PURO (CONVERSATIONAL_REQUEST) ──
+            if intent == "general_query" or dialogue_decision.action_type == DialogueActionType.CONVERSATIONAL:
+                t_conv_0 = time.perf_counter()
+                conv_text = self.conversational_handler.generate_response(
+                    user_input=user_text,
+                    session_id=req.session_id,
+                    params=extracted_params,
+                    context_manager=self.context_manager,
+                    preferred_model=self._select_model_for_intent(intent),
+                )
+                metrics.model_inference_latency_ms = (time.perf_counter() - t_conv_0) * 1000
+                metrics.total_latency_ms = (time.perf_counter() - start_time) * 1000
+
+                self.context_manager.record_turn(
+                    session_id=req.session_id,
+                    user_prompt=user_text,
+                    assistant_response=conv_text,
+                    intent="general_query",
+                    modality=req.modality,
+                    tools_executed=[],
+                    security_verdict="ALLOW",
+                )
+                self._latest_metrics = metrics
+                resp = JessycaResponse(
+                    request_id=req.request_id,
+                    session_id=req.session_id,
+                    success=True,
+                    status=AgentExecutionState.COMPLETED,
+                    response_text=conv_text,
+                    spoken_text=conv_text,
+                    intent="general_query",
+                    selected_model=self._select_model_for_intent(intent),
+                    selected_agent="general_assistant_agent",
+                    selected_skill="core.assistant@1.0.0",
+                    selected_graph="conversational_graph",
+                    tools_executed=[],
+                    security_level=SecurityLevel.SAFE,
+                    output_data={"conversational_response": conv_text},
+                    metrics=metrics,
+                )
+                self._log_turn_experience(req, resp, category=ExperienceCategory.GENERAL)
                 return resp
 
             # ── PASO 3: ENRUTAMIENTO DE MODELO Y AGENTE ──
@@ -679,7 +791,131 @@ class JessycaLocalAgent:
                         error=None if exec_success else (execution_result.message or "Fallo en ejecución/verificación"),
                     )
 
-            # 6.2 Flujo Coordinado Multidimensional
+            # 6.2 Ejecución directa verificada de Smart Media Playback (windows.media)
+            elif intent == "play_random_video":
+                from core.execution.idempotency_guard import (
+                    ExecutionFingerprint,
+                    get_idempotency_guard,
+                )
+
+                idempotency_guard = get_idempotency_guard()
+                fingerprint = ExecutionFingerprint(
+                    session_id=req.session_id,
+                    request_id=req.request_id,
+                    intent="play_random_video",
+                    skill="windows.media",
+                    action="play_random_video",
+                    target="dance_video",
+                )
+
+                is_acquired, exec_record = idempotency_guard.acquire_execution(fingerprint)
+                if not is_acquired:
+                    logger.warning(
+                        f"[IDEMPOTENCY DUPLICATE BLOCKED] Reutilizando reproducción previa para request_id={req.request_id} "
+                        f"execution_id={exec_record.execution_id}"
+                    )
+                    exec_success = (exec_record.status == "SUCCEEDED")
+                    msg_cached = exec_record.result_message or "Reproducción duplicada prevenida por idempotencia."
+                    execution_result = ExecutionResult(
+                        status=ExecutionStatus.SUCCEEDED if exec_success else ExecutionStatus.FAILED,
+                        action=intent,
+                        target="dance_video",
+                        message=msg_cached,
+                    )
+                    sys_resp = SystemResponse(
+                        task_id=req.request_id,
+                        correlation_id=req.request_id,
+                        success=exec_success,
+                        status=exec_record.status,
+                        output=exec_record.details.get("output", {}),
+                        error=None if exec_success else msg_cached,
+                    )
+                else:
+                    skill_res = self.skill_manager.execute_skill(
+                        "windows.media",
+                        parameters={"accion": "play_random_video", "request_id": req.request_id, "execution_id": exec_record.execution_id},
+                    )
+
+                    raw_evidence = skill_res.output.get("evidence") if isinstance(skill_res.output, dict) else None
+                    evidence_obj = None
+                    if raw_evidence:
+                        evidence_obj = ExecutionEvidence(
+                            verification_type=raw_evidence.get("verification_type", "play_media"),
+                            target=raw_evidence.get("target", "dance_video"),
+                            is_verified=bool(raw_evidence.get("is_verified", False)),
+                            details=raw_evidence.get("details", {}),
+                        )
+
+                    is_skill_ok = bool(skill_res.success and isinstance(skill_res.output, dict) and skill_res.output.get("exito"))
+                    execution_count = int(skill_res.output.get("execution_count", 1 if is_skill_ok else 0)) if isinstance(skill_res.output, dict) else (1 if is_skill_ok else 0)
+
+                    idempotency_guard.record_execution_invoked(
+                        execution_id=exec_record.execution_id,
+                        count=execution_count,
+                        is_reused=False,
+                    )
+
+                    if is_skill_ok:
+                        exec_status = ExecutionStatus.SUCCEEDED
+                        exec_success = True
+                    else:
+                        exec_status = ExecutionStatus.FAILED
+                        exec_success = False
+
+                    msg_out = skill_res.output.get("mensaje") if isinstance(skill_res.output, dict) else skill_res.error
+
+                    idempotency_guard.record_verification_completed(
+                        execution_id=exec_record.execution_id,
+                        status=exec_status.value.upper(),
+                        result_message=msg_out,
+                        details={"output": skill_res.output if isinstance(skill_res.output, dict) else {}},
+                    )
+
+                    execution_result = ExecutionResult(
+                        status=exec_status,
+                        action="play_random_video",
+                        target="dance_video",
+                        message=msg_out,
+                        evidence=evidence_obj,
+                        output=skill_res.output,
+                        error_code=skill_res.output.get("error_code") if isinstance(skill_res.output, dict) else None,
+                    )
+
+                    sys_resp = SystemResponse(
+                        task_id=req.request_id,
+                        correlation_id=req.request_id,
+                        success=exec_success,
+                        status="COMPLETED" if exec_success else "FAILED",
+                        output=skill_res.output if isinstance(skill_res.output, dict) else {},
+                        error=None if exec_success else msg_out,
+                    )
+
+            # 6.3 Búsqueda y Reproducción en Navegador (search_and_play / browser_search)
+            elif intent in ("search_and_play", "browser_search") and (intent == "search_and_play" or extracted_params.get("action") == "play"):
+                query_val = extracted_params.get("query", "música")
+                search_url = f"https://www.youtube.com/results?search_query={query_val}"
+                skill_res = self.skill_manager.execute_skill(
+                    "browser.open",
+                    parameters={"url": search_url},
+                )
+                exec_success = bool(skill_res.success and isinstance(skill_res.output, dict) and skill_res.output.get("exito"))
+                execution_result = ExecutionResult(
+                    status=ExecutionStatus.SUCCEEDED if exec_success else ExecutionStatus.FAILED,
+                    action=intent,
+                    target=str(query_val),
+                    message="Listo, ya está reproduciéndose." if exec_success else "Fallo al abrir navegador.",
+                    output=skill_res.output if isinstance(skill_res.output, dict) else {},
+                )
+                sys_resp = SystemResponse(
+                    task_id=req.request_id,
+                    correlation_id=req.request_id,
+                    success=exec_success,
+                    status="COMPLETED" if exec_success else "FAILED",
+                    output=skill_res.output if isinstance(skill_res.output, dict) else {},
+                    error=None if exec_success else (skill_res.error or "Error abriendo navegador"),
+                )
+
+            # 6.4 Flujo Coordinado Multidimensional
             else:
                 sys_resp = self.coordinator.execute_user_request(
                     user_input=user_text,
@@ -824,6 +1060,10 @@ class JessycaLocalAgent:
 
     # ── MÉTODOS AUXILIARES DE RESOLUCIÓN Y ENRUTAMIENTO ──
 
+    def _analyze_intent(self, text: str, session_id: str = "default") -> tuple[str, dict[str, Any], bool]:
+        """Alias para análisis directo de intenciones y slots."""
+        return self._resolve_intent_and_slots(text, session_id)
+
     def _resolve_intent_and_slots(self, text: str, session_id: str) -> tuple[str, dict[str, Any], bool]:
         """Extrae la intención semántica y parámetros de la solicitud integrando contexto corto."""
         lower = text.lower()
@@ -839,19 +1079,44 @@ class JessycaLocalAgent:
         if pending:
             return pending["original_intent"], {"target": text, "app_name": text, "query": text}, False
 
-        # 2. Patrones Peligrosos / Sensibles ("elimina archivo", "borrar")
+        # 2. Patrones de Reproducción Multimedia ("Jessyca, báilame" / play_random_video)
+        lower_no_prefix = re.sub(r"^(jessyca|jessica)[,\s]+", "", lower).strip()
+        if (
+            any(w in lower for w in ("bailame", "báilame", "un baile", "el baile", "ver un baile", "ponme un baile", "reproduce un baile", "quiero un baile"))
+            or lower_no_prefix.startswith("baila")
+            or (("reproduce" in lower or "pon" in lower or "quiero" in lower or "ver" in lower) and "baile" in lower)
+        ) and not any(k in lower for k in ("investiga", "elimina", "borra", "destruye")):
+            return "play_random_video", {}, False
+
+        # 3. Patrones Peligrosos / Sensibles ("elimina archivo", "borrar")
         if any(w in lower for w in ("elimina", "eliminar", "borra", "borrar", "destruye")):
             path = re.sub(r"^(jessyca,?\s*)?(elimina(r)?|borra(r)?)\s*(el\s*archivo\s*(temporal)?)?\s*", "", lower).strip()
             return "delete_file", {"path": path or "C:\\Data\\temp.tmp"}, False
 
-        # 3. Patrones de Abrir Aplicación ("abre el bloc de notas", "iniciar calculadora")
+        # 3. Patrones de Abrir Aplicación o Navegador ("abre el bloc de notas", "abre Google", "iniciar calculadora")
         if any(w in lower for w in ("abre", "abrir", "inicia", "iniciar", "ejecuta", "lanza")):
+            # Sitios web conocidos → browser.open (NO intentar google.exe)
+            if "google" in lower and not any(w in lower for w in ("bloc", "notas", "notepad", "calc", "paint")):
+                return "open_browser", {"url": "https://www.google.com", "site": "Google"}, False
+            if "youtube" in lower:
+                return "open_browser", {"url": "https://www.youtube.com", "site": "YouTube"}, False
+            if "facebook" in lower:
+                return "open_browser", {"url": "https://www.facebook.com", "site": "Facebook"}, False
+            if "twitter" in lower or "x.com" in lower:
+                return "open_browser", {"url": "https://www.twitter.com", "site": "Twitter"}, False
+            if "wikipedia" in lower:
+                return "open_browser", {"url": "https://es.wikipedia.org", "site": "Wikipedia"}, False
+            if "gmail" in lower:
+                return "open_browser", {"url": "https://mail.google.com", "site": "Gmail"}, False
+            if "navegador" in lower or "edge" in lower:
+                return "open_browser", {"url": "https://www.google.com", "site": "Edge"}, False
+            if "chrome" in lower:
+                return "open_browser", {"url": "https://www.google.com", "site": "Chrome"}, False
+
             if "bloc de notas" in lower or "notepad" in lower:
                 return "open_application", {"app_name": "notepad"}, False
             if "calculadora" in lower or "calc" in lower:
                 return "open_application", {"app_name": "calc"}, False
-            if "navegador" in lower or "chrome" in lower or "edge" in lower:
-                return "open_application", {"app_name": "chrome"}, False
             if "paint" in lower:
                 return "open_application", {"app_name": "paint"}, False
             if "cmd" in lower or "terminal" in lower or "consola" in lower:
@@ -865,8 +1130,8 @@ class JessycaLocalAgent:
                 return "open_application", {}, True
             return "open_application", {"app_name": " ".join(clean_tokens)}, False
 
-        # 4. Patrones de Cerrar Aplicación ("cierra el bloc de notas", "cerrar calculadora")
-        if any(w in lower for w in ("cierra", "cerrar", "apaga", "apagar", "deten", "detener", "termina", "terminar")):
+        # 4. Patrones de Cerrar Aplicación ("cierra el bloc de notas", "cerrar calculadora", "puedes cerrar")
+        if any(w in lower for w in ("cierra", "cerrar", "apaga", "apagar", "deten", "detener", "termina", "terminar", "puedes cerrar", "puédes cerrar")):
             if "bloc de notas" in lower or "notepad" in lower:
                 return "close_application", {"app_name": "notepad"}, False
             if "calculadora" in lower or "calc" in lower:
@@ -880,7 +1145,8 @@ class JessycaLocalAgent:
 
             clean_tokens = [
                 w for w in re.sub(r"[^\w\s]", "", lower).split()
-                if w not in ("cierra", "cerrar", "apaga", "apagar", "el", "la", "los", "las", "un", "una", "por", "favor", "jessyca", "jessica", "gracias")
+                if w not in ("cierra", "cerrar", "apaga", "apagar", "el", "la", "los", "las", "un", "una",
+                             "por", "favor", "jessyca", "jessica", "gracias", "puedes", "puédes")
             ]
             if not clean_tokens:
                 return "close_application", {}, True
@@ -891,14 +1157,19 @@ class JessycaLocalAgent:
             topic = re.sub(r"^(jessyca,?\s*)?(investiga(r)?|analiza(r)?)\s*(sobre|este|el|esta)?\s*(tema)?\s*", "", lower).strip()
             return "multistep_research", {"topic": topic or "tecnología"}, False
 
-        # 6. Patrones de Búsqueda Web vs Archivos Locales
+        # 6. Patrones de Búsqueda Web
         if any(w in lower for w in ("busca", "buscar", "encuentra", "localiza")):
-            if "internet" in lower or "web" in lower or "google" in lower:
-                query = re.sub(r"^(jessyca,?\s*)?(busca(r)?\s*(en|por)?\s*(internet|la web|google)\s*(sobre|de)?\s*)", "", lower).strip()
-                return "browser_search", {"query": query or "IA"}, False
+            if "internet" in lower or "web" in lower or "google" in lower or "en línea" in lower or "en linea" in lower:
+                query = re.sub(r"^(jessyca,?\s*)?(busca(r)?\s*(en|por)?\s*(internet|la web|google|en línea|en linea)\s*(sobre|de)?\s*)", "", lower).strip()
+                return "browser_search", {"query": query or "búsqueda"}, False
 
+            # Busca sin calificador de internet: prácticamente siempre es una búsqueda web
+            query = re.sub(r"^(jessyca,?\s*)?(busca(r)?\s*(en|por)?\s*(física|cuántica|cuánticó)?\s*)", "", lower).strip()
             query = re.sub(r"^(jessyca,?\s*)?(busca(r)?\s*(mis|los|el|la)?\s*)", "", lower).strip()
-            return "search_file", {"query": query or "documentos"}, False
+            if any(academic in lower for academic in ("física", "fisica", "cuántica", "cuantica", "matemática", "matematica",
+                                                      "historia", "ciencia", "tecnología", "tecnologia")):
+                return "browser_search", {"query": query or lower}, False
+            return "browser_search", {"query": query or "documentos"}, False
 
         # 7. Fallback General / Asistente
         return "general_query", {"query": text}, False
@@ -907,7 +1178,7 @@ class JessycaLocalAgent:
         """Selecciona el modelo óptimo automáticamente según la intención."""
         if intent in ("multistep_research", "complex_reasoning"):
             return "qwen2.5-coder:7b"
-        if intent in ("open_application", "close_application", "search_file", "browser_search"):
+        if intent in ("open_application", "close_application", "search_file", "browser_search", "play_random_video"):
             return "llama3.2:3b"
         return "auto-routed"
 
@@ -916,6 +1187,7 @@ class JessycaLocalAgent:
         agent_map = {
             "open_application": "desktop_agent",
             "close_application": "desktop_agent",
+            "play_random_video": "desktop_agent",
             "search_file": "file_agent",
             "browser_search": "browser_agent",
             "multistep_research": "research_coordinator_agent",
@@ -929,8 +1201,11 @@ class JessycaLocalAgent:
         skill_map = {
             "open_application": "windows.apps@1.0.0",
             "close_application": "windows.apps@1.0.0",
+            "play_random_video": "windows.media@1.0.0",
             "search_file": "files.search@1.0.0",
             "browser_search": "browser.search@1.0.0",
+            "youtube_search": "browser.search@1.0.0",
+            "search_and_play": "browser.open@1.0.0",
             "multistep_research": "research_skill_pipeline@1.0.0",
             "delete_file": "files.delete@1.0.0",
         }
@@ -941,8 +1216,11 @@ class JessycaLocalAgent:
         tool_map = {
             "open_application": "windows.launch_app",
             "close_application": "windows.close_app",
+            "play_random_video": "windows.media.play",
             "search_file": "filesystem.search_files",
             "browser_search": "browser.search",
+            "youtube_search": "browser.search",
+            "search_and_play": "browser.open",
             "multistep_research": "multistep.orchestrate",
             "delete_file": "filesystem.delete_file",
         }
@@ -962,7 +1240,7 @@ class JessycaLocalAgent:
         execution_result: Any | None = None,
     ) -> str:
         """Formatea una respuesta amigable, precisa y no falaz."""
-        # 1. Si existe un ExecutionResult formal (open/close app, file, etc.)
+        # 1. Si existe un ExecutionResult formal (open/close app, file, media, etc.)
         if execution_result is not None:
             from core.execution.execution_verifier import ExecutionStatus
 
@@ -990,6 +1268,10 @@ class JessycaLocalAgent:
                     return f"Listo, abrí {app_display}."
                 elif intent == "close_application":
                     return f"Listo, cerré {app_display}."
+                elif intent == "play_random_video":
+                    return "Claro, ya está reproduciéndose el baile."
+                elif intent in ("search_and_play", "browser_search") and (intent == "search_and_play" or params.get("action") == "play"):
+                    return "Listo, ya está reproduciéndose."
                 return str(execution_result.message or "Acción completada con éxito.")
 
             elif execution_result.status == ExecutionStatus.VERIFICATION_FAILED:
@@ -997,6 +1279,10 @@ class JessycaLocalAgent:
                     return f"Intenté abrir {app_display}, pero Windows no confirmó que se haya abierto."
                 elif intent == "close_application":
                     return f"Intenté cerrar {app_display}, pero no se pudo confirmar el cierre."
+                elif intent == "play_random_video":
+                    return "Encontré el vídeo, pero no pude iniciar su reproducción."
+                elif intent in ("search_and_play", "browser_search"):
+                    return "Intenté abrir el contenido, pero no pude confirmar su reproducción en Windows."
                 return f"La acción sobre {app_display} no pudo ser verificada en Windows."
 
             elif execution_result.status == ExecutionStatus.DENIED:
@@ -1004,7 +1290,16 @@ class JessycaLocalAgent:
             elif execution_result.status == ExecutionStatus.CANCELLED:
                 return "Operación cancelada."
             else:
-                return f"No pude completar la acción sobre {app_display}: {execution_result.message or 'Error en la ejecución'}."
+                if intent == "play_random_video":
+                    err_code = getattr(execution_result, "error_code", None)
+                    if err_code == "DIRECTORY_NOT_FOUND":
+                        return "No encuentro la carpeta de vídeos de baile configurada."
+                    elif err_code == "NO_VIDEOS_FOUND":
+                        return "No encontré ningún vídeo de baile en la carpeta configurada."
+                    elif err_code == "PLAYBACK_FAILED":
+                        return "Encontré el vídeo, pero no pude iniciar su reproducción."
+                    return str(execution_result.message or "No pude iniciar la reproducción del baile.")
+                return f"No pude completar la acción: {execution_result.message or 'Error en la ejecución'}."
 
         if not sys_resp.success:
             return f"No pude completar la solicitud: {sys_resp.error or 'Error desconocido'}."
@@ -1021,17 +1316,9 @@ class JessycaLocalAgent:
 
         # Consultas generales informativas
         if intent == "general_query":
-            q_lower = str(params.get("query", "")).lower()
-            if any(k in q_lower for k in ("que puedes hacer", "qué puedes hacer", "describe todo", "quien eres", "quién eres", "capacidades", "ayuda")):
-                return (
-                    "Soy Jessyca, tu asistente local e inteligente para Windows. Puedo abrir y cerrar aplicaciones de escritorio "
-                    "(como el Bloc de notas o la Calculadora), buscar y organizar archivos, realizar investigaciones web multi-paso, "
-                    "y gestionar tareas del sistema de forma segura."
-                )
-            if any(k in q_lower for k in ("hola", "buenos dias", "buenas tardes", "buenas noches", "hey")):
-                return "¡Hola! Soy Jessyca. ¿En qué te puedo ayudar hoy?"
+            return self.conversational_handler.generate_response(user_input=str(params.get("query", "")), params=params)
 
-        return "He completado tu solicitud con éxito."
+        return "Listo, he procesado tu solicitud."
 
     # ── MÉTODOS DE CONTROL DEL SISTEMA ──
 

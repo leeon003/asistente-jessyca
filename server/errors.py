@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from core.exceptions import MCPError
 
 
@@ -32,7 +34,7 @@ class MCPToolNotFoundError(MCPError):
 class MCPValidationError(MCPError):
     """Error de validación en la solicitud o parámetros del cliente MCP."""
 
-    def __init__(self, message: str, details: dict | None = None) -> None:
+    def __init__(self, message: str, details: dict[str, Any] | None = None) -> None:
         super().__init__(message)
         self.details = details or {}
 
@@ -78,3 +80,18 @@ class ExecutionDisabledError(ExecutionPipelineError):
 
     def __init__(self, message: str = "La ejecución real de herramientas está deshabilitada en la Subetapa 05.2.") -> None:
         super().__init__(message)
+
+
+__all__ = [
+    "MCPError",
+    "MCPServerNotInitializedError",
+    "MCPServerStateError",
+    "MCPToolNotFoundError",
+    "MCPValidationError",
+    "MCPInternalError",
+    "ExecutionPipelineError",
+    "SecurityAuthorizationError",
+    "InvalidAuthorizationEvidenceError",
+    "ExecutionNotAuthorizedError",
+    "ExecutionDisabledError",
+]

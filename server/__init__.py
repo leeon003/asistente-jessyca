@@ -32,9 +32,10 @@ from server.execution_request import ExecutionRequest, create_execution_request
 from server.executor import DisabledToolExecutor, IToolExecutor
 from server.health import HealthChecker, HealthCheckResult, HealthStatus
 from server.lifecycle import LifecycleState, ServerLifecycleManager
+from server.pipeline import SecureExecutionPipeline
+from server.runtime import MCPDemoRuntime, get_mcp_demo_runtime
 
 ServerLifecycleState = LifecycleState
-from server.pipeline import SecureExecutionPipeline
 
 
 def create_mcp_server(
@@ -54,7 +55,9 @@ def create_mcp_server(
 
 __all__ = [
     "JessycaMCPServer",
+    "MCPDemoRuntime",
     "create_mcp_server",
+    "get_mcp_demo_runtime",
     "get_mcp_server",
     "LifecycleState",
     "ServerLifecycleState",

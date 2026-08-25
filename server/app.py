@@ -23,11 +23,11 @@ logger = get_logger("jessyca.server.app")
 
 # Intento opcional de importar FastMCP si está disponible en el entorno
 try:
-    from fastmcp import FastMCP  # type: ignore[import-not-found,import-untyped]
+    from fastmcp import FastMCP
     HAS_FASTMCP = True
 except ImportError:
     HAS_FASTMCP = False
-    FastMCP = None
+    FastMCP = None  # type: ignore[assignment,misc]
 
 
 class JessycaMCPServer:
@@ -86,10 +86,55 @@ class JessycaMCPServer:
 
     def start(self) -> None:
         """Inicia el servidor MCP."""
-        if self.lifecycle_manager.state == LifecycleState.STOPPED:
-            self.initialize()
         self.lifecycle_manager.start()
         logger.info(f"Servidor MCP corriendo en {self.host}:{self.port} (transporte: {self.transport})")
+
+    def run(self, transport: str | None = None, show_banner: bool | None = None) -> None:
+        """Inicia y ejecuta el servidor FastMCP a través del transporte configurado.
+
+        Flujo del ciclo de vida:
+            1. Transición de estado a RUNNING mediante self.start()
+            2. Delegación de ejecución al transporte FastMCP (stdio / sse / http / streamable-http)
+            3. Si ocurre una excepción catastrófica, marca el estado como FAILED y re-eleva
+            4. En cierre normal o interrupción, ejecuta shutdown() devolviendo el estado a STOPPED
+        """
+        # 1. Asegurar transición a RUNNING
+        if not self.is_running:
+            self.start()
+
+        effective_transport = (transport or self.transport).lower().strip()
+        logger.info(f"Iniciando transporte FastMCP '{effective_transport}' para servidor '{self.server_name}'...")
+
+        # 2. Si la instancia de FastMCP está disponible, ejecutar transporte real
+        if self._fastmcp_instance is not None:
+            try:
+                if effective_transport == "stdio":
+                    self._fastmcp_instance.run(transport="stdio", show_banner=show_banner)
+                elif effective_transport in ("sse", "http", "streamable-http"):
+                    self._fastmcp_instance.run(
+                        transport=effective_transport,
+                        host=self.host,
+                        port=self.port,
+                        show_banner=show_banner,
+                    )
+                else:
+                    self._fastmcp_instance.run(
+                        transport=effective_transport,
+                        show_banner=show_banner,
+                    )
+            except KeyboardInterrupt:
+                logger.info("Interrupción recibida durante la ejecución del transporte FastMCP.")
+                self.shutdown()
+                raise
+            except Exception as e:
+                self.lifecycle_manager.set_failed(str(e))
+                logger.error(f"Fallo en la ejecución del transporte FastMCP: {e}", exc_info=True)
+                raise
+            finally:
+                if self.lifecycle_manager.state != LifecycleState.FAILED:
+                    self.shutdown()
+        else:
+            logger.warning("FastMCP SDK no está disponible en este entorno. Servidor MCP en ejecución local/headless.")
 
     def shutdown(self) -> None:
         """Detiene el servidor MCP limpiamente."""
@@ -195,3 +240,24 @@ def get_mcp_server() -> JessycaMCPServer:
     if _global_mcp_server is None:
         _global_mcp_server = JessycaMCPServer()
     return _global_mcp_server
+
+
+def create_mcp_server(
+    server_name: str | None = None,
+    tools_dir: str | None = None,
+) -> JessycaMCPServer:
+    """Factory function que crea e inicializa un JessycaMCPServer."""
+    settings = AppSettings()
+    if server_name:
+        settings.MCP_SERVER_NAME = server_name
+
+    server = JessycaMCPServer(settings=settings)
+    server.initialize()
+    return server
+
+
+__all__ = [
+    "JessycaMCPServer",
+    "get_mcp_server",
+    "create_mcp_server",
+]

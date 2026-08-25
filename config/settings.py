@@ -101,7 +101,15 @@ class AppSettings(BaseSettings):
     )
     MCP_TRANSPORT: str = Field(
         default="stdio",
-        description="Mecanismo de transporte MCP (stdio o sse).",
+        description="Mecanismo de transporte MCP por defecto.",
+    )
+    MCP_DEMO_TRANSPORT: str = Field(
+        default="streamable-http",
+        description="Mecanismo de transporte MCP para modo DEMO interactivo (streamable-http, sse, http).",
+    )
+    MCP_EXTERNAL_TRANSPORT: str = Field(
+        default="stdio",
+        description="Mecanismo de transporte MCP para clientes externos dedicados (stdio).",
     )
     MCP_ENABLED: bool = Field(
         default=True,
@@ -914,6 +922,24 @@ class AppSettings(BaseSettings):
         description="Habilita la telemetría y logging diagnóstico detallado de audio y VAD.",
     )
 
+    # Configuración de Auto-Detección y Prioridad de Micrófono (Fase 51.2)
+    VOICE_AUTO_SELECT_MICROPHONE: bool = Field(
+        default=True,
+        description="Habilita la selección automática del mejor micrófono físico disponible.",
+    )
+    VOICE_PREFERRED_MICROPHONES: list[str] = Field(
+        default_factory=lambda: ["G435", "C270"],
+        description="Lista priorizada de identificadores de micrófonos físicos (ej. G435, C270).",
+    )
+    VOICE_DEFAULT_VOICE: str = Field(
+        default="es-PE-CamilaNeural",
+        description="Voz neuronal predeterminada para síntesis de voz (Camila Neural).",
+    )
+    VOICE_TTS_ENGINE: str = Field(
+        default="edge-tts",
+        description="Motor TTS principal (edge-tts con voz neuronal Camila).",
+    )
+
     # Configuración de Context Builder & Memory Retrieval (Subetapa 10.2)
     CONTEXT_ENABLED: bool = Field(
         default=True,
@@ -966,6 +992,16 @@ class AppSettings(BaseSettings):
         description="Si es True, exige permisos de administrador al iniciar servicios del sistema.",
     )
 
+    # Configuración de Smart Media Playback ("Jessyca, báilame")
+    JESSYCA_DANCE_VIDEO_DIRECTORY: Path = Field(
+        default=Path(r"D:\bailes de ia"),
+        description="Directorio exclusivo autorizado para vídeos de baile (play_random_video).",
+    )
+    SUPPORTED_VIDEO_EXTENSIONS: frozenset[str] = Field(
+        default_factory=lambda: frozenset({".mp4", ".mkv", ".avi", ".mov", ".webm", ".wmv", ".m4v"}),
+        description="Extensiones de archivo de vídeo permitidas (case-insensitive).",
+    )
+
     @field_validator("ENVIRONMENT", mode="before")
     @classmethod
     def validate_environment(cls, value: str | EnvironmentMode) -> EnvironmentMode:
@@ -989,3 +1025,12 @@ class AppSettings(BaseSettings):
             except ValueError:
                 return LogLevel(DEFAULT_LOG_LEVEL)
         return LogLevel(DEFAULT_LOG_LEVEL)
+
+    @field_validator("JESSYCA_DANCE_VIDEO_DIRECTORY", mode="before")
+    @classmethod
+    def validate_dance_video_directory(cls, value: str | Path) -> Path:
+        if isinstance(value, Path):
+            return value
+        if isinstance(value, str) and value.strip():
+            return Path(value.strip())
+        return Path(r"D:\bailes de ia")

@@ -43,6 +43,7 @@ DOMAIN_KEYWORDS: dict[str, set[str]] = {
     "files": {"organiza", "organizar", "archivo", "archivos", "carpeta", "carpetas", "mover", "fichero", "ficheros", "disco"},
     "system": {"diagnostico", "sistema", "salud", "cpu", "ram", "memoria", "rendimiento", "estado"},
     "apps": {"abre", "abrir", "cerrar", "ejecuta", "ejecutar", "inicia", "iniciar", "aplicacion", "programa", "app"},
+    "media": {"baila", "bailame", "báilame", "baile", "bailes", "reproduce", "reproducir", "video", "videos", "reproductor", "play"},
 }
 
 
