@@ -234,13 +234,6 @@ class SkillRegistry:
             if target in self._skills and self._skills[target]:
                 return next(iter(self._skills[target].values()))
 
-            # Fallback seguro a catálogo estándar
-            if target in ("windows.apps", "apps"):
-                from skills.apps_skill import WindowsAppsSkill
-                inst = WindowsAppsSkill()
-                self.register_skill(inst, replace=True)
-                return inst
-
             return None
 
     def lookup_definition(self, target: str) -> SkillDefinition | None:

@@ -25,6 +25,7 @@ from core.local_agent.conversation_models import (
     TurnRole,
 )
 from core.local_agent.local_agent_models import InputModality
+from core.local_agent.stt_normalizer import get_stt_normalizer
 from core.logger import get_logger
 
 logger = get_logger("jessyca.local_agent.context")
@@ -186,7 +187,11 @@ class ConversationContextManager:
         Returns:
             (intent, extracted_params, is_ambiguous, immediate_response_if_any)
         """
-        lower = text.strip().lower()
+        # Normalizar STT tolerando ruidos y flexiones
+        normalizer = get_stt_normalizer()
+        norm_res = normalizer.normalize(text)
+        effective_text = norm_res.normalized_text if norm_res.was_modified else text
+        lower = effective_text.strip().lower()
 
         with self._lock:
             session = self.get_or_create_session(session_id)
@@ -204,6 +209,34 @@ class ConversationContextManager:
                     return "cancel_task", {}, False, "Entendido, acción cancelada."
                 else:
                     session.clear_pending_confirmation()
+
+            # 4.0.0.0 APERTURA / CIERRE EXPLÍCITO DE APLICACIONES Y NAVEGADOR
+            if any(lower.startswith(w) or lower == w for w in ("abre google", "abrir google", "inicia google", "abre el buscador google", "abrir el buscador google")):
+                session.set_context_item("current_application", "edge", relevance=1.0)
+                session.set_context_item("last_app", "edge", relevance=1.0)
+                session.set_context_item("last_referenced_entity", "Google", relevance=1.0)
+                return "open_browser", {"url": "https://www.google.com", "site": "Google"}, False, None
+
+            if any(lower.startswith(w) or lower == w for w in ("abre bloc de notas", "abre el bloc de notas", "abrir bloc de notas", "abrir el bloc de notas", "abre notepad", "abrir notepad", "inicia bloc de notas", "iniciar bloc de notas")):
+                session.set_context_item("current_application", "notepad", relevance=1.0)
+                session.set_context_item("last_app", "notepad", relevance=1.0)
+                session.set_context_item("last_referenced_entity", "notepad", relevance=1.0)
+                return "open_application", {"app_name": "notepad"}, False, None
+
+            if any(w in lower for w in ("cierra", "cerrar", "apaga", "deten", "termina")) and any(a in lower for a in ("bloc de notas", "notepad", "el bloc")):
+                session.set_context_item("last_referenced_entity", "notepad", relevance=1.0)
+                return "close_application", {"app_name": "notepad"}, False, None
+
+            if any(w in lower for w in ("cierra", "cerrar", "apaga", "deten", "termina")):
+                if "calculadora" in lower or "calc" in lower:
+                    session.set_context_item("last_referenced_entity", "calc", relevance=1.0)
+                    return "close_application", {"app_name": "calc"}, False, None
+                elif "navegador" in lower or "chrome" in lower or "edge" in lower:
+                    session.set_context_item("last_referenced_entity", "chrome", relevance=1.0)
+                    return "close_application", {"app_name": "chrome"}, False, None
+                elif "paint" in lower:
+                    session.set_context_item("last_referenced_entity", "paint", relevance=1.0)
+                    return "close_application", {"app_name": "paint"}, False, None
 
             # 4.0.0 REFERENCIAS DEÍCTICAS CONTEXTUALES ("Ponla", "Reprodúcela", "Dale play")
             if lower in ("ponla", "reprodúcela", "reproducela", "pon esa canción", "pon esa cancion", "dale play", "dale reproducir", "claro ponla", "reproduce esa", "reprodúcelo", "reproducelo"):
@@ -250,15 +283,45 @@ class ConversationContextManager:
                 )
                 return "browser_search", {"immediate_response": "Perfecto, ¿qué quieres que busque?", "requires_clarification": True}, True, "Perfecto, ¿qué quieres que busque?"
 
-            # 4.0.0.4 BÚSQUEDA DIRECTA DE CANCIÓN ("Busca La Yerba del Rey de Morodo")
+            # 4.0.0.3.0 ACCIÓN CRÍTICA / ELIMINACIÓN ("Elimina el archivo...", "Borra...")
+            if any(w in lower for w in ("elimina", "eliminar", "borra", "borrar", "destruye")):
+                path = re.sub(r"^(?:jessyca,?\s*|jessica,?\s*)?(?:elimina|eliminar|borra|borrar)\s+(?:el\s*archivo\s*(?:temporal)?)?\s*", "", text, flags=re.IGNORECASE).strip()
+                return "delete_file", {"path": path or "C:\\Data\\temp.tmp"}, False, None
+
+            # 4.0.0.3.1 INVESTIGACIÓN / ANÁLISIS MULTI-PASO ("Investiga sobre...", "Analiza...")
+            if any(w in lower for w in ("investiga", "investigar", "informe", "reporte", "analiza", "analizar")):
+                topic = re.sub(r"^(?:jessyca,?\s*|jessica,?\s*)?(?:investiga|investigar|analiza|analizar)\s+(?:sobre\s+|este\s+|el\s+|esta\s+)?", "", text, flags=re.IGNORECASE).strip()
+                return "multistep_research", {"topic": topic or "tecnología"}, False, None
+
+            # 4.0.0.3.2 BÚSQUEDA DE ARCHIVOS LOCALES ("Busca mis documentos", "Busca el archivo...")
+            if (
+                any(w in lower for w in ("busca", "buscar", "encuentra", "localiza"))
+                and any(w in lower for w in ("archivo", "archivos", "documento", "documentos", "carpeta", "carpetas", "pdf", "txt", "docx"))
+            ):
+                q_file = re.sub(r"^(?:jessyca,?\s*|jessica,?\s*)?(?:busca|buscar|encuentra|localiza)\s+(?:mis\s+|los\s+|el\s+|la\s+)?", "", text, flags=re.IGNORECASE).strip()
+                session.set_context_item("last_search_query", q_file, relevance=0.95)
+                session.set_context_item("last_referenced_entity", q_file, relevance=0.95)
+                return "search_file", {"query": q_file or "documentos"}, False, None
+
+            # 4.0.0.4 BÚSQUEDA WEB O MULTIMEDIA ("Busca física cuántica", "Busca La Yerba del Rey")
             if lower.startswith("busca ") or lower.startswith("buscar "):
-                q_media = re.sub(r"^(?:jessyca,?\s*|jessica,?\s*)?(?:busca|buscar)\s+", "", text, flags=re.IGNORECASE).strip()
-                is_media_related = any(kw in q_media.lower() for kw in ("cancion", "canción", "tema", "musica", "música", "video", "vídeo", "morodo", "yerba del rey", "baile", "bailame", "báilame"))
-                if is_media_related and q_media.lower() not in ("una canción", "una cancion", "algo", "un archivo", "en internet"):
-                    session.set_context_item("last_found_media", q_media, relevance=0.95)
-                    session.set_context_item("last_search_query", q_media, relevance=0.95)
+                q_search = re.sub(r"^(?:jessyca,?\s*|jessica,?\s*)?(?:busca|buscar)\s+(?:en\s+(?:google|internet|la\s+web)\s+)?", "", text, flags=re.IGNORECASE).strip()
+                is_media_related = any(kw in q_search.lower() for kw in ("cancion", "canción", "tema", "morodo", "yerba del rey", "baile", "bailame", "báilame"))
+                if is_media_related and q_search.lower() not in ("una canción", "una cancion", "algo", "un archivo", "en internet"):
+                    session.set_context_item("last_found_media", q_search, relevance=0.95)
+                    session.set_context_item("last_search_query", q_search, relevance=0.95)
                     resp_text = "Encontré la canción. ¿Quieres que la reproduzca?"
-                    return "browser_search", {"query": q_media, "immediate_response": resp_text}, False, resp_text
+                    return "browser_search", {"query": q_search, "immediate_response": resp_text}, False, resp_text
+                else:
+                    session.set_context_item("last_search_query", q_search, relevance=0.95)
+                    session.set_context_item("last_referenced_entity", q_search, relevance=0.95)
+                    return "browser_search", {"query": q_search, "motor": "google"}, False, None
+
+            # 4.0.0.5 CONSULTAS DE CIENCIAS / FÍSICA / CONVERSACIÓN DIRECTA (DIRIGIDAS A LLM)
+            if any(w in lower for w in ("física", "fisica", "espacio-tiempo", "espacio tiempo", "relatividad", "cuántica", "cuantica")):
+                if "física" in lower or "fisica" in lower:
+                    session.set_context_item("last_topic", "física", relevance=1.0)
+                return "general_query", {"query": text}, False, None
 
             # 4.0.1 SALUDO NATURAL ("Jessica, hola", "Hola")
             if lower in ("hola", "hola jessica", "jessica hola", "jessica, hola", "hola, jessica", "buenas", "buenos días", "buenas tardes"):

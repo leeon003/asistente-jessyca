@@ -16,6 +16,8 @@ import os
 import sys
 import threading
 import time
+from dataclasses import dataclass
+from typing import Any
 
 # Asegurar encoding UTF-8 en consola Windows
 if sys.stdout and hasattr(sys.stdout, "reconfigure"):
@@ -50,6 +52,16 @@ BANNER_VOZ = r"""
 """
 
 
+@dataclass
+class VoiceSpeakerMetrics:
+    """Métricas de síntesis y reproducción de voz."""
+
+    startup_latency_ms: float = 0.0
+    duration_ms: float = 0.0
+    engine_used: str = "edge_tts"
+    voice_name: str = "es-PE-CamilaNeural"
+
+
 class VoiceSpeaker:
     """Motor de síntesis de voz neuronal (Edge-TTS con es-PE-CamilaNeural) con fallback robusto."""
 
@@ -57,14 +69,29 @@ class VoiceSpeaker:
         self._lock = threading.Lock()
         settings = get_settings()
         self.voice_name = default_voice or getattr(settings, "VOICE_DEFAULT_VOICE", "es-PE-CamilaNeural")
+        self._sapi_speaker: Any = None
         self._sapi_voice_id: str | None = None
-        self._init_sapi_fallback()
+        self._pygame_ready = False
+        self._init_audio_system()
 
-    def _init_sapi_fallback(self) -> None:
-        """Inicializa el fallback SAPI de Windows en caso de no haber conexión."""
+    def _init_audio_system(self) -> None:
+        """Inicializa el subsistema de audio y mixer una sola vez para evitar overhead."""
         try:
-            import pythoncom  # type: ignore[import-untyped]
-            import win32com.client  # type: ignore[import-untyped]
+            import pygame
+            if not pygame.mixer.get_init():
+                pygame.mixer.init(frequency=24000, size=-16, channels=1, buffer=1024)
+            self._pygame_ready = True
+        except Exception as e:
+            logger.debug(f"[VOICE TTS] Info al inicializar pygame.mixer: {e}")
+            self._pygame_ready = False
+
+    def _get_sapi_speaker(self) -> Any:
+        """Inicializa perezosamente y de forma persistente el fallback SAPI."""
+        if self._sapi_speaker is not None:
+            return self._sapi_speaker
+        try:
+            import pythoncom
+            import win32com.client
 
             pythoncom.CoInitialize()
             sp = win32com.client.Dispatch("SAPI.SpVoice")
@@ -73,18 +100,28 @@ class VoiceSpeaker:
                 v = voices.Item(i)
                 desc = v.GetDescription().lower()
                 if "sabina" in desc or "spanish" in desc or "español" in desc or "mexico" in desc or "spain" in desc:
+                    sp.Voice = v
                     self._sapi_voice_id = v.Id
                     break
+            sp.Rate = 1
+            sp.Volume = 100
+            self._sapi_speaker = sp
+            return self._sapi_speaker
         except Exception as e:
-            logger.debug(f"[VOICE TTS] Info al inicializar fallback SAPI: {e}")
+            logger.debug(f"[VOICE TTS] SAPI fallback no disponible: {e}")
+            return None
 
-    def speak(self, text: str) -> None:
-        """Sintetiza y reproduce el texto con voz Camila Neural de forma no bloqueante/segura."""
+    def speak(self, text: str) -> VoiceSpeakerMetrics:
+        """Sintetiza y reproduce el texto con voz Camila Neural de forma fluida y mide latencias."""
         if not text or not text.strip():
-            return
+            return VoiceSpeakerMetrics()
+
+        clean_text = text.strip()
+        metrics = VoiceSpeakerMetrics(voice_name=str(self.voice_name))
+        t_start = time.perf_counter()
 
         with self._lock:
-            # 1. Intentar con Edge-TTS (es-PE-CamilaNeural) y reproducción pygame
+            # 1. Motor Principal: Edge-TTS (es-PE-CamilaNeural)
             try:
                 import asyncio
                 import io
@@ -92,67 +129,61 @@ class VoiceSpeaker:
                 import edge_tts
                 import pygame
 
+                if not self._pygame_ready:
+                    self._init_audio_system()
+
                 async def _synth() -> bytes:
-                    communicate = edge_tts.Communicate(text.strip(), str(self.voice_name))
+                    communicate = edge_tts.Communicate(clean_text, str(self.voice_name))
                     chunks: list[bytes] = []
                     async for chunk in communicate.stream():
                         if chunk["type"] == "audio":
                             chunks.append(chunk["data"])
                     return b"".join(chunks)
 
-                try:
-                    loop = asyncio.get_event_loop()
-                    if loop.is_running():
-                        import nest_asyncio  # type: ignore[import-not-found]
+                audio_bytes = asyncio.run(_synth())
+                metrics.startup_latency_ms = (time.perf_counter() - t_start) * 1000.0
 
-                        nest_asyncio.apply()
-                    audio_bytes = loop.run_until_complete(_synth())
-                except RuntimeError:
-                    audio_bytes = asyncio.run(_synth())
-
-                if audio_bytes:
-                    if not pygame.mixer.get_init():
-                        pygame.mixer.init()
+                if audio_bytes and self._pygame_ready:
+                    t_play_start = time.perf_counter()
                     sound = pygame.mixer.Sound(io.BytesIO(audio_bytes))
                     sound.play()
                     while pygame.mixer.get_busy():
                         pygame.time.wait(20)
-                    return
+                    metrics.duration_ms = (time.perf_counter() - t_play_start) * 1000.0
+                    metrics.engine_used = "edge_tts"
+                    return metrics
             except Exception as e:
                 logger.warning(f"[VOICE TTS] Edge-TTS ({self.voice_name}) falló ({e}), intentando fallback SAPI...")
 
-            # 2. Fallback a SAPI (Sabina)
+            # 2. Fallback a SAPI
             try:
-                import pythoncom
-                import win32com.client
-
-                pythoncom.CoInitialize()
-                speaker = win32com.client.Dispatch("SAPI.SpVoice")
-                if self._sapi_voice_id:
-                    voices = speaker.GetVoices()
-                    for i in range(voices.Count):
-                        v = voices.Item(i)
-                        if v.Id == self._sapi_voice_id:
-                            speaker.Voice = v
-                            break
-                speaker.Rate = 1
-                speaker.Volume = 100
-                speaker.Speak(text.strip())
-                return
+                sp = self._get_sapi_speaker()
+                if sp:
+                    t_play_start = time.perf_counter()
+                    metrics.startup_latency_ms = (t_play_start - t_start) * 1000.0
+                    sp.Speak(clean_text)
+                    metrics.duration_ms = (time.perf_counter() - t_play_start) * 1000.0
+                    metrics.engine_used = "sapi"
+                    return metrics
             except Exception as ex2:
                 logger.warning(f"[VOICE TTS] SAPI directo falló ({ex2}), intentando fallback con pyttsx3...")
 
             # 3. Fallback a pyttsx3
             try:
-                import pyttsx3  # type: ignore[import-untyped]
-
+                import pyttsx3
                 engine = pyttsx3.init()
                 engine.setProperty("rate", 175)
-                engine.say(text.strip())
+                t_play_start = time.perf_counter()
+                metrics.startup_latency_ms = (t_play_start - t_start) * 1000.0
+                engine.say(clean_text)
                 engine.runAndWait()
                 engine.stop()
+                metrics.duration_ms = (time.perf_counter() - t_play_start) * 1000.0
+                metrics.engine_used = "pyttsx3"
+                return metrics
             except Exception as ex3:
                 logger.error(f"[VOICE TTS FATAL] Fallo en todos los motores de voz: {ex3}")
+                return metrics
 
 
 def iniciar_modo_voz(
@@ -232,11 +263,13 @@ def iniciar_modo_voz(
                 print("\n  [En espera de 'Jessica' | Habla ahora...]")
 
             logger.info(f"[VOICE_CAPTURE_STARTED] Modo: {voice_session.mode.value}...")
+            t_capture_start = time.perf_counter()
             capture_result = capture_engine.capture_and_transcribe(
                 mode=voice_session.mode.value,
                 timeout=7.0,
                 phrase_time_limit=10.0,
             )
+            stt_latency_ms = (time.perf_counter() - t_capture_start) * 1000.0
             logger.info(f"[VOICE_CAPTURE_STOPPED] Captura finalizada. Descarte: {capture_result.discard_reason.value}")
 
             # 3. Manejo de silencios normales en espera
@@ -275,12 +308,14 @@ def iniciar_modo_voz(
             voice_session.on_processing_started()
 
             # Procesamiento con Agente Local JESSYCA
+            t_interact_start = time.perf_counter()
             req = JessycaRequest(
                 session_id=session_id,
                 user_input=texto,
                 modality=InputModality.VOICE,
             )
             res = agent.interact(req)
+            agent_latency_ms = (time.perf_counter() - t_interact_start) * 1000.0
 
             logger.info(f"[VOICE_EXECUTION_COMPLETED] Estado: {res.status.value}, Intent: {res.intent}, Skill: {res.selected_skill}")
 
@@ -289,17 +324,33 @@ def iniciar_modo_voz(
             if res.requires_clarification or res.status.value == "AWAITING_CLARIFICATION":
                 msg = res.clarification_question or res.spoken_text or res.response_text or "¿Podrías aclararme qué deseas hacer?"
                 print(f"\n  Jessyca (Aclaración): {msg}")
-                speaker.speak(msg)
+                tts_metrics = speaker.speak(msg)
             elif res.requires_confirmation:
                 msg = f"Atención: {res.response_text}. ¿Deseas autorizar esta acción?"
                 print(f"\n  Jessyca (Confirmación): {msg}")
-                speaker.speak(msg)
+                tts_metrics = speaker.speak(msg)
             else:
                 msg = res.spoken_text or res.response_text
                 print(f"\n  Jessyca: {msg}")
-                speaker.speak(msg)
+                tts_metrics = speaker.speak(msg)
 
             voice_session.on_speaking_finished()
+
+            # Medición y registro formal de latencias
+            llm_latency_ms = res.metrics.model_inference_latency_ms if res.metrics.model_inference_latency_ms > 0 else agent_latency_ms
+            tts_dur_ms = tts_metrics.duration_ms if tts_metrics else 0.0
+            tts_start_ms = tts_metrics.startup_latency_ms if tts_metrics else 0.0
+            total_turn_ms = stt_latency_ms + agent_latency_ms + tts_dur_ms
+
+            logger.info(
+                f"[VOICE_LATENCY] STT={stt_latency_ms:.1f}ms LLM={llm_latency_ms:.1f}ms "
+                f"TTS_STARTUP={tts_start_ms:.1f}ms TTS={tts_dur_ms:.1f}ms TOTAL={total_turn_ms:.1f}ms"
+            )
+            print(
+                f"  [VOICE_LATENCY] STT={stt_latency_ms:.1f}ms | LLM={llm_latency_ms:.1f}ms | "
+                f"TTS={tts_dur_ms:.1f}ms | TOTAL={total_turn_ms:.1f}ms"
+            )
+
             # Breve pausa de estabilización de audio para evitar que el micrófono capture el eco del altavoz
             time.sleep(0.3)
 

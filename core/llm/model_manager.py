@@ -23,6 +23,9 @@ logger = get_logger("jessyca.llm.manager")
 # Modelo por defecto del sistema si no se especifica explícitamente
 FALLBACK_DEFAULT_MODEL = "gemma4:e4b"
 
+# Marcador semántico de selección automática: nunca registrar en ModelRegistry
+AUTO_ROUTE_MODEL = "auto-routed"
+
 
 class ModelManager:
     """Administrador de selección explícita y resolución de perfiles de modelos LLM."""
@@ -56,11 +59,26 @@ class ModelManager:
         return self._registry
 
     def get_model(self, name: str | None = None) -> ModelProfile:
-        """Resuelve y obtiene el ModelProfile solicitado o el modelo predeterminado si name es None."""
+        """Resuelve y obtiene el ModelProfile solicitado o el modelo predeterminado si name es None.
+
+        El marcador semántico AUTO_ROUTE_MODEL ('auto-routed') se interpreta como
+        selección automática y resuelve al modelo predeterminado configurado, sin
+        necesidad de estar registrado en el catálogo de modelos.
+        """
         with self._lock:
-            target_name = (name.strip() if name and name.strip() else self._default_model_name)
+            stripped = name.strip() if name and name.strip() else ""
+            if not stripped or stripped == AUTO_ROUTE_MODEL:
+                if stripped == AUTO_ROUTE_MODEL:
+                    logger.info(
+                        f"[MODEL MANAGER] Auto-route solicitado. "
+                        f"Resolviendo al modelo predeterminado: '{self._default_model_name}'"
+                    )
+                target_name = self._default_model_name
+            else:
+                target_name = stripped
             try:
                 profile = self._registry.get(target_name)
+                logger.debug(f"[MODEL MANAGER] Modelo resuelto: '{profile.name}'")
                 return profile
             except ModelNotFoundError:
                 logger.error(

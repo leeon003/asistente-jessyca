@@ -19,18 +19,28 @@ from core.llm.model_router import ModelRouter, get_model_router
 from core.logger import get_logger
 
 if TYPE_CHECKING:
-    from core.local_agent.conversation_context import ConversationContextManager, ConversationSession
+    from core.local_agent.conversation_context import ConversationContextManager
+    from core.local_agent.conversation_models import ConversationSession
 
 logger = get_logger("jessyca.local_agent.conversational")
 
 DEFAULT_SYSTEM_PROMPT = (
     "Eres Jessyca, tu asistente local e inteligente para Windows.\n"
-    "Tu personalidad es cálida, natural, amable, servicial y empática en español (tono latinoamericano/peruano).\n"
-    "Responde de manera concisa, fluida y directa (2 a 4 oraciones como máximo), óptima para síntesis de voz (TTS).\n"
+    "Tu personalidad es cálida, natural, amable, servicial y empática.\n"
+    "Responde en el mismo idioma utilizado por el usuario, salvo que el usuario "
+    "solicite explícitamente otro idioma.\n"
+    "Si el usuario solicita hablar, responder, saludar o explicar algo en un "
+    "idioma específico, utiliza ese idioma.\n"
+    "Mantén el idioma solicitado durante la respuesta y no lo traduzcas "
+    "automáticamente al español.\n"
+    "Responde de manera concisa, fluida y directa (2 a 4 oraciones como máximo), "
+    "óptima para síntesis de voz (TTS).\n"
     "No utilices viñetas, asteriscos, títulos markdown ni formato estructurado pesado.\n"
-    "Si te piden saludar a una persona en específico (ej. Carmen), dale un saludo personalizado y afectuoso.\n"
-    "Si el usuario hace referencia a una persona o tema de turnos anteriores, mantén la coherencia del diálogo.\n"
-    "Si la pregunta es académica, científica o de conocimiento general, responde con claridad y precisión real."
+    "Si te piden saludar a una persona en específico, dale un saludo personalizado.\n"
+    "Si el usuario hace referencia a una persona o tema de turnos anteriores, "
+    "mantén la coherencia del diálogo.\n"
+    "Si la pregunta es académica, científica o de conocimiento general, "
+    "responde con claridad y precisión real."
 )
 
 
@@ -129,7 +139,7 @@ class ConversationalDialogueHandler:
 
         full_prompt = "\n".join(prompt_parts)
         # Usar gemma o llama según disponibilidad; temperatura 0.7 para naturalidad
-        model = preferred_model or "gemma3:4b"
+        model = preferred_model or "gemma4:e4b"
         from core.llm.inference import InferenceRequest
         req_inf = InferenceRequest(
             prompt=full_prompt,
@@ -138,7 +148,7 @@ class ConversationalDialogueHandler:
             temperature=0.7,
         )
         resp = self.llm_provider.generate(req_inf)
-        return resp.content
+        return str(resp.content)
 
     def _synthesize_dialogue(
         self,
@@ -278,8 +288,8 @@ class ConversationalDialogueHandler:
             last_user, last_resp = history[-1]
             if any(w in last_user.lower() for w in ("física", "fisica", "ciencia", "química", "quimica", "biología", "biologia")):
                 return (
-                    f"Con gusto te cuento más sobre ese tema. ¿Quieres que profundice en algún aspecto en particular "
-                    f"o prefieres que te explique algo relacionado?"
+                    "Con gusto te cuento más sobre ese tema. ¿Quieres que profundice en algún aspecto en particular "
+                    "o prefieres que te explique algo relacionado?"
                 )
 
         # 13. Respuesta conversacional natural por defecto

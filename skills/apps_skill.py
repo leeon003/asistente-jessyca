@@ -15,7 +15,7 @@ import unicodedata
 from typing import Any
 
 import psutil
-import yaml  # type: ignore[import-untyped]
+import yaml
 
 from core.execution.execution_verifier import get_execution_verifier
 from core.logger import get_logger
@@ -243,10 +243,14 @@ class WindowsAppsSkill(BaseSkill):
             proc_name = comando.lower()
             terminados = 0
             targets_to_check = [proc_name]
-            if "notepad" in proc_name:
+            if "notepad" in proc_name or "bloc" in str(nombre_app).lower():
                 targets_to_check.extend(["notepad.exe", "notepad"])
-            elif "calc" in proc_name:
-                targets_to_check.extend(["calculatorapp.exe", "calc.exe", "calculator.exe"])
+            elif "calc" in proc_name or "calculadora" in str(nombre_app).lower():
+                targets_to_check.extend(["calculatorapp.exe", "calc.exe", "calculator.exe", "applicationframehost.exe"])
+            elif "paint" in proc_name:
+                targets_to_check.extend(["mspaint.exe", "paint.exe", "mspaint"])
+            elif "edge" in proc_name or "chrome" in proc_name or "navegador" in str(nombre_app).lower():
+                targets_to_check.extend(["msedge.exe", "chrome.exe"])
 
             for proc in psutil.process_iter(["name"]):
                 try:
@@ -272,7 +276,7 @@ class WindowsAppsSkill(BaseSkill):
             if terminados > 0 and evidence.is_verified:
                 return {
                     "exito": True,
-                    "mensaje": f"Se cerraron {terminados} proceso(s) de '{nombre_app}'.",
+                    "mensaje": f"Listo, cerré {nombre_app}.",
                     "terminados": terminados,
                     "evidence": evidence.to_dict(),
                 }

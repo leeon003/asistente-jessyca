@@ -100,6 +100,11 @@ class BrowserSearchSkill(BaseSkill):
             from core.browser_session_manager import BrowserSessionManager
             bsm = BrowserSessionManager()
             tab = bsm.open_url(url)
+            try:
+                import webbrowser
+                webbrowser.open(url)
+            except Exception:
+                pass
             return {
                 "tab_id": tab.tab_id if tab else "tab-1",
                 "snippets": [

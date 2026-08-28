@@ -682,6 +682,17 @@ class JessycaLocalAgent:
                     output={"result": calc_res},
                 )
 
+            # 6.0.1 Consulta General Conversacional
+            elif intent == "general_query":
+                exec_success = True
+                sys_resp = SystemResponse(
+                    task_id=req.request_id,
+                    correlation_id=req.request_id,
+                    success=True,
+                    status="COMPLETED",
+                    output={"query": extracted_params.get("query", user_text)},
+                )
+
             # 6.1 Ejecución directa verificada de aplicaciones de Windows
             elif intent in ("open_application", "close_application"):
                 accion_app = "abrir" if intent == "open_application" else "cerrar"
@@ -890,7 +901,59 @@ class JessycaLocalAgent:
                         error=None if exec_success else msg_out,
                     )
 
-            # 6.3 Búsqueda y Reproducción en Navegador (search_and_play / browser_search)
+            # 6.3 Apertura de Navegador Web (open_browser / browser_open)
+            elif intent in ("open_browser", "browser_open"):
+                url = extracted_params.get("url") or "https://www.google.com"
+                site = extracted_params.get("site") or "Google"
+                skill_res = self.skill_manager.execute_skill(
+                    "browser.open",
+                    parameters={"url": url},
+                )
+                is_skill_ok = bool(skill_res.success and isinstance(skill_res.output, dict) and skill_res.output.get("exito"))
+                exec_success = is_skill_ok
+                execution_result = ExecutionResult(
+                    status=ExecutionStatus.SUCCEEDED if is_skill_ok else ExecutionStatus.FAILED,
+                    action=intent,
+                    target=site,
+                    message=f"Listo, abrí {site} en el navegador." if is_skill_ok else f"No pude abrir {site} en el navegador.",
+                    output=skill_res.output if isinstance(skill_res.output, dict) else {},
+                )
+                sys_resp = SystemResponse(
+                    task_id=req.request_id,
+                    correlation_id=req.request_id,
+                    success=is_skill_ok,
+                    status="COMPLETED" if is_skill_ok else "FAILED",
+                    output=skill_res.output if isinstance(skill_res.output, dict) else {},
+                    error=None if is_skill_ok else (skill_res.error or f"Error al abrir {site}"),
+                )
+
+            # 6.4 Búsqueda Web en Navegador (browser_search)
+            elif intent == "browser_search" and not (extracted_params.get("action") == "play"):
+                query_val = extracted_params.get("query") or user_text
+                motor_val = extracted_params.get("motor", "google")
+                skill_res = self.skill_manager.execute_skill(
+                    "browser.search",
+                    parameters={"query": query_val, "motor": motor_val},
+                )
+                is_skill_ok = bool(skill_res.success and isinstance(skill_res.output, dict) and skill_res.output.get("exito"))
+                exec_success = is_skill_ok
+                execution_result = ExecutionResult(
+                    status=ExecutionStatus.SUCCEEDED if is_skill_ok else ExecutionStatus.FAILED,
+                    action=intent,
+                    target=str(query_val),
+                    message=f"Listo, busqué '{query_val}' en el navegador." if is_skill_ok else "No pude realizar la búsqueda en el navegador.",
+                    output=skill_res.output if isinstance(skill_res.output, dict) else {},
+                )
+                sys_resp = SystemResponse(
+                    task_id=req.request_id,
+                    correlation_id=req.request_id,
+                    success=is_skill_ok,
+                    status="COMPLETED" if is_skill_ok else "FAILED",
+                    output=skill_res.output if isinstance(skill_res.output, dict) else {},
+                    error=None if is_skill_ok else (skill_res.error or "Error en búsqueda"),
+                )
+
+            # 6.5 Búsqueda y Reproducción Multimedia en Navegador (search_and_play)
             elif intent in ("search_and_play", "browser_search") and (intent == "search_and_play" or extracted_params.get("action") == "play"):
                 query_val = extracted_params.get("query", "música")
                 search_url = f"https://www.youtube.com/results?search_query={query_val}"
@@ -915,7 +978,7 @@ class JessycaLocalAgent:
                     error=None if exec_success else (skill_res.error or "Error abriendo navegador"),
                 )
 
-            # 6.4 Flujo Coordinado Multidimensional
+            # 6.6 Flujo Coordinado Multidimensional
             else:
                 sys_resp = self.coordinator.execute_user_request(
                     user_input=user_text,
@@ -931,7 +994,13 @@ class JessycaLocalAgent:
             if intent == "math_calculation" and extracted_params.get("immediate_response"):
                 response_text = extracted_params["immediate_response"]
             else:
-                response_text = self._format_response_text(intent, sys_resp, extracted_params, execution_result=execution_result)
+                response_text = self._format_response_text(
+                    intent,
+                    sys_resp,
+                    extracted_params,
+                    execution_result=execution_result,
+                    session_id=req.session_id,
+                )
 
             spoken_text = response_text
 
@@ -1189,6 +1258,8 @@ class JessycaLocalAgent:
             "close_application": "desktop_agent",
             "play_random_video": "desktop_agent",
             "search_file": "file_agent",
+            "open_browser": "browser_agent",
+            "browser_open": "browser_agent",
             "browser_search": "browser_agent",
             "multistep_research": "research_coordinator_agent",
             "delete_file": "file_agent",
@@ -1203,6 +1274,8 @@ class JessycaLocalAgent:
             "close_application": "windows.apps@1.0.0",
             "play_random_video": "windows.media@1.0.0",
             "search_file": "files.search@1.0.0",
+            "open_browser": "browser.open@1.0.0",
+            "browser_open": "browser.open@1.0.0",
             "browser_search": "browser.search@1.0.0",
             "youtube_search": "browser.search@1.0.0",
             "search_and_play": "browser.open@1.0.0",
@@ -1218,6 +1291,8 @@ class JessycaLocalAgent:
             "close_application": "windows.close_app",
             "play_random_video": "windows.media.play",
             "search_file": "filesystem.search_files",
+            "open_browser": "browser.open",
+            "browser_open": "browser.open",
             "browser_search": "browser.search",
             "youtube_search": "browser.search",
             "search_and_play": "browser.open",
@@ -1238,6 +1313,7 @@ class JessycaLocalAgent:
         sys_resp: SystemResponse,
         params: dict[str, Any],
         execution_result: Any | None = None,
+        session_id: str | None = None,
     ) -> str:
         """Formatea una respuesta amigable, precisa y no falaz."""
         # 1. Si existe un ExecutionResult formal (open/close app, file, media, etc.)
@@ -1316,7 +1392,12 @@ class JessycaLocalAgent:
 
         # Consultas generales informativas
         if intent == "general_query":
-            return self.conversational_handler.generate_response(user_input=str(params.get("query", "")), params=params)
+            return self.conversational_handler.generate_response(
+                user_input=str(params.get("query", "")),
+                session_id=session_id or "default",
+                params=params,
+                context_manager=self.context_manager,
+            )
 
         return "Listo, he procesado tu solicitud."
 

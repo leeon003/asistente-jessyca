@@ -208,7 +208,7 @@ class OllamaProvider:
     def is_available(self) -> bool:
         """Comprueba de forma rápida si el servidor local de Ollama está activo."""
         try:
-            resp = requests.get(f"{self.host}/api/tags", timeout=1.5)
+            resp = requests.get(f"{self.host}/api/tags", timeout=3.5)
             return resp.status_code == 200
         except Exception:
             return False
