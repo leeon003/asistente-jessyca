@@ -181,6 +181,7 @@ class ConversationSession:
     pending_parameters: dict[str, Any] = field(default_factory=dict)
     expected_slot: str | None = None
     pending_confirmation: dict[str, Any] | None = None
+    last_action_context: Any | None = None
     max_turns: int = 20
 
     def touch(self) -> None:
@@ -240,6 +241,19 @@ class ConversationSession:
     def get_context_item(self, key: str) -> ContextItem | None:
         """Obtiene el objeto ContextItem ponderado si existe."""
         return self.context_items.get(key)
+
+    def set_action_context(self, context: Any) -> None:
+        """Establece el contexto estructurado de la última acción completada."""
+        self.touch()
+        self.last_action_context = context
+        if hasattr(context, "target") and context.target:
+            self.set_context_item("last_action_target", context.target, relevance=1.0)
+        if hasattr(context, "action") and context.action:
+            self.set_context_item("last_action_name", context.action, relevance=1.0)
+
+    def get_action_context(self) -> Any | None:
+        """Obtiene el contexto de la última acción si está disponible y vigente."""
+        return self.last_action_context
 
     def get_short_term_memory(self, turn_limit: int = 5) -> ShortTermMemory:
         """Genera una vista estructurada de la memoria a corto plazo de la sesión."""

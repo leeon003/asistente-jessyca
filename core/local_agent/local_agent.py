@@ -33,6 +33,7 @@ import time
 from collections.abc import Callable
 from typing import Any, ClassVar
 
+from core.action_intent_contract import ActionIntentContract
 from core.audit_logger import AuditLogger, get_audit_logger
 from core.cancellation import CancellationToken
 from core.collaboration.collaboration_engine import CollaborationEngine
@@ -41,7 +42,9 @@ from core.dialogue import (
     DialogueActionType,
     NaturalActionDialogueManager,
 )
+from core.dialogue.action_intent_bridge import bridge_dialogue_to_contract
 from core.emergency_stop import EmergencyStopManager, get_emergency_stop_manager
+from core.execution.action_execution_bridge import attach_execution_to_contract
 from core.experience import (
     ExecutionStatus as ExpExecutionStatus,
 )
@@ -432,6 +435,34 @@ class JessycaLocalAgent:
                 is_ambiguous=is_ambiguous,
             )
 
+            # 2.1.1 Generación observacional de ActionIntentContract (Fase 64.1.4)
+            action_contract: ActionIntentContract | None = None
+            is_conversational_turn = (
+                intent in ("general_query", "conversational", "greeting", "chit_chat", "close_conversation")
+                or dialogue_decision.action_type in (DialogueActionType.CONVERSATIONAL, DialogueActionType.EXPLAIN_CAPABILITY)
+            )
+            if not is_conversational_turn:
+                action_contract = bridge_dialogue_to_contract(
+                    decision=dialogue_decision,
+                    user_input=user_text,
+                    intent=intent,
+                    params=extracted_params,
+                    context={
+                        "request_id": req.request_id,
+                        "session_id": req.session_id,
+                        "modality": req.modality.value,
+                    },
+                    is_ambiguous=is_ambiguous,
+                    request_id=req.request_id,
+                    session_id=req.session_id,
+                    input_modality=req.modality.value,
+                )
+                logger.debug(
+                    f"[LOCAL_AGENT_CONTRACT] Snapshot generado: intent={action_contract.action_intent.intent_name} "
+                    f"can_execute={action_contract.execution_gate.can_execute} "
+                    f"needs_clarif={action_contract.execution_gate.needs_clarification}"
+                )
+
             # Caso: Capacidad No Soportada
             if dialogue_decision.action_type == DialogueActionType.UNSUPPORTED_CAPABILITY:
                 metrics.total_latency_ms = (time.perf_counter() - start_time) * 1000
@@ -444,6 +475,7 @@ class JessycaLocalAgent:
                     spoken_text=dialogue_decision.response_text,
                     intent=intent,
                     metrics=metrics,
+                    action_intent_contract=action_contract,
                 )
                 self._log_turn_experience(req, resp, category=ExperienceCategory.GENERAL)
                 return resp
@@ -460,6 +492,7 @@ class JessycaLocalAgent:
                     spoken_text=dialogue_decision.response_text,
                     intent=intent,
                     metrics=metrics,
+                    action_intent_contract=action_contract,
                 )
                 self._log_turn_experience(req, resp, category=ExperienceCategory.GENERAL)
                 return resp
@@ -495,6 +528,7 @@ class JessycaLocalAgent:
                     requires_clarification=True,
                     clarification_question=clarification_msg,
                     metrics=metrics,
+                    action_intent_contract=action_contract,
                 )
                 self._log_turn_experience(req, resp, category=ExperienceCategory.CLARIFICATION_REQUESTED)
                 return resp
@@ -513,6 +547,7 @@ class JessycaLocalAgent:
                     intent=intent,
                     tools_executed=[],
                     metrics=metrics,
+                    action_intent_contract=action_contract,
                 )
                 cat = ExperienceCategory.USER_CORRECTION if intent == "user_correction" else ExperienceCategory.ACTION_SUCCESS
                 self._log_turn_experience(req, resp, category=cat, is_correction=(intent == "user_correction"))
@@ -539,6 +574,7 @@ class JessycaLocalAgent:
                     requires_clarification=True,
                     clarification_question=clarification_msg,
                     metrics=metrics,
+                    action_intent_contract=action_contract,
                 )
                 self._log_turn_experience(req, resp, category=ExperienceCategory.AMBIGUOUS_INTENT)
                 return resp
@@ -631,6 +667,26 @@ class JessycaLocalAgent:
 
                 if not user_approved:
                     confirm_text = f"Detecté una acción sensible: '{proposed_tool}'. ¿Confirmas su ejecución?"
+                    if action_contract is not None:
+                        action_contract = bridge_dialogue_to_contract(
+                            decision=dialogue_decision,
+                            user_input=user_text,
+                            intent=intent,
+                            params=extracted_params,
+                            context={
+                                "request_id": req.request_id,
+                                "session_id": req.session_id,
+                                "modality": req.modality.value,
+                                "requires_confirmation": True,
+                                "risk_level": sec_level.value,
+                                "confirmation_prompt": confirm_text,
+                            },
+                            is_ambiguous=is_ambiguous,
+                            request_id=req.request_id,
+                            session_id=req.session_id,
+                            input_modality=req.modality.value,
+                            risk_level=sec_level.value,
+                        )
                     session = self.context_manager.get_or_create_session(req.session_id)
                     session.set_pending_confirmation(
                         intent=intent,
@@ -655,6 +711,7 @@ class JessycaLocalAgent:
                         security_level=sec_level,
                         requires_confirmation=True,
                         metrics=metrics,
+                        action_intent_contract=action_contract,
                     )
                     self._log_turn_experience(req, resp, category=ExperienceCategory.ACTION_BLOCKED, tool_name=proposed_tool)
                     return resp
@@ -1017,6 +1074,17 @@ class JessycaLocalAgent:
             metrics.total_latency_ms = (time.perf_counter() - start_time) * 1000
             self._latest_metrics = metrics
 
+            if action_contract is not None:
+                action_contract = attach_execution_to_contract(
+                    contract=action_contract,
+                    execution_result=execution_result,
+                    sys_resp=sys_resp,
+                    response_text=response_text,
+                    spoken_text=spoken_text,
+                    skill_id=selected_skill,
+                    tool_name=proposed_tool,
+                )
+
             resp = JessycaResponse(
                 request_id=req.request_id,
                 session_id=req.session_id,
@@ -1035,6 +1103,7 @@ class JessycaLocalAgent:
                 output_data=sys_resp.output,
                 error=sys_resp.error,
                 metrics=metrics,
+                action_intent_contract=action_contract,
             )
 
             if execution_result and execution_result.status == ExecutionStatus.VERIFICATION_FAILED:

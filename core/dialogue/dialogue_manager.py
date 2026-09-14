@@ -16,6 +16,11 @@ from core.dialogue.dialogue_models import (
     DialogueActionType,
     DialogueDecision,
 )
+from core.dialogue.feedback_builder import (
+    FeedbackBuilder,
+    NaturalFeedbackResponse,
+    get_feedback_builder,
+)
 from core.logger import get_logger
 
 logger = get_logger("jessyca.dialogue.dialogue_manager")
@@ -31,9 +36,11 @@ class NaturalActionDialogueManager:
         self,
         capability_engine: CapabilityAwarenessEngine | None = None,
         action_planner: ActionPlanner | None = None,
+        feedback_builder: FeedbackBuilder | None = None,
     ) -> None:
         self.capability_engine = capability_engine or CapabilityAwarenessEngine.get_instance()
         self.action_planner = action_planner or ActionPlanner()
+        self.feedback_builder = feedback_builder or get_feedback_builder()
 
     @classmethod
     def get_instance(cls) -> NaturalActionDialogueManager:
@@ -179,12 +186,37 @@ class NaturalActionDialogueManager:
             return "Listo, ya está reproduciéndose."
 
         # Control de Aplicaciones
-        if intent == "open_application":
-            app_display = self.action_planner._format_app_display(params_dict.get("app_name", "la aplicación"))
+        if intent in ("open_application", "open", "launch"):
+            target_name = params_dict.get("nombre_app") or params_dict.get("app_name", "la aplicación")
+            app_display = self.feedback_builder.format_target_display(target_name)
             return f"Listo, abrí {app_display}."
 
-        if intent == "close_application":
-            app_display = self.action_planner._format_app_display(params_dict.get("app_name", "la aplicación"))
+        if intent in ("close_application", "close", "kill"):
+            target_name = params_dict.get("nombre_app") or params_dict.get("app_name", "la aplicación")
+            app_display = self.feedback_builder.format_target_display(target_name)
             return f"Listo, cerré {app_display}."
 
         return str(out_dict.get("mensaje") or "Acción completada con éxito.")
+
+    # ── 3. SÍNTESIS DE RESPUESTA NATURAL (FASE 64.2.5) ──
+
+    def build_feedback(
+        self,
+        verification_report: Any | None = None,
+        intent: Any | None = None,
+        execution_report: Any | None = None,
+        status: Any | None = None,
+        target: str | None = None,
+        operation: str | None = None,
+        reason: str | None = None,
+    ) -> NaturalFeedbackResponse:
+        """Genera una respuesta en lenguaje natural basada en el resultado real verificado."""
+        return self.feedback_builder.build_feedback(
+            verification_report=verification_report,
+            intent=intent,
+            execution_report=execution_report,
+            status=status,
+            target=target,
+            operation=operation,
+            reason=reason,
+        )

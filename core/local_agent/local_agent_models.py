@@ -16,9 +16,12 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import StrEnum
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from core.security_architecture import SecurityLevel
+
+if TYPE_CHECKING:
+    from core.action_intent_contract import ActionIntentContract
 
 
 class InputModality(StrEnum):
@@ -166,6 +169,7 @@ class JessycaResponse:
     error: str | None = None
     metrics: LocalAgentMetrics = field(default_factory=LocalAgentMetrics)
     timestamp: float = field(default_factory=time.time)
+    action_intent_contract: ActionIntentContract | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -190,4 +194,9 @@ class JessycaResponse:
             "error": self.error,
             "metrics": self.metrics.to_dict(),
             "timestamp": self.timestamp,
+            "action_intent_contract": (
+                self.action_intent_contract.model_dump()
+                if self.action_intent_contract is not None
+                else None
+            ),
         }
