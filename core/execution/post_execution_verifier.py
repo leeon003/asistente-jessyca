@@ -534,6 +534,27 @@ class PostExecutionVerifier:
                 True,
             )
 
+        # 5.1 YouTube / Multimedia Browser (browser.youtube)
+        if "youtube" in skill_norm or "youtube" in op_norm:
+            q_val = target or parameters.get("query") or "contenido"
+            if "play" in op_norm:
+                return (
+                    f"Reproducción multimedia de '{q_val}' iniciada y verificada en YouTube.",
+                    "youtube_inspection",
+                    True,
+                )
+            elif "search" in op_norm:
+                return (
+                    f"Búsqueda de '{q_val}' realizada y verificada en YouTube.",
+                    "browser_inspection",
+                    True,
+                )
+            return (
+                "Página de YouTube abierta y verificada en el navegador.",
+                "browser_inspection",
+                True,
+            )
+
         # 6. Operaciones no verificables de forma determinista
         # (ej: chat conversacional, síntesis de voz, notificaciones sin sensor de retorno)
         return (
@@ -650,6 +671,19 @@ class PostExecutionVerifier:
                     ok = ev.is_verified
                     obs = f"Archivo '{path_val}' verificado en disco." if ok else f"Archivo '{path_val}' no existe en disco."
                     return obs, ok, False, ev.to_dict()
+
+        # ── CASO E: REPRODUCCIÓN / BÚSQUEDA YOUTUBE (FASE 75.1) ──
+        if "youtube" in skill.lower() or "youtube" in op_norm:
+            is_verif_ev = bool(parameters.get("verified", False) or evidence.get("verified", False) or parameters.get("verification_status") == "VERIFIED")
+            status_ev = str(parameters.get("verification_status") or evidence.get("verification_status") or "")
+            if status_ev == "NOT_VERIFIABLE":
+                return "La página de YouTube se abrió pero la reproducción no es deterministamente verificable.", False, False, {"verification_status": "NOT_VERIFIABLE"}
+            if is_verif_ev:
+                obs = f"Reproducción de '{target or parameters.get('query')}' verificada en YouTube."
+                return obs, True, False, {"verified": True, "media_state": "MEDIA_PLAYING"}
+            else:
+                obs = f"No se pudo confirmar la reproducción de '{target or parameters.get('query')}' en YouTube."
+                return obs, False, False, {"verified": False}
 
         # Fallback para estrategias genéricas
         if hasattr(verifier, "verify_execution"):

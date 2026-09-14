@@ -8,6 +8,8 @@ un ejecutable duplicado en el SO.
 
 from __future__ import annotations
 
+import os
+import subprocess
 import uuid
 from datetime import UTC, datetime
 from typing import Any
@@ -75,6 +77,20 @@ KNOWN_DESCRIPTORS: dict[str, ApplicationDescriptor] = {
         name="Google Chrome",
         executable="chrome.exe",
         aliases=("chrome", "google chrome"),
+        supports_single_instance=True,
+    ),
+    "whatsapp": ApplicationDescriptor(
+        app_id="whatsapp",
+        name="WhatsApp",
+        executable="whatsapp.exe",
+        aliases=("whatsapp", "wasap", "whats"),
+        supports_single_instance=True,
+    ),
+    "paint": ApplicationDescriptor(
+        app_id="paint",
+        name="Paint",
+        executable="mspaint.exe",
+        aliases=("paint", "mspaint", "dibujo"),
         supports_single_instance=True,
     ),
 }
@@ -209,11 +225,24 @@ class WindowsApplicationAdapter(IApplicationAdapter):
     def launch(self, descriptor: ApplicationDescriptor, args: tuple[str, ...] = ()) -> ApplicationSession:
         sid = f"sess-{descriptor.app_id}-{uuid.uuid4().hex[:6]}"
         now = datetime.now(UTC)
+        proc_pid = 5000
+        proc_hwnd = 2000
+
+        try:
+            if os.name == "nt":
+                cmd = [descriptor.executable] + list(args)
+                p = subprocess.Popen(cmd, shell=True)
+                proc_pid = p.pid
+            else:
+                proc_pid = 1234
+        except Exception as e:
+            logger.warning(f"[WINDOWS APP ADAPTER] Error al invocar {descriptor.executable} en SO: {e}")
+
         session = ApplicationSession(
             session_id=sid,
             app_id=descriptor.app_id,
-            pid=5000,
-            hwnd=2000,
+            pid=proc_pid,
+            hwnd=proc_hwnd,
             state=ApplicationState.RUNNING,
             is_single_instance=descriptor.supports_single_instance,
             start_time=now,
@@ -252,7 +281,7 @@ class WindowsApplicationAdapter(IApplicationAdapter):
 
 
 class ApplicationSessionManager:
-    """Orquestador de sesiones de aplicaciones de escritorio con política Single-Instance."""
+    """Orquestador de sesiones de aplicaciones de escritorio con política Single-Instance e Idempotencia (Fase 75.1-B)."""
 
     def __init__(
         self,
@@ -266,18 +295,49 @@ class ApplicationSessionManager:
         else:
             self.single_instance_enforced = getattr(settings, "APPLICATION_SINGLE_INSTANCE_ENFORCED", True)
 
+        self._executed_actions: dict[str, ApplicationSession] = {}
+        self._execution_counts: dict[str, int] = {}
+        self._action_call_counts: dict[str, int] = {}
+
+    def get_execution_count(self, app_alias: str) -> int:
+        """Obtiene la cantidad de ejecuciones reales del proceso para un alias."""
+        descriptor = self.adapter.identify(app_alias)
+        app_id = descriptor.app_id if descriptor else app_alias.lower()
+        return self._execution_counts.get(app_id, 0)
+
+    def get_call_count(self, app_alias: str) -> int:
+        """Obtiene la cantidad total de llamadas a launch_app() para un alias."""
+        descriptor = self.adapter.identify(app_alias)
+        app_id = descriptor.app_id if descriptor else app_alias.lower()
+        return self._action_call_counts.get(app_id, 0)
+
     def launch_app(
         self,
         app_alias: str,
         args: tuple[str, ...] = (),
+        action_id: str | None = None,
     ) -> ApplicationSession:
-        """Inicia una aplicación o REUTILIZA y ENFOCA la instancia existente si la política Single-Instance está activa."""
+        """Inicia una aplicación garantizando idempotencia por action_id y trazabilidad."""
         descriptor = self.adapter.identify(app_alias)
         if not descriptor:
             raise ApplicationNotFoundError(f"Aplicación o ejecutable no reconocido para el alias: '{app_alias}'")
 
-        # REQUISITO CRÍTICO: Reutilización de instancia si Single-Instance está activa
-        if self.single_instance_enforced and descriptor.supports_single_instance:
+        app_key = descriptor.app_id
+        self._action_call_counts[app_key] = self._action_call_counts.get(app_key, 0) + 1
+
+        # 1. PROTECCIÓN DE IDEMPOTENCIA POR ACTION_ID (Fase 75.1-B / Pasos 3 y 4)
+        # Misma acción interna + mismo action_id = NO EJECUTAR DOS VECES
+        if action_id:
+            dedup_key = f"{descriptor.app_id}:{action_id}"
+            if dedup_key in self._executed_actions:
+                cached_session = self._executed_actions[dedup_key]
+                logger.warning(
+                    f"[APP_EXECUTION] action_id={action_id} app={descriptor.app_id} duplicate_blocked=True"
+                )
+                return cached_session
+
+        # 2. Reutilización si la política Single-Instance está activa y NO se especificó un nuevo action_id explícito
+        if action_id is None and self.single_instance_enforced and descriptor.supports_single_instance:
             existing = self.adapter.find_existing_session(descriptor.app_id)
             if existing:
                 logger.info(
@@ -287,8 +347,18 @@ class ApplicationSessionManager:
                 self.adapter.focus(existing)
                 return self.adapter.find_existing_session(descriptor.app_id) or existing
 
-        # Si no existe instancia previa o se permiten múltiples sesiones:
+        # 3. Lanzamiento real (Nueva orden explícita o política multi-instancia)
         session = self.adapter.launch(descriptor, args=args)
+        curr_count = self._execution_counts.get(descriptor.app_id, 0) + 1
+        self._execution_counts[descriptor.app_id] = curr_count
+
+        if action_id:
+            dedup_key = f"{descriptor.app_id}:{action_id}"
+            self._executed_actions[dedup_key] = session
+
+        logger.info(
+            f"[APP_EXECUTION] action_id={action_id or 'none'} app={descriptor.app_id} execution_count={curr_count}"
+        )
         logger.info(f"[APPLICATION LAUNCHED] Nueva sesión creada para '{descriptor.name}' [Session: {session.session_id}]")
         return session
 
@@ -303,6 +373,12 @@ class ApplicationSessionManager:
 
         self.adapter.focus(existing)
         return self.adapter.find_existing_session(app_id) or existing
+
+    def find_existing_session(self, app_alias_or_session_id: str) -> ApplicationSession | None:
+        """Busca una sesión activa por alias o ID."""
+        descriptor = self.adapter.identify(app_alias_or_session_id)
+        app_id = descriptor.app_id if descriptor else app_alias_or_session_id
+        return self.adapter.find_existing_session(app_id)
 
     def close_app(self, app_alias_or_session_id: str) -> bool:
         """Cierra la sesión de una aplicación activa de forma controlada."""

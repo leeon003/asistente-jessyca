@@ -20,6 +20,7 @@ from skills.browser_skills import (
     BrowserOpenSkill,
     BrowserReadSkill,
 )
+from skills.browser_youtube_skill import BrowserYouTubeSkill
 from skills.documents_skills import (
     DocumentsConvertSkill,
     DocumentsCreateSkill,
@@ -239,6 +240,7 @@ SKILLS_DISPONIBLES: dict[str, BaseSkill] = {
     "browser.navigate": BrowserNavigateSkill(),
     "browser.read": BrowserReadSkill(),
     "browser.download": BrowserDownloadSkill(),
+    "browser.youtube": BrowserYouTubeSkill(),
     # ── 4. GRUPO DOCUMENTS ──
     "documents.read": DocumentsReadSkill(),
     "documents.create": DocumentsCreateSkill(),
@@ -284,6 +286,7 @@ __all__ = [
     "BrowserNavigateSkill",
     "BrowserReadSkill",
     "BrowserDownloadSkill",
+    "BrowserYouTubeSkill",
     # Grupo Documents
     "DocumentsReadSkill",
     "DocumentsCreateSkill",

@@ -66,7 +66,9 @@ class BrowserSearchSkill(BaseSkill):
         encoded_query = urllib.parse.quote(query)
         search_engine = str(parametros.get("motor") or "bing").lower()
 
-        if search_engine == "google":
+        if search_engine == "youtube":
+            search_url = f"https://www.youtube.com/results?search_query={encoded_query}"
+        elif search_engine == "google":
             search_url = f"https://www.google.com/search?q={encoded_query}"
         elif search_engine == "duckduckgo":
             search_url = f"https://duckduckgo.com/?q={encoded_query}"
@@ -77,9 +79,15 @@ class BrowserSearchSkill(BaseSkill):
             # Intento de navegación e interacción vía BrowserSessionManager / BrowserAgent
             nav_result = self._navigate_and_read(search_url, query)
 
+            success_msg = (
+                f"Búsqueda en YouTube completada para '{query}'."
+                if search_engine == "youtube"
+                else f"Búsqueda web completada con éxito para '{query}'."
+            )
+
             return {
                 "exito": True,
-                "mensaje": f"Búsqueda web completada con éxito para '{query}'.",
+                "mensaje": success_msg,
                 "consulta": query,
                 "url": search_url,
                 "motor": search_engine,

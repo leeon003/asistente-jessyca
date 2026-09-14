@@ -8,6 +8,7 @@ Garantiza compatibilidad dual:
 from __future__ import annotations
 
 import time
+import uuid
 from abc import ABC, abstractmethod
 from typing import Any
 
@@ -80,8 +81,16 @@ class BaseSkill(ABC):
     def execute(self, context: SkillContext) -> SkillResult:
         """Ejecución moderna tipada e integrada con SkillContext del Skill Framework."""
         start_time = time.perf_counter()
+        params: dict[str, Any]
+        if isinstance(context, dict):
+            params = context
+            exec_id = str(context.get("execution_id") or uuid.uuid4())
+        else:
+            params = context.parameters
+            exec_id = context.execution_id
+
         try:
-            res_dict = self.ejecutar(context.parameters)
+            res_dict = self.ejecutar(params)
             elapsed_ms = (time.perf_counter() - start_time) * 1000.0
 
             success = bool(res_dict.get("exito", False))
@@ -95,7 +104,7 @@ class BaseSkill(ABC):
                 status=status,
                 output=res_dict,
                 error=error_msg,
-                execution_id=context.execution_id,
+                execution_id=exec_id,
                 duration_ms=elapsed_ms,
             )
         except Exception as e:
@@ -105,7 +114,7 @@ class BaseSkill(ABC):
                 success=False,
                 status=SkillStatus.FAILED,
                 error=str(e),
-                execution_id=context.execution_id,
+                execution_id=exec_id,
                 duration_ms=elapsed_ms,
             )
 

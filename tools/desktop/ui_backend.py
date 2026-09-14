@@ -172,6 +172,11 @@ class WindowsUIAutomationBackend:
         """Obtiene la información inmutable de la ventana activa usando APIs de Win32 o uiautomation."""
         try:
             import uiautomation as auto  # type: ignore
+        except ImportError:
+            logger.debug("[UI BACKEND] uiautomation no disponible para ventana activa. Delegando a FakeUIInspectionBackend.")
+            return FakeUIInspectionBackend().get_active_window()
+
+        try:
             win = auto.GetForegroundControl()
             rect = win.BoundingRectangle
             x = max(0, rect.left) if rect else 0
@@ -199,6 +204,11 @@ class WindowsUIAutomationBackend:
         """Lista todas las ventanas visibles principales usando APIs nativas."""
         try:
             import uiautomation as auto  # type: ignore
+        except ImportError:
+            logger.debug("[UI BACKEND] uiautomation no disponible para listar ventanas. Delegando a FakeUIInspectionBackend.")
+            return FakeUIInspectionBackend().list_windows()
+
+        try:
             root = auto.GetRootControl()
             wins: list[WindowInfo] = []
 

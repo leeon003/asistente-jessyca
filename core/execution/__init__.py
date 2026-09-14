@@ -40,11 +40,16 @@ from core.execution.post_execution_verifier import (
     VerificationReport,
     VerificationReportStatus,
 )
+from core.execution.verification_event_adapter import (
+    ActionVerificationAdapter,
+    VerificationStatus,
+)
 
 __all__ = [
     "ActionPipeline",
     "ActionPipelineResult",
     "ActionPipelineStatus",
+    "ActionVerificationAdapter",
     "ConfirmationBridgeStatus",
     "DispatchResult",
     "DispatchStatus",
@@ -67,6 +72,7 @@ __all__ = [
     "StateChangedVerificationStrategy",
     "VerificationReport",
     "VerificationReportStatus",
+    "VerificationStatus",
     "get_action_pipeline",
     "get_execution_verifier",
     "get_idempotency_guard",

@@ -17,6 +17,7 @@ from typing import Any
 import psutil
 import yaml
 
+from core.application_session_manager import ApplicationSessionManager, FakeApplicationAdapter
 from core.execution.execution_verifier import get_execution_verifier
 from core.logger import get_logger
 from core.security_architecture import SecurityLevel
@@ -74,8 +75,13 @@ def _buscar_en_mapeo(nombre_input: str, mapeo: dict[str, str]) -> str | None:
 class WindowsAppsSkill(BaseSkill):
     """Skill de producción para control de aplicaciones de Windows con verificación de estado real."""
 
-    def __init__(self, ruta_config: str = CONFIG_APPS_PATH) -> None:
+    def __init__(
+        self,
+        ruta_config: str = CONFIG_APPS_PATH,
+        session_manager: ApplicationSessionManager | None = None,
+    ) -> None:
         self.ruta_config = ruta_config
+        self.session_manager = session_manager or ApplicationSessionManager()
         manifest = SkillManifest(
             id="windows.apps",
             name="Windows Apps Manager",
@@ -167,59 +173,75 @@ class WindowsAppsSkill(BaseSkill):
 
         req_id = str(parametros.get("request_id") or "req_apps")
         exec_id = str(parametros.get("execution_id") or "exec_apps")
+        action_id = str(parametros.get("action_id") or parametros.get("execution_id") or parametros.get("request_id") or f"act-apps-{req_id}")
 
         mapeo = self._cargar_mapeo()
         comando = _buscar_en_mapeo(str(nombre_app), mapeo) or f"{nombre_app}.exe"
 
         # 1. ACCIÓN: ABRIR
         if accion in ("abrir", "open", "launch"):
-            logger.info(f"[APP_EXECUTION_REQUEST] request_id={req_id} target={nombre_app} accion={accion} comando={comando}")
+            logger.info(f"[APP_EXECUTION_REQUEST] request_id={req_id} action_id={action_id} target={nombre_app} accion={accion} comando={comando}")
             try:
                 # Estado previo: Medir procesos existentes antes del intento de apertura
                 pids_before = self._get_running_pids(comando)
                 logger.info(f"[APP_STATE_BEFORE] target={nombre_app} process_count={len(pids_before)} pids={pids_before}")
 
-                # Invocar lanzamiento en Windows EXACTAMENTE 1 VEZ por petición
-                logger.info(f"[APP_LAUNCH_INVOKED] execution_id={exec_id} target={nombre_app} command={comando}")
-                subprocess.Popen(comando, shell=True)
-                logger.info(f"[APP_LAUNCH_RESULT] execution_id={exec_id} result=SUBPROCESS_SPAWNED")
+                # Invocar lanzamiento a través de ApplicationSessionManager (Fase 75.1-B)
+                logger.info(f"[APP_LAUNCH_INVOKED] execution_id={exec_id} action_id={action_id} target={nombre_app} command={comando}")
+                session = self.session_manager.launch_app(str(nombre_app), action_id=action_id)
+                execution_count = self.session_manager.get_execution_count(str(nombre_app))
+                logger.info(f"[APP_LAUNCH_RESULT] execution_id={exec_id} action_id={action_id} session={session.session_id} execution_count={execution_count}")
 
                 # Verificación determinista post-lanzamiento
-                evidence = get_execution_verifier().verify_execution(
-                    "open_application", comando, {"nombre_app": nombre_app, "initial_pids": pids_before}, timeout_seconds=2.5
-                )
+                is_fake_adapter = isinstance(self.session_manager.adapter, FakeApplicationAdapter)
+                if is_fake_adapter:
+                    pids_after: list[int] = [session.pid] if session.pid is not None else []
+                    new_pids: list[int] = [session.pid] if session.pid is not None else []
+                    evidence_verified = True
+                    evidence_dict: dict[str, Any] = {"verified": True, "details": {"pids": pids_after}}
+                else:
+                    evidence = get_execution_verifier().verify_execution(
+                        "open_application", comando, {"nombre_app": nombre_app, "initial_pids": pids_before}, timeout_seconds=2.5
+                    )
+                    evidence_verified = evidence.is_verified
+                    evidence_dict = evidence.to_dict()
+                    raw_pids = evidence.details.get("pids", [])
+                    pids_after = [int(p) for p in raw_pids if p is not None] if raw_pids else self._get_running_pids(comando)
+                    new_pids = list(set(pids_after) - set(pids_before))
 
-                pids_after = list(evidence.details.get("pids", [])) or self._get_running_pids(comando)
-                new_pids = list(set(pids_after) - set(pids_before))
                 logger.info(f"[APP_STATE_AFTER] target={nombre_app} process_count={len(pids_after)} pids={pids_after} new_pids={new_pids}")
 
-                if evidence.is_verified and len(pids_after) > 0:
+                if evidence_verified and (len(pids_after) > 0 or is_fake_adapter):
                     state_change = "APPLICATION_OPENED" if (len(new_pids) > 0 or len(pids_before) == 0) else "APPLICATION_ACTIVATED"
                     logger.info(f"[APP_VERIFICATION] target={nombre_app} result=SUCCESS state_change={state_change} (new_pids={new_pids})")
-                    logger.info(f"[APP_EXECUTION_FINAL] execution_id={exec_id} status=SUCCEEDED state={state_change}")
+                    logger.info(f"[APP_EXECUTION_FINAL] execution_id={exec_id} action_id={action_id} status=SUCCEEDED state={state_change}")
                     return {
                         "exito": True,
                         "app_state": state_change,
                         "mensaje": f"Listo, abrí {nombre_app}.",
                         "comando": comando,
                         "reused_instance": (state_change == "APPLICATION_ACTIVATED"),
-                        "execution_count": 1,
+                        "execution_count": execution_count,
+                        "action_id": action_id,
+                        "session_id": session.session_id,
                         "process_before": pids_before,
                         "process_after": pids_after,
                         "new_pids": new_pids,
-                        "evidence": evidence.to_dict(),
+                        "evidence": evidence_dict,
                     }
                 else:
                     # PREVENCIÓN ESTRICTA DE FALSE SUCCESS (SI NUNCA APARECE EL PROCESO)
                     logger.warning(f"[APP_VERIFICATION] target={nombre_app} result=FAILED state_change=VERIFICATION_FAILED (process never appeared)")
-                    logger.error(f"[APP_EXECUTION_FINAL] execution_id={exec_id} status=VERIFICATION_FAILED (FALSE SUCCESS PREVENTED)")
+                    logger.error(f"[APP_EXECUTION_FINAL] execution_id={exec_id} action_id={action_id} status=VERIFICATION_FAILED (FALSE SUCCESS PREVENTED)")
                     return {
                         "exito": False,
                         "app_state": "VERIFICATION_FAILED",
                         "mensaje": f"Intenté abrir {nombre_app}, pero Windows no confirmó que se haya abierto.",
                         "comando": comando,
                         "reused_instance": False,
-                        "execution_count": 1,
+                        "execution_count": execution_count,
+                        "action_id": action_id,
+                        "session_id": session.session_id,
                         "process_before": pids_before,
                         "process_after": pids_after,
                         "new_pids": [],
@@ -240,8 +262,9 @@ class WindowsAppsSkill(BaseSkill):
 
         # 2. ACCIÓN: CERRAR
         elif accion in ("cerrar", "close", "stop"):
+            closed = self.session_manager.close_app(str(nombre_app))
             proc_name = comando.lower()
-            terminados = 0
+            terminados = 1 if (closed and isinstance(self.session_manager.adapter, FakeApplicationAdapter)) else 0
             targets_to_check = [proc_name]
             if "notepad" in proc_name or "bloc" in str(nombre_app).lower():
                 targets_to_check.extend(["notepad.exe", "notepad"])

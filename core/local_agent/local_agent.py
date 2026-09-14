@@ -795,7 +795,13 @@ class JessycaLocalAgent:
                 else:
                     skill_res = self.skill_manager.execute_skill(
                         "windows.apps",
-                        parameters={"accion": accion_app, "nombre_app": app_name},
+                        parameters={
+                            "accion": accion_app,
+                            "nombre_app": app_name,
+                            "action_id": req.request_id,
+                            "request_id": req.request_id,
+                            "execution_id": exec_record.execution_id,
+                        },
                     )
 
                     raw_evidence = skill_res.output.get("evidence") if isinstance(skill_res.output, dict) else None
@@ -1010,29 +1016,86 @@ class JessycaLocalAgent:
                     error=None if is_skill_ok else (skill_res.error or "Error en búsqueda"),
                 )
 
-            # 6.5 Búsqueda y Reproducción Multimedia en Navegador (search_and_play)
-            elif intent in ("search_and_play", "browser_search") and (intent == "search_and_play" or extracted_params.get("action") == "play"):
+            # 6.5 Búsqueda y Reproducción Multimedia en Navegador (search_and_play / youtube_play)
+            elif intent in ("youtube_play", "search_and_play") or (intent == "browser_search" and extracted_params.get("action") == "play"):
                 query_val = extracted_params.get("query", "música")
-                search_url = f"https://www.youtube.com/results?search_query={query_val}"
+                op = "compound_open_and_play" if extracted_params.get("action") == "compound_open_and_play" else "play"
                 skill_res = self.skill_manager.execute_skill(
-                    "browser.open",
-                    parameters={"url": search_url},
+                    "browser.youtube",
+                    parameters={"operacion": op, "query": query_val, **extracted_params},
                 )
-                exec_success = bool(skill_res.success and isinstance(skill_res.output, dict) and skill_res.output.get("exito"))
+                raw_out = skill_res.output if isinstance(skill_res.output, dict) else {}
+                is_verif = bool(raw_out.get("verified", False))
+                verif_status = str(raw_out.get("verification_status", "FAILED"))
+                is_skill_ok = bool(skill_res.success and raw_out.get("exito"))
+
+                if is_skill_ok and is_verif:
+                    exec_status = ExecutionStatus.SUCCEEDED
+                    exec_success = True
+                elif raw_out.get("error_code") == "SEARCH_FAILED":
+                    exec_status = ExecutionStatus.FAILED
+                    exec_success = False
+                elif raw_out.get("error_code") == "PLAYBACK_FAILED":
+                    exec_status = ExecutionStatus.FAILED
+                    exec_success = False
+                elif verif_status == "NOT_VERIFIABLE":
+                    exec_status = ExecutionStatus.SUCCEEDED
+                    exec_success = True
+                else:
+                    exec_status = ExecutionStatus.VERIFICATION_FAILED
+                    exec_success = False
+
+                msg_out = raw_out.get("mensaje") or skill_res.error or "Resultado procesado."
+                evidence_obj = ExecutionEvidence(
+                    verification_type="youtube_playback",
+                    target=str(query_val),
+                    is_verified=is_verif,
+                    details=raw_out,
+                )
                 execution_result = ExecutionResult(
-                    status=ExecutionStatus.SUCCEEDED if exec_success else ExecutionStatus.FAILED,
+                    status=exec_status,
                     action=intent,
                     target=str(query_val),
-                    message="Listo, ya está reproduciéndose." if exec_success else "Fallo al abrir navegador.",
-                    output=skill_res.output if isinstance(skill_res.output, dict) else {},
+                    message=msg_out,
+                    evidence=evidence_obj,
+                    output=raw_out,
+                    error_code=raw_out.get("error_code"),
                 )
                 sys_resp = SystemResponse(
                     task_id=req.request_id,
                     correlation_id=req.request_id,
                     success=exec_success,
                     status="COMPLETED" if exec_success else "FAILED",
-                    output=skill_res.output if isinstance(skill_res.output, dict) else {},
-                    error=None if exec_success else (skill_res.error or "Error abriendo navegador"),
+                    output=raw_out,
+                    error=None if exec_success else msg_out,
+                )
+
+            # 6.5.1 Búsqueda Dedicada en YouTube (youtube_search)
+            elif intent == "youtube_search":
+                query_val = extracted_params.get("query") or user_text
+                skill_res = self.skill_manager.execute_skill(
+                    "browser.youtube",
+                    parameters={"operacion": "search", "query": query_val, **extracted_params},
+                )
+                raw_out = skill_res.output if isinstance(skill_res.output, dict) else {}
+                is_verif = bool(raw_out.get("verified", False))
+                is_skill_ok = bool(skill_res.success and raw_out.get("exito"))
+                exec_success = is_skill_ok
+                msg_out = raw_out.get("mensaje") or f"Listo, busqué '{query_val}' en YouTube."
+                execution_result = ExecutionResult(
+                    status=ExecutionStatus.SUCCEEDED if is_skill_ok else ExecutionStatus.FAILED,
+                    action=intent,
+                    target=str(query_val),
+                    message=msg_out,
+                    output=raw_out,
+                )
+                sys_resp = SystemResponse(
+                    task_id=req.request_id,
+                    correlation_id=req.request_id,
+                    success=is_skill_ok,
+                    status="COMPLETED" if is_skill_ok else "FAILED",
+                    output=raw_out,
+                    error=None if is_skill_ok else (skill_res.error or "Error en búsqueda de YouTube"),
                 )
 
             # 6.6 Flujo Coordinado Multidimensional
@@ -1330,6 +1393,9 @@ class JessycaLocalAgent:
             "open_browser": "browser_agent",
             "browser_open": "browser_agent",
             "browser_search": "browser_agent",
+            "youtube_search": "browser_agent",
+            "youtube_play": "browser_agent",
+            "search_and_play": "browser_agent",
             "multistep_research": "research_coordinator_agent",
             "delete_file": "file_agent",
             "general_query": "general_assistant_agent",
@@ -1346,8 +1412,9 @@ class JessycaLocalAgent:
             "open_browser": "browser.open@1.0.0",
             "browser_open": "browser.open@1.0.0",
             "browser_search": "browser.search@1.0.0",
-            "youtube_search": "browser.search@1.0.0",
-            "search_and_play": "browser.open@1.0.0",
+            "youtube_search": "browser.youtube@1.0.0",
+            "youtube_play": "browser.youtube@1.0.0",
+            "search_and_play": "browser.youtube@1.0.0",
             "multistep_research": "research_skill_pipeline@1.0.0",
             "delete_file": "files.delete@1.0.0",
         }
@@ -1363,8 +1430,9 @@ class JessycaLocalAgent:
             "open_browser": "browser.open",
             "browser_open": "browser.open",
             "browser_search": "browser.search",
-            "youtube_search": "browser.search",
-            "search_and_play": "browser.open",
+            "youtube_search": "browser.youtube",
+            "youtube_play": "browser.youtube",
+            "search_and_play": "browser.youtube",
             "multistep_research": "multistep.orchestrate",
             "delete_file": "filesystem.delete_file",
         }
@@ -1415,8 +1483,9 @@ class JessycaLocalAgent:
                     return f"Listo, cerré {app_display}."
                 elif intent == "play_random_video":
                     return "Claro, ya está reproduciéndose el baile."
-                elif intent in ("search_and_play", "browser_search") and (intent == "search_and_play" or params.get("action") == "play"):
-                    return "Listo, ya está reproduciéndose."
+                elif intent in ("youtube_play", "search_and_play", "browser_search") and (intent in ("youtube_play", "search_and_play") or params.get("action") == "play"):
+                    query_clean = params.get("query") or "la música"
+                    return f"Listo, está reproduciendo {query_clean}."
                 return str(execution_result.message or "Acción completada con éxito.")
 
             elif execution_result.status == ExecutionStatus.VERIFICATION_FAILED:
@@ -1426,8 +1495,8 @@ class JessycaLocalAgent:
                     return f"Intenté cerrar {app_display}, pero no se pudo confirmar el cierre."
                 elif intent == "play_random_video":
                     return "Encontré el vídeo, pero no pude iniciar su reproducción."
-                elif intent in ("search_and_play", "browser_search"):
-                    return "Intenté abrir el contenido, pero no pude confirmar su reproducción en Windows."
+                elif intent in ("youtube_play", "search_and_play", "browser_search"):
+                    return "Logré abrir YouTube, pero no pude iniciar la reproducción."
                 return f"La acción sobre {app_display} no pudo ser verificada en Windows."
 
             elif execution_result.status == ExecutionStatus.DENIED:
@@ -1435,7 +1504,14 @@ class JessycaLocalAgent:
             elif execution_result.status == ExecutionStatus.CANCELLED:
                 return "Operación cancelada."
             else:
-                if intent == "play_random_video":
+                if intent in ("youtube_play", "search_and_play"):
+                    err_code = getattr(execution_result, "error_code", None)
+                    if err_code == "SEARCH_FAILED":
+                        return "No pude encontrar la canción en YouTube."
+                    elif err_code == "PLAYBACK_FAILED":
+                        return "Logré abrir YouTube, pero no pude iniciar la reproducción."
+                    return str(execution_result.message or "No pude iniciar la reproducción.")
+                elif intent == "play_random_video":
                     err_code = getattr(execution_result, "error_code", None)
                     if err_code == "DIRECTORY_NOT_FOUND":
                         return "No encuentro la carpeta de vídeos de baile configurada."

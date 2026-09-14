@@ -12,6 +12,13 @@ from services.voice.audio_capture import (
     NoiseCalibrationResult,
     VoiceCaptureResult,
 )
+from services.voice.audio_device_manager import (
+    AudioDeviceDescriptor,
+    AudioDeviceManager,
+    AudioDeviceSelectionReport,
+    SignalValidationStatus,
+    get_audio_device_manager,
+)
 from services.voice.audio_input import (
     AudioChunk,
     IAudioSource,
@@ -29,11 +36,20 @@ from services.voice.device_resolver import (
     VoiceDeviceResolver,
     get_voice_device_resolver,
 )
+from services.voice.stt_event_adapter import STTEventAdapter
 from services.voice.stt_service import (
     FasterWhisperSTTService,
     ISTTService,
     MockSTTService,
     TranscriptResult,
+)
+from services.voice.tts_provider import (
+    BaseTTSProvider,
+    EdgeTTSProvider,
+    PocketTTSProvider,
+    TTSManager,
+    TTSMetrics,
+    get_tts_manager,
 )
 from services.voice.tts_service import (
     DEFAULT_VOICE_NAME,
@@ -94,12 +110,17 @@ from services.voice.wake_word_service import (
 __all__ = [
     "AmbientNoiseCalibrator",
     "AudioChunk",
+    "AudioDeviceDescriptor",
     "AudioDeviceDisconnectedError",
+    "AudioDeviceManager",
+    "AudioDeviceSelectionReport",
     "AudioPreRollBuffer",
     "BargeInController",
+    "BaseTTSProvider",
     "CalibratedVoiceCaptureEngine",
     "ContinuousVoiceSession",
     "DEFAULT_VOICE_NAME",
+    "EdgeTTSProvider",
     "EdgeTTSService",
     "EnergyVADService",
     "FasterWhisperSTTService",
@@ -118,13 +139,18 @@ __all__ = [
     "MockTTSService",
     "NoiseCalibrationResult",
     "PURE_INTERRUPTION_PHRASES",
+    "PocketTTSProvider",
     "ResolvedAudioDevice",
     "STTError",
+    "STTEventAdapter",
     "STTModelUnavailableError",
     "STTTimeoutError",
+    "SignalValidationStatus",
     "SyntheticAudioSource",
     "TTSError",
     "TTSFailureError",
+    "TTSManager",
+    "TTSMetrics",
     "TTSResult",
     "TranscriptResult",
     "TurnManager",
@@ -150,6 +176,8 @@ __all__ = [
     "VoiceTurnState",
     "WakeWordError",
     "WakeWordResult",
+    "get_audio_device_manager",
+    "get_tts_manager",
     "get_voice_device_resolver",
     "get_voice_telemetry",
 ]

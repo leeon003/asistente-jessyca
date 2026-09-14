@@ -238,16 +238,16 @@ class ConversationContextManager:
                     session.set_context_item("last_referenced_entity", "paint", relevance=1.0)
                     return "close_application", {"app_name": "paint"}, False, None
 
-            # 4.0.0 REFERENCIAS DEÍCTICAS CONTEXTUALES ("Ponla", "Reprodúcela", "Dale play")
-            if lower in ("ponla", "reprodúcela", "reproducela", "pon esa canción", "pon esa cancion", "dale play", "dale reproducir", "claro ponla", "reproduce esa", "reprodúcelo", "reproducelo"):
+            # 4.0.0 REFERENCIAS DEÍCTICAS CONTEXTUALES ("Ponla", "Reprodúcela", "Dale play", "Reprodúcelo")
+            if lower in ("ponla", "reprodúcela", "reproducela", "pon esa canción", "pon esa cancion", "dale play", "dale reproducir", "claro ponla", "reproduce esa", "reprodúcelo", "reproducelo", "reproduce esa canción", "reproduce esa cancion"):
                 last_media = session.get_context("last_found_media") or session.get_context("last_search_query")
                 if last_media:
-                    return "search_and_play", {"query": str(last_media), "action": "play"}, False, None
+                    return "youtube_play", {"query": str(last_media), "action": "play"}, False, None
 
             if lower in ("sí", "si", "sí por favor", "si por favor", "claro", "por favor"):
                 last_media = session.get_context("last_found_media") or session.get_context("last_search_query")
                 if last_media:
-                    return "search_and_play", {"query": str(last_media), "action": "play"}, False, None
+                    return "youtube_play", {"query": str(last_media), "action": "play"}, False, None
                 return "general_query", {"query": text}, False, "Hola, ¿en qué te puedo ayudar?"
 
             # 4.0.0.1 ÓRDENES COMPUESTAS ("Busca y reproduce La Yerba del Rey de Morodo")
@@ -257,14 +257,47 @@ class ConversationContextManager:
                 session.set_context_item("last_search_query", query_comp, relevance=0.95)
                 return "search_and_play", {"query": query_comp}, False, None
 
-            # 4.0.0.2 DESAMBIGUACIÓN: "Abre YouTube"
+            # 4.0.0.1.1 YOUTUBE COMPUESTAS Y DIRECTAS (FASE 75.1)
+            # Tarea compuesta: "Abre YouTube y reproduce <canción>"
+            if ("abre youtube" in lower or "abrir youtube" in lower) and any(w in lower for w in ("reproduce", "pon", "busca y reproduce")):
+                query_yt = re.sub(r"^(?:jessyca,?\s*|jessica,?\s*)?(?:abre\s+youtube\s+y\s+|abrir\s+youtube\s+y\s+)?(?:reproduce|pon|busca\s+y\s+reproduce)\s+", "", text, flags=re.IGNORECASE).strip()
+                query_yt = re.sub(r"\s+(?:en|de)\s+youtube\s*$", "", query_yt, flags=re.IGNORECASE).strip()
+                session.set_context_item("current_application", "edge", relevance=1.0)
+                session.set_context_item("last_app", "edge", relevance=1.0)
+                session.set_context_item("last_referenced_entity", "YouTube", relevance=1.0)
+                session.set_context_item("last_found_media", query_yt, relevance=0.95)
+                session.set_context_item("last_search_query", query_yt, relevance=0.95)
+                return "youtube_play", {"query": query_yt, "action": "compound_open_and_play"}, False, None
+
+            # Reproducción explícita: "Reproduce <canción> [en YouTube]"
+            if any(lower.startswith(w) for w in ("reproduce ", "pon ", "reproducir ")) or ("reproduce" in lower and "youtube" in lower):
+                query_yt = re.sub(r"^(?:jessyca,?\s*|jessica,?\s*)?(?:reproduce|pon|reproducir)\s+", "", text, flags=re.IGNORECASE).strip()
+                query_yt = re.sub(r"\s+(?:en|de)\s+youtube\s*$", "", query_yt, flags=re.IGNORECASE).strip()
+                if query_yt.lower() not in ("una canción", "una cancion", "algo", "eso", "esa", "la canción", "la cancion"):
+                    session.set_context_item("current_application", "edge", relevance=1.0)
+                    session.set_context_item("last_app", "edge", relevance=1.0)
+                    session.set_context_item("last_referenced_entity", "YouTube", relevance=1.0)
+                    session.set_context_item("last_found_media", query_yt, relevance=0.95)
+                    session.set_context_item("last_search_query", query_yt, relevance=0.95)
+                    return "youtube_play", {"query": query_yt, "action": "play"}, False, None
+
+            # Búsqueda explícita en YouTube: "Busca <canción> en YouTube"
+            if ("busca " in lower or "buscar " in lower) and "youtube" in lower:
+                query_yt = re.sub(r"^(?:jessyca,?\s*|jessica,?\s*)?(?:ahora\s*)?(?:busca|buscar)\s+(?:la\s+música\s+|la\s+musica\s+|la\s+canción\s+|la\s+cancion\s+|el\s+tema\s+|el\s+video\s+|el\s+vídeo\s+)?", "", text, flags=re.IGNORECASE).strip()
+                query_yt = re.sub(r"\s+(?:en|de)\s+youtube\s*$", "", query_yt, flags=re.IGNORECASE).strip()
+                session.set_context_item("current_application", "edge", relevance=1.0)
+                session.set_context_item("last_app", "edge", relevance=1.0)
+                session.set_context_item("last_referenced_entity", "YouTube", relevance=1.0)
+                session.set_context_item("last_found_media", query_yt, relevance=0.95)
+                session.set_context_item("last_search_query", query_yt, relevance=0.95)
+                return "youtube_search", {"query": query_yt, "motor": "youtube"}, False, None
+
+            # 4.0.0.2 APERTURA DIRECTA: "Abre YouTube"
             if lower in ("abre youtube", "abrir youtube", "youtube", "pon youtube", "inicia youtube", "abrir la app de youtube"):
-                session.set_pending_question(
-                    question="Claro. ¿Quieres que solo abra YouTube o quieres que busque o reproduzca algo?",
-                    intent="youtube_clarification",
-                    expected_slot="action_choice",
-                )
-                return "youtube_clarification", {"immediate_response": "Claro. ¿Quieres que solo abra YouTube o quieres que busque o reproduzca algo?", "requires_clarification": True}, True, "Claro. ¿Quieres que solo abra YouTube o quieres que busque o reproduzca algo?"
+                session.set_context_item("current_application", "edge", relevance=1.0)
+                session.set_context_item("last_app", "edge", relevance=1.0)
+                session.set_context_item("last_referenced_entity", "YouTube", relevance=1.0)
+                return "open_browser", {"url": "https://www.youtube.com", "site": "YouTube"}, False, None
 
             # 4.0.0.3 DESAMBIGUACIÓN: "Busca una canción" / "Busca"
             if lower in ("busca una canción", "busca una cancion", "buscar una canción", "buscar una cancion", "pon una canción", "pon una cancion"):
@@ -306,6 +339,14 @@ class ConversationContextManager:
             # 4.0.0.4 BÚSQUEDA WEB O MULTIMEDIA ("Busca física cuántica", "Busca La Yerba del Rey")
             if lower.startswith("busca ") or lower.startswith("buscar "):
                 q_search = re.sub(r"^(?:jessyca,?\s*|jessica,?\s*)?(?:busca|buscar)\s+(?:en\s+(?:google|internet|la\s+web)\s+)?", "", text, flags=re.IGNORECASE).strip()
+                last_ent = session.get_context("last_referenced_entity")
+                if (last_ent and "youtube" in str(last_ent).lower()) or "youtube" in q_search.lower():
+                    clean_yt_q = re.sub(r"\s+(?:en|de)\s+youtube\s*$", "", q_search, flags=re.IGNORECASE).strip()
+                    session.set_context_item("last_found_media", clean_yt_q, relevance=0.95)
+                    session.set_context_item("last_search_query", clean_yt_q, relevance=0.95)
+                    session.set_context_item("last_referenced_entity", "YouTube", relevance=1.0)
+                    return "youtube_search", {"query": clean_yt_q, "motor": "youtube"}, False, None
+
                 is_media_related = any(kw in q_search.lower() for kw in ("cancion", "canción", "tema", "morodo", "yerba del rey", "baile", "bailame", "báilame"))
                 if is_media_related and q_search.lower() not in ("una canción", "una cancion", "algo", "un archivo", "en internet"):
                     session.set_context_item("last_found_media", q_search, relevance=0.95)
@@ -329,7 +370,7 @@ class ConversationContextManager:
 
             # 4.0.1.1 SALUDO A TERCERO ("Jessyca saluda a Carmen", "Saluda a Carmen")
             saludo_match = re.match(
-                r"^(?:(?:jessyca|jessica),?\s*)?(?:saluda\s+a|manda\s+(?:un\s+)?saludo\s+a|envía\s+(?:un\s+)?saludo\s+a|dile\s+hola\s+a)\s+([a-záéíóúñ]+)$",
+                r"^(?:(?:jessyca|jessica),?\s*)?(?:saluda\s+a|manda\s+(?:un\s+)?saludo\s+a|envía\s+(?:un\s+)?saludo\s+a|dile\s+hola\s+a)\s+([a-záéíóúñ]+)[.\s]*$",
                 lower,
             )
             if saludo_match:
@@ -640,10 +681,20 @@ class ConversationContextManager:
 
             # 4.8 CONTINUACIÓN EN CONTEXTO DE APLICACIÓN ACTIVA (ej: "Abre el navegador" -> "Busca hoteles")
             last_app = session.get_context("current_application") or session.get_context("last_app")
+            last_ent = session.get_context("last_referenced_entity")
             if last_app in ("chrome", "edge", "navegador", "browser"):
                 if lower.startswith("ahora busca ") or lower.startswith("busca ") or lower.startswith("buscar "):
                     query = re.sub(r"^(ahora\s*)?(busca(r)?\s*(sobre|en|por)?\s*)", "", lower).strip()
+                    query = re.sub(r"^(?:la\s+música\s+|la\s+musica\s+|la\s+canción\s+|la\s+cancion\s+|el\s+tema\s+)", "", query).strip()
                     if "internet" not in query and "web" not in query:
+                        # Si la entidad previa fue YouTube o se busca explícitamente música
+                        if (last_ent and "youtube" in str(last_ent).lower()) or "youtube" in query.lower() or any(k in lower for k in ("música", "musica", "canción", "cancion")):
+                            query_clean = re.sub(r"\s+(?:en|de)\s+youtube\s*$", "", query, flags=re.IGNORECASE).strip()
+                            session.set_context_item("last_found_media", query_clean, relevance=0.95)
+                            session.set_context_item("last_search_query", query_clean, relevance=0.95)
+                            session.set_context_item("last_referenced_entity", "YouTube", relevance=1.0)
+                            return "youtube_search", {"query": query_clean, "motor": "youtube"}, False, None
+
                         session.set_context_item("current_task", f"search_{query}", relevance=0.8)
                         session.set_context_item("last_search_query", query, relevance=0.95)
                         session.set_context_item("last_referenced_entity", query, relevance=0.95)

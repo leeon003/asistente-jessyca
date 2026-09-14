@@ -939,6 +939,44 @@ class AppSettings(BaseSettings):
         default="edge-tts",
         description="Motor TTS principal (edge-tts con voz neuronal Camila).",
     )
+    # Configuración de TTS Providers e Intercambiabilidad (Fase 72)
+    VOICE_TTS_PROVIDER: str = Field(
+        default="edge-tts",
+        description="Proveedor TTS preferido ('edge-tts' o 'pocket-tts').",
+    )
+    VOICE_TTS_FALLBACK: str = Field(
+        default="edge-tts",
+        description="Proveedor TTS de respaldo en caso de fallo ('edge-tts').",
+    )
+    VOICE_POCKET_TTS_VOICE: str = Field(
+        default="alba",
+        description="Voz base de Pocket TTS ('alba', 'lola', etc.).",
+    )
+    VOICE_POCKET_TTS_DEVICE: str = Field(
+        default="cpu",
+        description="Dispositivo de inferencia para Pocket TTS ('cpu' o 'cuda').",
+    )
+    VOICE_TTS_TIMEOUT_SECONDS: float = Field(
+        default=10.0,
+        description="Timeout máximo en segundos para la síntesis de voz.",
+    )
+    # Configuración de Barge-In e Interrupción de Voz (Fase 73)
+    VOICE_BARGE_IN_ENABLED: bool = Field(
+        default=True,
+        description="Habilita la capacidad de interrumpir a JESSYCA mientras habla (Barge-in).",
+    )
+    VOICE_BARGE_IN_MIN_SPEECH_MS: float = Field(
+        default=150.0,
+        description="Duración mínima en milisegundos de habla requerida para confirmar interrupción.",
+    )
+    VOICE_BARGE_IN_ECHO_MARGIN_FACTOR: float = Field(
+        default=1.6,
+        description="Factor multiplicador sobre el umbral VAD durante la locución de JESSYCA (anti-eco).",
+    )
+    VOICE_BARGE_IN_COOLDOWN_MS: float = Field(
+        default=250.0,
+        description="Ventana de enfriamiento inicial en ms al comenzar TTS para ignorar transitorios de altavoz.",
+    )
 
     # Configuración de Context Builder & Memory Retrieval (Subetapa 10.2)
     CONTEXT_ENABLED: bool = Field(

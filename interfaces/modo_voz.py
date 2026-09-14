@@ -30,12 +30,20 @@ from config.manager import get_settings
 from core.local_agent.local_agent import JessycaLocalAgent
 from core.local_agent.local_agent_models import InputModality, JessycaRequest
 from core.logger import get_logger
+from core.state import StateMachine
 from services.voice.audio_capture import CalibratedVoiceCaptureEngine
+from services.voice.audio_device_manager import (
+    SignalValidationStatus,
+    get_audio_device_manager,
+)
+from services.voice.barge_in_controller import BargeInController
 from services.voice.continuous_voice_session import (
     ContinuousVoiceSession,
     VoiceSessionMode,
 )
 from services.voice.device_resolver import VoiceDeviceResolver
+from services.voice.stt_event_adapter import STTEventAdapter
+from services.voice.tts_provider import get_tts_manager
 from services.voice.voice_diagnostics import VoiceDiscardReason
 
 logger = get_logger("jessyca.interfaces.modo_voz")
@@ -65,13 +73,15 @@ class VoiceSpeakerMetrics:
 class VoiceSpeaker:
     """Motor de síntesis de voz neuronal (Edge-TTS con es-PE-CamilaNeural) con fallback robusto."""
 
-    def __init__(self, default_voice: str | None = None) -> None:
+    def __init__(self, default_voice: str | None = None, barge_in_controller: Any | None = None) -> None:
         self._lock = threading.Lock()
         settings = get_settings()
         self.voice_name = default_voice or getattr(settings, "VOICE_DEFAULT_VOICE", "es-PE-CamilaNeural")
         self._sapi_speaker: Any = None
         self._sapi_voice_id: str | None = None
         self._pygame_ready = False
+        self._tts_manager = get_tts_manager()
+        self.barge_in_controller = barge_in_controller
         self._init_audio_system()
 
     def _init_audio_system(self) -> None:
@@ -111,8 +121,8 @@ class VoiceSpeaker:
             logger.debug(f"[VOICE TTS] SAPI fallback no disponible: {e}")
             return None
 
-    def speak(self, text: str) -> VoiceSpeakerMetrics:
-        """Sintetiza y reproduce el texto con voz Camila Neural de forma fluida y mide latencias."""
+    def speak(self, text: str, session_id: str | None = None) -> VoiceSpeakerMetrics:
+        """Sintetiza y reproduce el texto mediante TTSManager con fallback transparente y mide latencias."""
         if not text or not text.strip():
             return VoiceSpeakerMetrics()
 
@@ -120,40 +130,21 @@ class VoiceSpeaker:
         metrics = VoiceSpeakerMetrics(voice_name=str(self.voice_name))
         t_start = time.perf_counter()
 
-        with self._lock:
-            # 1. Motor Principal: Edge-TTS (es-PE-CamilaNeural)
-            try:
-                import asyncio
-                import io
+        if self.barge_in_controller:
+            self.barge_in_controller.notify_tts_started(session_id=session_id)
 
-                import edge_tts
-                import pygame
-
-                if not self._pygame_ready:
-                    self._init_audio_system()
-
-                async def _synth() -> bytes:
-                    communicate = edge_tts.Communicate(clean_text, str(self.voice_name))
-                    chunks: list[bytes] = []
-                    async for chunk in communicate.stream():
-                        if chunk["type"] == "audio":
-                            chunks.append(chunk["data"])
-                    return b"".join(chunks)
-
-                audio_bytes = asyncio.run(_synth())
-                metrics.startup_latency_ms = (time.perf_counter() - t_start) * 1000.0
-
-                if audio_bytes and self._pygame_ready:
-                    t_play_start = time.perf_counter()
-                    sound = pygame.mixer.Sound(io.BytesIO(audio_bytes))
-                    sound.play()
-                    while pygame.mixer.get_busy():
-                        pygame.time.wait(20)
-                    metrics.duration_ms = (time.perf_counter() - t_play_start) * 1000.0
-                    metrics.engine_used = "edge_tts"
-                    return metrics
-            except Exception as e:
-                logger.warning(f"[VOICE TTS] Edge-TTS ({self.voice_name}) falló ({e}), intentando fallback SAPI...")
+        try:
+            with self._lock:
+                # 1. Motor Centralizado e Intercambiable: TTSManager (Pocket TTS -> Edge-TTS Camila Fallback)
+                try:
+                    success, tts_met = self._tts_manager.speak(clean_text, voice=str(self.voice_name))
+                    if success:
+                        metrics.startup_latency_ms = tts_met.t2_first_audio_ms or ((time.perf_counter() - t_start) * 1000.0)
+                        metrics.duration_ms = tts_met.t4_audio_duration_ms
+                        metrics.engine_used = tts_met.engine_used or tts_met.provider_used
+                        return metrics
+                except Exception as e:
+                    logger.warning(f"[VOICE TTS] TTSManager falló ({e}), intentando fallback SAPI...")
 
             # 2. Fallback a SAPI
             try:
@@ -184,6 +175,9 @@ class VoiceSpeaker:
             except Exception as ex3:
                 logger.error(f"[VOICE TTS FATAL] Fallo en todos los motores de voz: {ex3}")
                 return metrics
+        finally:
+            if self.barge_in_controller:
+                self.barge_in_controller.notify_tts_finished()
 
 
 def iniciar_modo_voz(
@@ -199,16 +193,40 @@ def iniciar_modo_voz(
 
     settings = get_settings()
 
-    # 1. Diagnóstico e inspección de dispositivos de entrada con auto-detección (Fase 51.2)
+    # 1. Diagnóstico e inspección de dispositivos de entrada con AudioDeviceManager (Fase 71)
+    device_manager = get_audio_device_manager()
     resolver = VoiceDeviceResolver()
     try:
-        resolved_dev = resolver.resolve_input_device()
+        selected_desc = device_manager.select_device(validate_signal=True)
+        resolved_dev = selected_desc.to_resolved_audio_device()
         speaker = VoiceSpeaker()
+
+        # Log estructurado informativo (Fase 71 - Sección 14)
+        val_status = "OK" if selected_desc.signal_status in (SignalValidationStatus.VALID, SignalValidationStatus.SILENT) else selected_desc.signal_status.value
+        logger.info(
+            f"AUDIO:\n"
+            f"selected: {selected_desc.display_name}\n"
+            f"runtime_index: {selected_desc.runtime_index}\n"
+            f"host_api: {selected_desc.host_api}\n"
+            f"input_channels: {selected_desc.max_input_channels}\n"
+            f"validation: {val_status}"
+        )
+
         fb_text = " (Fallback por señal)" if resolved_dev.fallback_used else ""
-        print(f"  Micrófono: {resolved_dev.display_name} [Índice: {resolved_dev.index}]{fb_text}")
+        print(f"  Micrófono: {selected_desc.display_name} [Índice temporal: {selected_desc.runtime_index}]{fb_text}")
         if mcp_info:
             print(f"  MCP: {mcp_info}")
         print(f"  Voz: {speaker.voice_name}")
+        # Log estructurado de TTS (Fase 72)
+        tts_mgr = get_tts_manager()
+        active_tts = tts_mgr.get_active_provider()
+        logger.info(
+            f"TTS:\n"
+            f"preferred: {tts_mgr.preferred_provider_name}\n"
+            f"active: {active_tts.name}\n"
+            f"fallback: {tts_mgr.fallback_provider_name}"
+        )
+        print(f"  TTS Motor: {active_tts.name} (Preferido: {tts_mgr.preferred_provider_name}, Fallback: {tts_mgr.fallback_provider_name})")
         logger.info(f"[DEMO] Microphone: {resolved_dev.display_name} (Index: {resolved_dev.index})")
         logger.info(f"[DEMO] TTS: {speaker.voice_name}")
     except Exception as e:
@@ -245,12 +263,34 @@ def iniciar_modo_voz(
         session_id=session_id,
         conversation_idle_timeout=10.0,
     )
+    state_machine = StateMachine(follow_up_window=10.0)
+    stt_event_adapter = STTEventAdapter(state_machine=state_machine)
+    barge_in_controller = BargeInController(
+        tts_manager=tts_mgr,
+        state_machine=state_machine,
+        vad_service=capture_engine.vad_service,
+    )
+    speaker.barge_in_controller = barge_in_controller
+
 
     saludo = "Hola, soy Jessyca. Di 'Jessica' seguido de tu orden, o habla directamente."
     print(f"\n  Jessyca: {saludo}\n")
-    speaker.speak(saludo)
+    speaker.speak(saludo, session_id=session_id)
 
     consecutive_empty_count = 0
+    last_spoken_text = saludo
+    last_spoken_time = time.perf_counter()
+
+    def _is_acoustic_echo(captured_text: str, spoken_text: str, elapsed_sec: float) -> bool:
+        if not spoken_text or not captured_text or elapsed_sec > 4.5:
+            return False
+        import re
+        c_words = set(re.findall(r"\w+", captured_text.lower()))
+        s_words = set(re.findall(r"\w+", spoken_text.lower()))
+        if not c_words or not s_words:
+            return False
+        overlap = len(c_words.intersection(s_words)) / len(c_words)
+        return overlap >= 0.70
 
     while True:
         try:
@@ -274,6 +314,7 @@ def iniciar_modo_voz(
 
             # 3. Manejo de silencios normales en espera
             if capture_result.discard_reason == VoiceDiscardReason.NO_AUDIO:
+                stt_event_adapter.process_transcript("")
                 consecutive_empty_count += 1
                 if consecutive_empty_count >= settings.VOICE_MAX_EMPTY_RETRIES:
                     if voice_session.mode != VoiceSessionMode.IDLE:
@@ -283,6 +324,7 @@ def iniciar_modo_voz(
 
             # 4. Manejo de fallos con feedback diferenciado
             if not capture_result.is_success:
+                stt_event_adapter.process_transcript("")
                 consecutive_empty_count += 1
                 if capture_result.user_feedback_message:
                     print(f"  {capture_result.user_feedback_message}")
@@ -291,8 +333,25 @@ def iniciar_modo_voz(
             # 5. Captura exitosa
             consecutive_empty_count = 0
             texto = capture_result.text
+
+            # 5.1 Descarte de eco acústico del altavoz en conversación continua
+            elapsed_since_speech = time.perf_counter() - last_spoken_time
+            if (
+                voice_session.mode in (VoiceSessionMode.CONVERSATION_ACTIVE, VoiceSessionMode.WAITING_FOR_FOLLOWUP)
+                and _is_acoustic_echo(texto, last_spoken_text, elapsed_since_speech)
+            ):
+                logger.warning(
+                    f"[VOICE_ECHO_DETECTED] Descartando eco acústico de la voz del asistente: '{texto}' "
+                    f"(último mensaje: '{last_spoken_text}' hace {elapsed_since_speech:.2f}s)"
+                )
+                print(f"  [Eco acústico del altavoz detectado y descartado: '{texto}']")
+                continue
+
+            # Emitir evento UtteranceFinal y actualizar State Machine (Fase 67)
+            stt_event_adapter.process_transcript(texto, confidence=capture_result.confidence)
             logger.info(f"[VOICE_TRANSCRIPT] Texto reconocido: '{texto}' (Confianza: {capture_result.confidence:.2f})")
             print(f"\n  Tú (Voz): {texto}")
+
 
             # Comando de salida
             if texto.lower() in ("salir", "exit", "quit", "adios", "adiós", "terminar", "apágate", "cerrar"):
@@ -324,16 +383,18 @@ def iniciar_modo_voz(
             if res.requires_clarification or res.status.value == "AWAITING_CLARIFICATION":
                 msg = res.clarification_question or res.spoken_text or res.response_text or "¿Podrías aclararme qué deseas hacer?"
                 print(f"\n  Jessyca (Aclaración): {msg}")
-                tts_metrics = speaker.speak(msg)
+                tts_metrics = speaker.speak(msg, session_id=session_id)
             elif res.requires_confirmation:
                 msg = f"Atención: {res.response_text}. ¿Deseas autorizar esta acción?"
                 print(f"\n  Jessyca (Confirmación): {msg}")
-                tts_metrics = speaker.speak(msg)
+                tts_metrics = speaker.speak(msg, session_id=session_id)
             else:
                 msg = res.spoken_text or res.response_text
                 print(f"\n  Jessyca: {msg}")
-                tts_metrics = speaker.speak(msg)
+                tts_metrics = speaker.speak(msg, session_id=session_id)
 
+            last_spoken_text = msg or ""
+            last_spoken_time = time.perf_counter()
             voice_session.on_speaking_finished()
 
             # Medición y registro formal de latencias

@@ -140,6 +140,8 @@ from core.permission_manager import (
     PermissionResult,
     PermissionSource,
 )
+from core.orchestrator_adapter import OrchestratorAdapter
+from core.routing import FastRouter, RouteCategory, RouteDecision
 from core.planner import AIPlanner, ExecutionPlan, SubTask
 from core.plugin_execution_pipeline import (
     PluginExecutionPipeline,
@@ -629,6 +631,10 @@ __all__ = [
     "SkillSecuritySandbox",
     "SkillSandboxExecutionResult",
     "UntrustedDataWrapper",
+    "OrchestratorAdapter",
+    "FastRouter",
+    "RouteCategory",
+    "RouteDecision",
 ]
 
 from skills.apps_skill import WindowsAppsSkill
