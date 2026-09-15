@@ -63,12 +63,14 @@ class VoiceCaptureDiagnostic(BaseModel):
     stt_attempted: bool = False
     stt_text: str = ""
     stt_confidence: float = 0.0
+    eos_to_stt_start_ms: float = 0.0
+    stt_duration_ms: float = 0.0
     discard_reason: VoiceDiscardReason = VoiceDiscardReason.NONE
     metadata: dict[str, Any] = Field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         """Serializa el diagnóstico a un diccionario."""
-        return self.model_dump(mode="json")
+        return dict(self.model_dump(mode="json"))
 
     def log_diagnostic(self) -> None:
         """Registra el diagnóstico técnico en el logger si VOICE_DIAGNOSTICS está activo."""
@@ -78,6 +80,39 @@ class VoiceCaptureDiagnostic(BaseModel):
             f"noise_floor={self.noise_floor:.1f} vad={self.vad_detected} "
             f"stt_attempted={self.stt_attempted} conf={self.stt_confidence:.2f} "
             f"discard={self.discard_reason.value}"
+        )
+
+
+class UtteranceLatencyTrace(BaseModel):
+    """Traza de latencia estructurada por turno/utterance (Fase 75.2-B)."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    utterance_id: str = ""
+    eos_to_stt_start: float = 0.0
+    stt_duration: float = 0.0
+    stt_to_intent: float = 0.0
+    intent_duration: float = 0.0
+    llm_duration: float = 0.0
+    intent_to_execution: float = 0.0
+    tts_duration: float = 0.0
+    audio_start: float = 0.0
+    total_response_time: float = 0.0
+
+    def format_trace(self) -> str:
+        """Formatea la traza de latencia exactamente según la especificación de Paso 2."""
+        return (
+            f"[LATENCY]\n"
+            f"utterance_id={self.utterance_id}\n\n"
+            f"eos_to_stt_start={self.eos_to_stt_start:.1f}ms\n"
+            f"stt_duration={self.stt_duration:.1f}ms\n"
+            f"stt_to_intent={self.stt_to_intent:.1f}ms\n"
+            f"intent_duration={self.intent_duration:.1f}ms\n"
+            f"llm_duration={self.llm_duration:.1f}ms\n"
+            f"intent_to_execution={self.intent_to_execution:.1f}ms\n"
+            f"tts_duration={self.tts_duration:.1f}ms\n"
+            f"audio_start={self.audio_start:.1f}ms\n"
+            f"total_response_time={self.total_response_time:.1f}ms"
         )
 
 

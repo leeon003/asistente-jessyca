@@ -898,8 +898,28 @@ class AppSettings(BaseSettings):
         description="Duración mínima de habla en milisegundos para filtrar ruidos o clics.",
     )
     VOICE_MAX_CAPTURE_MS: int = Field(
-        default=15000,
-        description="Duración máxima de captura de audio por turno antes de forzar procesamiento.",
+        default=300000,
+        description="Watchdog de seguridad técnica contra micrófono atascado o anomalías (300s). No es el fin normal de habla.",
+    )
+    VOICE_ADAPTIVE_EOS_ENABLED: bool = Field(
+        default=True,
+        description="Habilita la detección adaptativa de fin de habla (Adaptive End-of-Speech) guiada por VAD y pausas.",
+    )
+    VOICE_ADAPTIVE_SILENCE_SHORT_SEC: float = Field(
+        default=1.0,
+        description="Silencio sostenido requerido para finalizar comandos cortos (<1.2s de habla activa).",
+    )
+    VOICE_ADAPTIVE_SILENCE_EXTENDED_SEC: float = Field(
+        default=1.35,
+        description="Silencio sostenido requerido para finalizar intervenciones conversacionales o complejas.",
+    )
+    VOICE_ADAPTIVE_PAUSE_TOLERANCE_SEC: float = Field(
+        default=1.2,
+        description="Tolerancia máxima de pausa natural de reflexión antes de interpretar silencio como fin de habla.",
+    )
+    VOICE_FAILSAFE_WATCHDOG_SEC: float = Field(
+        default=300.0,
+        description="Watchdog técnico de seguridad contra micrófono/VAD atascado (5 min).",
     )
     VOICE_SILENCE_TIMEOUT_MS: int = Field(
         default=2500,

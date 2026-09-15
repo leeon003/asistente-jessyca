@@ -44,7 +44,10 @@ from services.voice.continuous_voice_session import (
 from services.voice.device_resolver import VoiceDeviceResolver
 from services.voice.stt_event_adapter import STTEventAdapter
 from services.voice.tts_provider import get_tts_manager
-from services.voice.voice_diagnostics import VoiceDiscardReason
+from services.voice.voice_diagnostics import (
+    UtteranceLatencyTrace,
+    VoiceDiscardReason,
+)
 
 logger = get_logger("jessyca.interfaces.modo_voz")
 
@@ -248,6 +251,7 @@ def iniciar_modo_voz(
             device_index=resolved_dev.index,
             device_resolver=resolver,
             resolved_device=resolved_dev,
+            adaptive_eos_enabled=settings.VOICE_ADAPTIVE_EOS_ENABLED,
         )
         print(f"  [Calibrando micrófono ({resolved_dev.display_name}) para ruido ambiente...]")
         calib_res = capture_engine.calibrate_ambient_noise(duration_sec=settings.VOICE_CALIBRATION_DURATION_SEC)
@@ -307,7 +311,6 @@ def iniciar_modo_voz(
             capture_result = capture_engine.capture_and_transcribe(
                 mode=voice_session.mode.value,
                 timeout=7.0,
-                phrase_time_limit=10.0,
             )
             stt_latency_ms = (time.perf_counter() - t_capture_start) * 1000.0
             logger.info(f"[VOICE_CAPTURE_STOPPED] Captura finalizada. Descarte: {capture_result.discard_reason.value}")
@@ -374,11 +377,12 @@ def iniciar_modo_voz(
                 modality=InputModality.VOICE,
             )
             res = agent.interact(req)
-            agent_latency_ms = (time.perf_counter() - t_interact_start) * 1000.0
+            _agent_latency_ms = (time.perf_counter() - t_interact_start) * 1000.0
 
             logger.info(f"[VOICE_EXECUTION_COMPLETED] Estado: {res.status.value}, Intent: {res.intent}, Skill: {res.selected_skill}")
 
             voice_session.on_speaking_started()
+            t_tts_start = time.perf_counter()
 
             if res.requires_clarification or res.status.value == "AWAITING_CLARIFICATION":
                 msg = res.clarification_question or res.spoken_text or res.response_text or "¿Podrías aclararme qué deseas hacer?"
@@ -393,24 +397,39 @@ def iniciar_modo_voz(
                 print(f"\n  Jessyca: {msg}")
                 tts_metrics = speaker.speak(msg, session_id=session_id)
 
+            t_turn_end = time.perf_counter()
             last_spoken_text = msg or ""
-            last_spoken_time = time.perf_counter()
+            last_spoken_time = t_turn_end
             voice_session.on_speaking_finished()
 
-            # Medición y registro formal de latencias
-            llm_latency_ms = res.metrics.model_inference_latency_ms if res.metrics.model_inference_latency_ms > 0 else agent_latency_ms
-            tts_dur_ms = tts_metrics.duration_ms if tts_metrics else 0.0
-            tts_start_ms = tts_metrics.startup_latency_ms if tts_metrics else 0.0
-            total_turn_ms = stt_latency_ms + agent_latency_ms + tts_dur_ms
+            # Medición y registro formal de latencias estructuradas (Fase 75.2-B)
+            t_eos_ref = capture_result.eos_timestamp or (t_capture_start + 1.0)
+            eos_to_stt_val = capture_result.eos_to_stt_start_ms
+            stt_dur_val = capture_result.stt_duration_ms or stt_latency_ms
+            stt_to_intent_val = max(0.0, (t_interact_start - (t_capture_start + (stt_latency_ms / 1000.0))) * 1000.0)
+            intent_dur_val = res.metrics.intent_latency_ms
+            llm_dur_val = res.metrics.model_inference_latency_ms
+            intent_to_exec_val = res.metrics.execution_latency_ms
+            tts_dur_val = tts_metrics.duration_ms if tts_metrics else 0.0
+            tts_startup_val = tts_metrics.startup_latency_ms if tts_metrics else 0.0
+            audio_start_val = max(0.0, (t_tts_start + (tts_startup_val / 1000.0) - t_eos_ref) * 1000.0)
+            total_turn_ms = max(0.0, (t_turn_end - t_eos_ref) * 1000.0)
 
-            logger.info(
-                f"[VOICE_LATENCY] STT={stt_latency_ms:.1f}ms LLM={llm_latency_ms:.1f}ms "
-                f"TTS_STARTUP={tts_start_ms:.1f}ms TTS={tts_dur_ms:.1f}ms TOTAL={total_turn_ms:.1f}ms"
+            lat_trace = UtteranceLatencyTrace(
+                utterance_id=capture_result.diagnostic.capture_id,
+                eos_to_stt_start=eos_to_stt_val,
+                stt_duration=stt_dur_val,
+                stt_to_intent=stt_to_intent_val,
+                intent_duration=intent_dur_val,
+                llm_duration=llm_dur_val,
+                intent_to_execution=intent_to_exec_val,
+                tts_duration=tts_dur_val,
+                audio_start=audio_start_val,
+                total_response_time=total_turn_ms,
             )
-            print(
-                f"  [VOICE_LATENCY] STT={stt_latency_ms:.1f}ms | LLM={llm_latency_ms:.1f}ms | "
-                f"TTS={tts_dur_ms:.1f}ms | TOTAL={total_turn_ms:.1f}ms"
-            )
+            formatted_trace = lat_trace.format_trace()
+            logger.info(f"\n{formatted_trace}")
+            print(f"\n{formatted_trace}\n")
 
             # Breve pausa de estabilización de audio para evitar que el micrófono capture el eco del altavoz
             time.sleep(0.3)

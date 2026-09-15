@@ -1337,7 +1337,7 @@ class JessycaLocalAgent:
                 return "close_application", {"app_name": "notepad"}, False
             if "calculadora" in lower or "calc" in lower:
                 return "close_application", {"app_name": "calc"}, False
-            if "navegador" in lower or "chrome" in lower or "edge" in lower:
+            if "navegador" in lower or "chrome" in lower or "edge" in lower or "google" in lower or "youtube" in lower:
                 return "close_application", {"app_name": "chrome"}, False
             if "paint" in lower:
                 return "close_application", {"app_name": "paint"}, False

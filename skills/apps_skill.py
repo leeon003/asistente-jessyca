@@ -146,6 +146,8 @@ class WindowsAppsSkill(BaseSkill):
             aliases.extend(["calculatorapp.exe", "calc.exe", "calculator.exe", "applicationframehost.exe"])
         elif "paint" in base_key:
             aliases.extend(["mspaint.exe", "paint.exe", "mspaint"])
+        elif any(k in base_key for k in ("chrome", "google", "youtube", "edge", "msedge", "navegador")):
+            aliases.extend(["chrome.exe", "msedge.exe", "chrome", "msedge"])
 
         found_pids: list[int] = []
         for proc in psutil.process_iter(["pid", "name"]):

@@ -80,7 +80,11 @@ class FastRouter:
     # Catálogo canónico de aplicaciones soportadas en windows.apps
     KNOWN_APPS: dict[str, tuple[str, str]] = {
         "chrome": ("chrome", "Chrome"),
+        "google": ("chrome", "Google"),
         "google chrome": ("chrome", "Chrome"),
+        "youtube": ("chrome", "YouTube"),
+        "el youtube": ("chrome", "YouTube"),
+        "el google": ("chrome", "Google"),
         "bloc de notas": ("notepad", "Notepad"),
         "bloc notas": ("notepad", "Notepad"),
         "notepad": ("notepad", "Notepad"),
@@ -515,7 +519,7 @@ class FastRouter:
                     parameters={"app_name": app_exec, "target": app_display},
                     reason=f"Comando de cierre de '{app_display}' para windows.apps",
                     raw_text=raw,
-                    requires_confirmation=True,
+                    requires_confirmation=False,
                 )
 
         # ── 9. COMANDO DESTRUCTIVO DE ARCHIVOS (delete_file) ───────────────────

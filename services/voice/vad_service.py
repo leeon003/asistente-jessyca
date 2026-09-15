@@ -58,7 +58,7 @@ class IVADService(Protocol):
 
 
 class EnergyVADService:
-    """Detector de Actividad de Voz basado en análisis de energía RMS con histeresis."""
+    """Detector de Actividad de Voz basado en análisis de energía RMS con histeresis y End-of-Speech adaptativo."""
 
     def __init__(
         self,
@@ -67,8 +67,12 @@ class EnergyVADService:
         end_threshold: float | None = None,
         speech_pad_chunks: int = 2,
         silence_timeout_seconds: float = 3.0,
-        silence_end_seconds: float = 0.7,
-        max_speech_duration_seconds: float = 15.0,
+        silence_end_seconds: float = 1.0,
+        silence_end_short_seconds: float | None = None,
+        silence_end_extended_seconds: float = 1.35,
+        pause_tolerance_seconds: float = 1.2,
+        adaptive_eos_enabled: bool = True,
+        max_speech_duration_seconds: float = 300.0,
     ) -> None:
         self.energy_threshold = energy_threshold
         self.start_threshold = start_threshold if start_threshold is not None else energy_threshold
@@ -76,6 +80,19 @@ class EnergyVADService:
         self.speech_pad_chunks = speech_pad_chunks
         self.silence_timeout_seconds = silence_timeout_seconds
         self.silence_end_seconds = silence_end_seconds
+        self.silence_end_short_seconds = (
+            silence_end_short_seconds
+            if silence_end_short_seconds is not None
+            else silence_end_seconds
+        )
+        self.silence_end_extended_seconds = (
+            silence_end_extended_seconds
+            if silence_end_extended_seconds is not None
+            else max(self.silence_end_short_seconds, 1.35)
+        )
+        self.pause_tolerance_seconds = pause_tolerance_seconds
+        self.adaptive_eos_enabled = adaptive_eos_enabled
+        # Watchdog técnico contra micrófono o buffer atascado (5 min). NO es el fin normal de habla.
         self.max_speech_duration_seconds = max_speech_duration_seconds
 
         self._in_speech = False
@@ -96,6 +113,20 @@ class EnergyVADService:
         self._speech_duration_seconds = 0.0
         self._silence_duration_seconds = 0.0
 
+    def get_adaptive_silence_threshold(self) -> float:
+        """Calcula el umbral de silencio adaptativo necesario para determinar fin de habla.
+
+        Distingue:
+        1. Comandos cortos (< 1.2s de habla activa): umbral de 1.0s para respuesta ágil.
+        2. Preguntas conversacionales o complejas (>= 1.2s): umbral de 1.35s tolerando pausas
+           naturales de pensamiento sin cortar la intervención.
+        """
+        if not self.adaptive_eos_enabled:
+            return self.silence_end_seconds
+        if self._speech_duration_seconds < 1.2:
+            return self.silence_end_short_seconds
+        return self.silence_end_extended_seconds
+
     def update_thresholds(self, start_threshold: float, end_threshold: float) -> None:
         """Actualiza dinámicamente los umbrales de histeresis tras una calibración."""
         self.start_threshold = start_threshold
@@ -115,15 +146,21 @@ class EnergyVADService:
         is_above_threshold = energy >= threshold_to_use
 
         if is_above_threshold:
+            if self._in_speech and self._silence_duration_seconds >= 0.25:
+                logger.info(f"[EOS] voice_resumed (tras pausa de {self._silence_duration_seconds:.2f}s)")
+
             self._consecutive_speech_chunks += 1
             self._consecutive_silence_chunks = 0
             self._silence_duration_seconds = 0.0
             self._speech_duration_seconds += chunk_duration
 
-            # Comprobar límite de tiempo de habla
+            # Failsafe Watchdog de seguridad técnica (protección contra micrófono atascado, NO fin normal de habla)
             if self._speech_duration_seconds >= self.max_speech_duration_seconds:
                 self._in_speech = False
-                logger.info("[VAD] Límite máximo de habla alcanzado (Timeout).")
+                logger.warning(
+                    f"[VAD] [FAILSAFE WATCHDOG] Límite de seguridad alcanzado ({self._speech_duration_seconds:.1f}s >= "
+                    f"{self.max_speech_duration_seconds:.1f}s). Protección técnica contra micrófono o VAD atascado."
+                )
                 return VADResult(
                     event=VADEvent.TIMEOUT,
                     is_speech=False,
@@ -135,7 +172,7 @@ class EnergyVADService:
             # Transición a SPEECH_START
             if not self._in_speech and self._consecutive_speech_chunks >= self.speech_pad_chunks:
                 self._in_speech = True
-                logger.debug(f"[VAD] SPEECH_START detectado (Energía: {energy:.1f} >= {self.start_threshold:.1f})")
+                logger.info(f"[EOS] voice_started (Energía: {energy:.1f} >= {self.start_threshold:.1f})")
                 return VADResult(
                     event=VADEvent.SPEECH_START,
                     is_speech=True,
@@ -158,13 +195,18 @@ class EnergyVADService:
             self._consecutive_speech_chunks = 0
             self._silence_duration_seconds += chunk_duration
 
-            # Si estábamos hablando y se acumula suficiente silencio -> SPEECH_END
+            # Si estábamos hablando y se acumula suficiente silencio -> SPEECH_END adaptativo
             if self._in_speech:
-                if self._silence_duration_seconds >= self.silence_end_seconds:
+                adaptive_threshold = self.get_adaptive_silence_threshold()
+                if self._silence_duration_seconds >= adaptive_threshold:
                     self._in_speech = False
                     total_speech = self._speech_duration_seconds
+                    silence_dur = self._silence_duration_seconds
                     self.reset()
-                    logger.debug(f"[VAD] SPEECH_END detectado. Duración total: {total_speech:.2f}s")
+                    logger.info(
+                        f"[EOS] end_of_speech duration={silence_dur:.2f}s total_speech={total_speech:.2f}s "
+                        f"(umbral_adaptativo={adaptive_threshold:.2f}s)"
+                    )
                     return VADResult(
                         event=VADEvent.SPEECH_END,
                         is_speech=False,
@@ -173,6 +215,9 @@ class EnergyVADService:
                         duration_ms=total_speech * 1000.0,
                     )
                 else:
+                    # Pausa natural o silencio breve dentro de la intervención
+                    if self._silence_duration_seconds >= 0.35 and (self._silence_duration_seconds - chunk_duration) < 0.35:
+                        logger.info(f"[EOS] silence_started duration={self._silence_duration_seconds:.2f}s")
                     return VADResult(
                         event=VADEvent.SPEECH_CONTINUE,
                         is_speech=True,

@@ -11,10 +11,12 @@ Implementa:
 
 from __future__ import annotations
 
+import collections
 import math
 import struct
 import threading
 import time
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
@@ -194,6 +196,9 @@ class VoiceCaptureResult:
     user_feedback_message: str
     diagnostic: VoiceCaptureDiagnostic
     is_success: bool
+    eos_timestamp: float = 0.0
+    eos_to_stt_start_ms: float = 0.0
+    stt_duration_ms: float = 0.0
 
     @property
     def has_text(self) -> bool:
@@ -210,7 +215,7 @@ class CalibratedVoiceCaptureEngine:
         pre_roll_ms: int = 400,
         post_roll_ms: int = 600,
         min_speech_ms: int = 300,
-        max_capture_ms: int = 15000,
+        max_capture_ms: int = 300000,
         silence_timeout_ms: int = 2500,
         confidence_threshold: float = 0.50,
         language: str = "es",
@@ -218,6 +223,7 @@ class CalibratedVoiceCaptureEngine:
         device_index: int | None = None,
         device_resolver: VoiceDeviceResolver | None = None,
         resolved_device: ResolvedAudioDevice | None = None,
+        adaptive_eos_enabled: bool = True,
     ) -> None:
         self.sample_rate = sample_rate
         self.channels = channels
@@ -228,6 +234,7 @@ class CalibratedVoiceCaptureEngine:
         self.silence_timeout_ms = silence_timeout_ms
         self.confidence_threshold = confidence_threshold
         self.language = language
+        self.adaptive_eos_enabled = adaptive_eos_enabled
         self.device_resolver = device_resolver or get_voice_device_resolver()
 
         self.resolved_device: ResolvedAudioDevice | None = resolved_device
@@ -252,7 +259,11 @@ class CalibratedVoiceCaptureEngine:
             start_threshold=350.0,
             end_threshold=200.0,
             silence_timeout_seconds=silence_timeout_ms / 1000.0,
-            silence_end_seconds=post_roll_ms / 1000.0,
+            silence_end_seconds=1.0,
+            silence_end_short_seconds=1.0,
+            silence_end_extended_seconds=1.35,
+            pause_tolerance_seconds=1.2,
+            adaptive_eos_enabled=adaptive_eos_enabled,
             max_speech_duration_seconds=max_capture_ms / 1000.0,
         )
 
@@ -316,14 +327,177 @@ class CalibratedVoiceCaptureEngine:
                 self._is_calibrated = True
                 return res
 
+    def evaluate_adaptive_stream(
+        self,
+        chunk_stream: Iterable[bytes],
+        sample_rate: int = 16000,
+        sample_width: int = 2,
+        timeout: float = 7.0,
+        failsafe_watchdog_sec: float = 300.0,
+    ) -> tuple[bytes, dict[str, Any]]:
+        """Núcleo adaptativo de captura y detección de fin de habla (Adaptive End-of-Speech).
+
+        Evalúa el flujo continuo de audio distinguiendo:
+        1. Espera de inicio de voz con retención circular de pre-roll.
+        2. Detección de inicio de voz ([EOS] voice_started).
+        3. Captura continua con histeresis RMS tolerando pausas naturales ([EOS] silence_started, [EOS] voice_resumed).
+        4. Fin de habla adaptativo según longitud de frase ([EOS] end_of_speech).
+        5. Preservación íntegra de post-roll ([EOS] post_roll preserved).
+        6. Watchdog de seguridad técnica contra micrófono atascado ([EOS] failsafe_watchdog).
+        """
+        import speech_recognition as sr
+
+        bytes_per_sample = max(1, sample_width)
+        bytes_per_second = float(sample_rate * bytes_per_sample)
+
+        # Buffer circular de pre-roll
+        preroll_duration_sec = self.pre_roll_ms / 1000.0
+        preroll_buffer: collections.deque[bytes] = collections.deque()
+        preroll_bytes_total = 0
+        target_preroll_bytes = int(preroll_duration_sec * bytes_per_second)
+
+        captured_frames: list[bytes] = []
+        elapsed_wait_audio_sec = 0.0
+        voice_started = False
+        wall_start_wait_ts = time.monotonic()
+
+        # FASE 1: Espera de voz inicial (Waiting for Speech)
+        for chunk in chunk_stream:
+            chunk_bytes = bytes(chunk)
+            if not chunk_bytes:
+                continue
+
+            chunk_dur = len(chunk_bytes) / bytes_per_second
+            elapsed_wait_audio_sec += chunk_dur
+
+            # Mantener pre-roll circular
+            preroll_buffer.append(chunk_bytes)
+            preroll_bytes_total += len(chunk_bytes)
+            while preroll_bytes_total > target_preroll_bytes and len(preroll_buffer) > 1:
+                dropped = preroll_buffer.popleft()
+                preroll_bytes_total -= len(dropped)
+
+            # Comprobar timeout de espera sin voz
+            wall_wait_elapsed = time.monotonic() - wall_start_wait_ts
+            if timeout > 0 and (elapsed_wait_audio_sec > timeout or wall_wait_elapsed > timeout):
+                logger.info(f"[EOS] Timeout de espera sin voz ({elapsed_wait_audio_sec:.2f}s > {timeout:.2f}s).")
+                raise sr.WaitTimeoutError("listening timed out while waiting for phrase to start")
+
+            rms = self._compute_rms(chunk_bytes)
+            if rms >= self.vad_service.start_threshold:
+                voice_started = True
+                logger.info(
+                    f"[EOS] voice_started (RMS: {rms:.1f} >= start_threshold: {self.vad_service.start_threshold:.1f})"
+                )
+                captured_frames.extend(preroll_buffer)
+                break
+
+        if not voice_started:
+            raise sr.WaitTimeoutError("listening timed out while waiting for phrase to start")
+
+        # FASE 2: Captura Continua con Silencio Adaptativo y Watchdog
+        total_speech_sec = chunk_dur
+        silence_sec = 0.0
+        in_pause = False
+        wall_speech_start_ts = time.monotonic()
+        end_reason = "end_of_speech"
+
+        for chunk in chunk_stream:
+            chunk_bytes = bytes(chunk)
+            if not chunk_bytes:
+                break
+            chunk_dur = len(chunk_bytes) / bytes_per_second
+            captured_frames.append(chunk_bytes)
+
+            # Watchdog de seguridad técnica (failsafe watchdog contra micrófono o stream atascado)
+            wall_speech_elapsed = time.monotonic() - wall_speech_start_ts
+            if total_speech_sec >= failsafe_watchdog_sec or wall_speech_elapsed >= failsafe_watchdog_sec:
+                logger.warning(
+                    f"[EOS] [FAILSAFE WATCHDOG] Activado ({total_speech_sec:.1f}s speech / {wall_speech_elapsed:.1f}s wall). "
+                    "Protección técnica contra micrófono o VAD atascado."
+                )
+                end_reason = "failsafe_watchdog"
+                break
+
+            rms = self._compute_rms(chunk_bytes)
+            is_speech_chunk = (rms >= self.vad_service.end_threshold)
+
+            if is_speech_chunk:
+                total_speech_sec += chunk_dur
+                if in_pause and silence_sec >= 0.25:
+                    logger.info(f"[EOS] voice_resumed (tras pausa de {silence_sec:.2f}s)")
+                in_pause = False
+                silence_sec = 0.0
+            else:
+                silence_sec += chunk_dur
+                if not in_pause and silence_sec >= 0.35:
+                    in_pause = True
+                    logger.info(f"[EOS] silence_started duration={silence_sec:.2f}s")
+
+                # Cálculo del umbral adaptativo
+                if total_speech_sec < 1.2:
+                    # Comando corto (ej. "abre el bloc de notas") -> umbral ágil de 1.0s
+                    adaptive_silence = self.vad_service.silence_end_short_seconds
+                else:
+                    # Pregunta conversacional o compleja (ej. física 5s, 30s, 60s)
+                    # Tolera pausas naturales de reflexión (hasta 1.2s - 1.35s)
+                    adaptive_silence = self.vad_service.silence_end_extended_seconds
+
+                if silence_sec >= adaptive_silence:
+                    logger.info(
+                        f"[EOS] end_of_speech duration={silence_sec:.2f}s "
+                        f"total_speech={total_speech_sec:.2f}s (umbral adaptativo: {adaptive_silence:.2f}s)"
+                    )
+                    end_reason = "end_of_speech"
+                    break
+
+        # FASE 3: Preservación de Post-Roll y Emisión Final
+        logger.info(f"[EOS] post_roll preserved ({self.post_roll_ms}ms)")
+        total_audio_sec = sum(len(f) for f in captured_frames) / bytes_per_second
+        logger.info(f"[EOS] utterance_final listo para STT (duración audio: {total_audio_sec:.2f}s)")
+
+        metadata = {
+            "end_reason": end_reason,
+            "total_speech_sec": total_speech_sec,
+            "silence_sec": silence_sec,
+            "total_audio_sec": total_audio_sec,
+            "voice_started": voice_started,
+        }
+        return b"".join(captured_frames), metadata
+
+    def _listen_adaptive(
+        self,
+        source: Any,
+        timeout: float = 7.0,
+        failsafe_watchdog_sec: float = 300.0,
+    ) -> Any:
+        """Graba audio desde el micrófono en vivo usando evaluación continua de Adaptive End-of-Speech."""
+        import speech_recognition as sr
+
+        def mic_stream() -> Iterable[bytes]:
+            while True:
+                buf = source.stream.read(source.CHUNK)
+                if not buf:
+                    break
+                yield buf
+
+        audio_bytes, _ = self.evaluate_adaptive_stream(
+            chunk_stream=mic_stream(),
+            sample_rate=source.SAMPLE_RATE,
+            sample_width=source.SAMPLE_WIDTH,
+            timeout=timeout,
+            failsafe_watchdog_sec=failsafe_watchdog_sec,
+        )
+        return sr.AudioData(audio_bytes, source.SAMPLE_RATE, source.SAMPLE_WIDTH)
+
     def capture_and_transcribe(
         self,
         mode: str = "IDLE",
         timeout: float = 7.0,
-        phrase_time_limit: float = 10.0,
+        phrase_time_limit: float | None = None,
         custom_audio_bytes: bytes | None = None,
     ) -> VoiceCaptureResult:
-        """Captura audio del usuario, aplica VAD con histeresis, transcribe y emite diagnósticos."""
+        """Captura audio del usuario con Adaptive End-of-Speech, transcribe y emite diagnósticos."""
         with self._lock:
             start_ts = time.time()
             diag = VoiceCaptureDiagnostic(
@@ -338,7 +512,7 @@ class CalibratedVoiceCaptureEngine:
             if custom_audio_bytes is not None:
                 return self._process_simulated_audio(custom_audio_bytes, diag, start_ts)
 
-            # 2. Captura real de micrófono mediante SpeechRecognition
+            # 2. Captura real de micrófono mediante Adaptive End-of-Speech
             if not self._microphone or not self._recognizer:
                 diag_data = diag.to_dict()
                 diag_data["discard_reason"] = VoiceDiscardReason.DEVICE_ERROR.value
@@ -357,17 +531,27 @@ class CalibratedVoiceCaptureEngine:
             import speech_recognition as sr
             try:
                 with self._microphone as source:
-                    audio_data = self._recognizer.listen(
+                    watchdog_limit = (
+                        phrase_time_limit
+                        if (phrase_time_limit is not None and phrase_time_limit < 300.0)
+                        else (self.max_capture_ms / 1000.0)
+                    )
+                    audio_data = self._listen_adaptive(
                         source,
                         timeout=timeout,
-                        phrase_time_limit=phrase_time_limit,
+                        failsafe_watchdog_sec=watchdog_limit,
                     )
+                t_eos = time.perf_counter()
 
                 raw_bytes = audio_data.get_raw_data()
                 rms = self._compute_rms(raw_bytes)
 
                 # 3. Transcripción con Google Speech Recognition en español
+                t_stt_start = time.perf_counter()
+                eos_to_stt_start_ms = (t_stt_start - t_eos) * 1000.0
                 text = self._recognizer.recognize_google(audio_data, language="es-ES")
+                t_stt_end = time.perf_counter()
+                stt_duration_ms = (t_stt_end - t_stt_start) * 1000.0
                 text_clean = (text or "").strip()
                 confidence = 0.90 if text_clean else 0.0
 
@@ -378,6 +562,8 @@ class CalibratedVoiceCaptureEngine:
                 diag_data["stt_attempted"] = True
                 diag_data["stt_text"] = text_clean
                 diag_data["stt_confidence"] = confidence
+                diag_data["eos_to_stt_start_ms"] = eos_to_stt_start_ms
+                diag_data["stt_duration_ms"] = stt_duration_ms
                 diag_data["discard_reason"] = VoiceDiscardReason.NONE.value
 
                 final_diag = VoiceCaptureDiagnostic.model_validate(diag_data)
@@ -391,6 +577,9 @@ class CalibratedVoiceCaptureEngine:
                     user_feedback_message="",
                     diagnostic=final_diag,
                     is_success=True,
+                    eos_timestamp=t_eos,
+                    eos_to_stt_start_ms=eos_to_stt_start_ms,
+                    stt_duration_ms=stt_duration_ms,
                 )
 
             except sr.WaitTimeoutError:

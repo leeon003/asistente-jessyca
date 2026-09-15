@@ -33,8 +33,8 @@ DEFAULT_SYSTEM_PROMPT = (
     "idioma específico, utiliza ese idioma.\n"
     "Mantén el idioma solicitado durante la respuesta y no lo traduzcas "
     "automáticamente al español.\n"
-    "Responde de manera concisa, fluida y directa (2 a 4 oraciones como máximo), "
-    "óptima para síntesis de voz (TTS).\n"
+    "Responde de manera muy concisa, fluida y directa (máximo 2 o 3 oraciones breves), "
+    "óptima para síntesis de voz (TTS). Ve directo al grano sin introducciones innecesarias.\n"
     "No utilices viñetas, asteriscos, títulos markdown ni formato estructurado pesado.\n"
     "Si te piden saludar a una persona en específico, dale un saludo personalizado.\n"
     "Si el usuario hace referencia a una persona o tema de turnos anteriores, "
@@ -146,6 +146,7 @@ class ConversationalDialogueHandler:
             system_prompt=DEFAULT_SYSTEM_PROMPT,
             model_name=model,
             temperature=0.7,
+            max_tokens=350,
         )
         resp = self.llm_provider.generate(req_inf)
         return str(resp.content)
