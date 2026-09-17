@@ -751,8 +751,14 @@ class JessycaLocalAgent:
                 )
 
             # 6.1 Ejecución directa verificada de aplicaciones de Windows
-            elif intent in ("open_application", "close_application"):
-                accion_app = "abrir" if intent == "open_application" else "cerrar"
+            elif intent in ("open_application", "close_application", "type_text"):
+                if intent == "open_application":
+                    accion_app = "abrir"
+                elif intent == "close_application":
+                    accion_app = "cerrar"
+                else:
+                    accion_app = "escribir"
+
                 app_name = extracted_params.get("app_name", "notepad")
 
                 from core.execution.idempotency_guard import (
@@ -793,22 +799,28 @@ class JessycaLocalAgent:
                         error=None if exec_success else msg_cached,
                     )
                 else:
+                    skill_params: dict[str, Any] = {
+                        "accion": accion_app,
+                        "nombre_app": app_name,
+                        "action_id": req.request_id,
+                        "request_id": req.request_id,
+                        "execution_id": exec_record.execution_id,
+                    }
+                    if intent == "open_application" and extracted_params.get("text_to_write"):
+                        skill_params["texto"] = extracted_params["text_to_write"]
+                    elif intent == "type_text":
+                        skill_params["texto"] = extracted_params.get("text") or extracted_params.get("text_to_write") or ""
+
                     skill_res = self.skill_manager.execute_skill(
                         "windows.apps",
-                        parameters={
-                            "accion": accion_app,
-                            "nombre_app": app_name,
-                            "action_id": req.request_id,
-                            "request_id": req.request_id,
-                            "execution_id": exec_record.execution_id,
-                        },
+                        parameters=skill_params,
                     )
 
                     raw_evidence = skill_res.output.get("evidence") if isinstance(skill_res.output, dict) else None
                     evidence_obj = None
                     if raw_evidence:
                         evidence_obj = ExecutionEvidence(
-                            verification_type=raw_evidence.get("verification_type", "process"),
+                            verification_type=raw_evidence.get("verification_type", "text_typed" if intent == "type_text" else "process"),
                             target=raw_evidence.get("target", app_name),
                             is_verified=bool(raw_evidence.get("is_verified", False)),
                             details=raw_evidence.get("details", {}),
@@ -1294,10 +1306,10 @@ class JessycaLocalAgent:
             path = re.sub(r"^(jessyca,?\s*)?(elimina(r)?|borra(r)?)\s*(el\s*archivo\s*(temporal)?)?\s*", "", lower).strip()
             return "delete_file", {"path": path or "C:\\Data\\temp.tmp"}, False
 
-        # 3. Patrones de Abrir Aplicación o Navegador ("abre el bloc de notas", "abre Google", "iniciar calculadora")
-        if any(w in lower for w in ("abre", "abrir", "inicia", "iniciar", "ejecuta", "lanza")):
+        # 3. Patrones de Abrir / Crear Aplicación o Navegador ("abre el bloc de notas", "crea un nuevo block de notas", "iniciar calculadora")
+        if any(w in lower for w in ("abre", "abrir", "inicia", "iniciar", "ejecuta", "lanza", "crea", "crear", "nuevo", "nueva")):
             # Sitios web conocidos → browser.open (NO intentar google.exe)
-            if "google" in lower and not any(w in lower for w in ("bloc", "notas", "notepad", "calc", "paint")):
+            if "google" in lower and not any(w in lower for w in ("bloc", "block", "notas", "notepad", "calc", "paint")):
                 return "open_browser", {"url": "https://www.google.com", "site": "Google"}, False
             if "youtube" in lower:
                 return "open_browser", {"url": "https://www.youtube.com", "site": "YouTube"}, False
@@ -1314,8 +1326,15 @@ class JessycaLocalAgent:
             if "chrome" in lower:
                 return "open_browser", {"url": "https://www.google.com", "site": "Chrome"}, False
 
-            if "bloc de notas" in lower or "notepad" in lower:
+            if any(v in lower for v in ("bloc de notas", "block de notas", "blog de notas", "bloc notas", "block notas", "notepad")):
+                m_write = re.search(r"(?:,\s*|\s+y\s+|\s+)(?:escribe|escribir|redacta|anota|pon)\s+(.+)$", text, flags=re.IGNORECASE)
+                if m_write:
+                    txt_to_write = m_write.group(1).strip()
+                    txt_to_write = re.sub(r"\s+(?:dentro\s+de(?:l)?|en\s+el|en)\s+(?:bloc|block|blog)?\s*(?:de\s+notas|notas|notepad)\s*$", "", txt_to_write, flags=re.IGNORECASE).strip()
+                    if txt_to_write:
+                        return "open_application", {"app_name": "notepad", "text_to_write": txt_to_write}, False
                 return "open_application", {"app_name": "notepad"}, False
+
             if "calculadora" in lower or "calc" in lower:
                 return "open_application", {"app_name": "calc"}, False
             if "paint" in lower:
@@ -1325,15 +1344,29 @@ class JessycaLocalAgent:
 
             clean_tokens = [
                 w for w in re.sub(r"[^\w\s]", "", lower).split()
-                if w not in ("abre", "abrir", "inicia", "el", "la", "los", "las", "un", "una", "por", "favor", "jessyca", "jessica", "gracias")
+                if w not in ("abre", "abrir", "inicia", "el", "la", "los", "las", "un", "una", "por", "favor", "jessyca", "jessica", "gracias", "crea", "crear", "nuevo", "nueva")
             ]
             if not clean_tokens:
                 return "open_application", {}, True
             return "open_application", {"app_name": " ".join(clean_tokens)}, False
 
+        # 3.1 Patrones de Escritura de Texto Directa / En Aplicación Activa ("escribe feliz cumpleaños dentro del block de notas")
+        is_notepad_target = any(v in lower for v in ("bloc de notas", "block de notas", "blog de notas", "bloc notas", "block notas", "notepad"))
+        active_app = str(self.context_manager.get_or_create_session(session_id).get_context("current_application") or "").lower()
+        if (
+            any(lower.startswith(w) for w in ("escribe ", "escribir ", "redacta ", "redactar ", "anota ", "anotar ", "digita ", "digitar ", "teclea ", "teclear ", "pon "))
+            and not any(k in lower for k in ("cancion", "canción", "baile", "musica", "música", "youtube", "video", "vídeo", "lista"))
+            and lower not in ("ahora escribe una lista", "escribe una lista", "haz una lista", "crea una lista")
+            and (is_notepad_target or active_app == "notepad")
+        ):
+            txt_clean = re.sub(r"^(?:jessyca,?\s*|jessica,?\s*)?(?:escribe|escribir|redacta|redactar|anota|anotar|digita|digitar|teclea|teclear|pon)\s+", "", text, flags=re.IGNORECASE).strip()
+            txt_clean = re.sub(r"\s+(?:dentro\s+de(?:l)?|en\s+el|en)\s+(?:bloc|block|blog)?\s*(?:de\s+notas|notas|notepad)\s*$", "", txt_clean, flags=re.IGNORECASE).strip()
+            if txt_clean:
+                return "type_text", {"app_name": "notepad", "text": txt_clean}, False
+
         # 4. Patrones de Cerrar Aplicación ("cierra el bloc de notas", "cerrar calculadora", "puedes cerrar")
         if any(w in lower for w in ("cierra", "cerrar", "apaga", "apagar", "deten", "detener", "termina", "terminar", "puedes cerrar", "puédes cerrar")):
-            if "bloc de notas" in lower or "notepad" in lower:
+            if any(v in lower for v in ("bloc de notas", "block de notas", "blog de notas", "bloc notas", "block notas", "notepad", "el bloc", "el block")):
                 return "close_application", {"app_name": "notepad"}, False
             if "calculadora" in lower or "calc" in lower:
                 return "close_application", {"app_name": "calc"}, False
@@ -1379,7 +1412,7 @@ class JessycaLocalAgent:
         """Selecciona el modelo óptimo automáticamente según la intención."""
         if intent in ("multistep_research", "complex_reasoning"):
             return "qwen2.5-coder:7b"
-        if intent in ("open_application", "close_application", "search_file", "browser_search", "play_random_video"):
+        if intent in ("open_application", "close_application", "type_text", "search_file", "browser_search", "play_random_video"):
             return "llama3.2:3b"
         return "auto-routed"
 
@@ -1388,6 +1421,7 @@ class JessycaLocalAgent:
         agent_map = {
             "open_application": "desktop_agent",
             "close_application": "desktop_agent",
+            "type_text": "desktop_agent",
             "play_random_video": "desktop_agent",
             "search_file": "file_agent",
             "open_browser": "browser_agent",
@@ -1407,6 +1441,7 @@ class JessycaLocalAgent:
         skill_map = {
             "open_application": "windows.apps@1.0.0",
             "close_application": "windows.apps@1.0.0",
+            "type_text": "windows.apps@1.0.0",
             "play_random_video": "windows.media@1.0.0",
             "search_file": "files.search@1.0.0",
             "open_browser": "browser.open@1.0.0",
@@ -1425,6 +1460,7 @@ class JessycaLocalAgent:
         tool_map = {
             "open_application": "windows.launch_app",
             "close_application": "windows.close_app",
+            "type_text": "windows.type_text",
             "play_random_video": "windows.media.play",
             "search_file": "filesystem.search_files",
             "open_browser": "browser.open",
@@ -1459,7 +1495,7 @@ class JessycaLocalAgent:
 
             app = params.get("app_name") or params.get("target") or "la aplicación"
             app_lower = str(app).lower()
-            if "bloc de notas" in app_lower or "notepad" in app_lower:
+            if any(v in app_lower for v in ("bloc de notas", "block de notas", "blog de notas", "bloc notas", "block notas", "notepad")):
                 app_display = "el Bloc de notas"
             elif "calculadora" in app_lower or "calc" in app_lower:
                 app_display = "la Calculadora"
@@ -1478,7 +1514,12 @@ class JessycaLocalAgent:
 
             if execution_result.status == ExecutionStatus.SUCCEEDED:
                 if intent == "open_application":
+                    if params.get("text_to_write"):
+                        return f"Listo, abrí {app_display} y escribí '{params['text_to_write']}'."
                     return f"Listo, abrí {app_display}."
+                elif intent == "type_text":
+                    txt_val = params.get("text") or params.get("text_to_write") or ""
+                    return f"Listo, escribí '{txt_val}' en {app_display}."
                 elif intent == "close_application":
                     return f"Listo, cerré {app_display}."
                 elif intent == "play_random_video":
@@ -1491,6 +1532,8 @@ class JessycaLocalAgent:
             elif execution_result.status == ExecutionStatus.VERIFICATION_FAILED:
                 if intent == "open_application":
                     return f"Intenté abrir {app_display}, pero Windows no confirmó que se haya abierto."
+                elif intent == "type_text":
+                    return f"No se pudo escribir en {app_display} porque la ventana no respondió o no se pudo verificar."
                 elif intent == "close_application":
                     return f"Intenté cerrar {app_display}, pero no se pudo confirmar el cierre."
                 elif intent == "play_random_video":

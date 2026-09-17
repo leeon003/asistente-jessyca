@@ -125,13 +125,15 @@ class BrowserYouTubeSkill(BaseSkill):
 
             return {
                 "exito": True,
+                "executed": True,
                 "step": "OPEN_YOUTUBE",
                 "steps_executed": ("OPEN_YOUTUBE",),
                 "url": url,
                 "tab_id": tab.tab_id if tab else "tab-1",
-                "mensaje": "Listo, abrí YouTube en el navegador.",
-                "verified": True,
-                "verification_status": "VERIFIED",
+                "mensaje": "Se solicitó abrir YouTube en el navegador.",
+                "verified": False,
+                "verification_status": "UNVERIFIED",
+                "verification_required": True,
             }
         except Exception as exc:
             logger.error(f"[YOUTUBE OPEN ERROR] Fallo al abrir YouTube: {exc}")
@@ -174,15 +176,17 @@ class BrowserYouTubeSkill(BaseSkill):
 
             return {
                 "exito": True,
+                "executed": True,
                 "step": "SEARCH_YOUTUBE",
                 "steps_executed": ("OPEN_YOUTUBE", "SEARCH_YOUTUBE"),
                 "query": clean_query,
                 "url": search_url,
                 "video_id": video_id,
                 "tab_id": tab.tab_id if tab else "tab-1",
-                "mensaje": f"Encontré resultados para '{clean_query}' en YouTube.",
-                "verified": True,
-                "verification_status": "VERIFIED",
+                "mensaje": f"Se envió la búsqueda de '{clean_query}' a YouTube.",
+                "verified": False,
+                "verification_status": "UNVERIFIED",
+                "verification_required": True,
             }
         except Exception as exc:
             logger.error(f"[YOUTUBE SEARCH ERROR] Fallo en búsqueda YouTube: {exc}")
@@ -304,14 +308,13 @@ class BrowserYouTubeSkill(BaseSkill):
                 "verification_status": "FAILED",
             }
 
-        # PASO 5: VERIFY_PLAYBACK
-        steps_done.append("VERIFY_PLAYBACK")
-        logger.info(f"[YOUTUBE COMPOUND] Paso 5/5: VERIFY_PLAYBACK para '{clean_query}'")
-
+        # En la Fase 1, la skill termina en PLAY_MEDIA solicitada sin auto-certificarse.
+        # La verificación real de reproducción corresponde al ExecutionVerifier externo (Fase 3).
         if parametros.get("simulate_unverifiable"):
             return {
                 "exito": True,
-                "step": "VERIFY_PLAYBACK",
+                "executed": True,
+                "step": "PLAY_MEDIA",
                 "steps_executed": tuple(steps_done),
                 "query": clean_query,
                 "video_id": video_id,
@@ -319,22 +322,24 @@ class BrowserYouTubeSkill(BaseSkill):
                 "mensaje": f"Abrí la página de YouTube para '{clean_query}', pero no fue posible verificar la reproducción.",
                 "verified": False,
                 "verification_status": "NOT_VERIFIABLE",
+                "verification_required": True,
                 "media_state": "MEDIA_UNKNOWN",
             }
 
-        # Éxito verificado determinista
         return {
             "exito": True,
-            "step": "VERIFY_PLAYBACK",
+            "executed": True,
+            "step": "PLAY_MEDIA",
             "steps_executed": tuple(steps_done),
             "query": clean_query,
             "video_id": video_id,
             "url": target_video_url,
             "tab_id": tab.tab_id if tab else "tab-1",
-            "mensaje": f"Listo, está reproduciendo {clean_query}.",
-            "verified": True,
-            "verification_status": "VERIFIED",
-            "media_state": "MEDIA_PLAYING",
+            "mensaje": f"Se solicitó reproducir {clean_query} en YouTube.",
+            "verified": False,
+            "verification_status": "UNVERIFIED",
+            "verification_required": True,
+            "media_state": "MEDIA_UNKNOWN",
         }
 
     def resolve_video_id(self, query: str) -> str | None:
@@ -366,14 +371,9 @@ class BrowserYouTubeSkill(BaseSkill):
                     logger.info(f"[YOUTUBE RESOLVER] ID resuelto para '{clean_q}': {selected}")
                     return selected
         except Exception as exc:
-            logger.debug(f"[YOUTUBE RESOLVER] Consulta en vivo no disponible ({exc}). Usando fallback determinista.")
+            logger.debug(f"[YOUTUBE RESOLVER] Consulta en vivo no disponible ({exc}).")
 
-        # Fallback determinista seguro para tests o entornos offline
-        # Genera un ID sintético válido de 11 caracteres derivado del término
-        if clean_q:
-            sanitized = re.sub(r"[^a-zA-Z0-9]", "", clean_q)
-            padded = (sanitized + "abcdefghijk")[:11]
-            return padded
+        # NUNCA generar IDs sintéticos artificiales si no se encontró un video real (Fase 1)
         return None
 
     def _clean_query_text(self, text: str) -> str:

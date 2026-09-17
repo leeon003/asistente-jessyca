@@ -27,3 +27,13 @@ applications:
   chrome: "chrome.exe"
   navegador: "msedge.exe"
   edge: "msedge.exe"
+
+  # WhatsApp Desktop (Microsoft Store / UWP)
+  # Método 1: URI scheme (funciona si WhatsApp Desktop está instalado)
+  # Método 2: shell:AppsFolder (fallback UWP)
+  whatsapp: "whatsapp:"
+  "whatsapp desktop": "whatsapp:"
+  "what's app": "whatsapp:"
+  "watsap": "whatsapp:"
+  "wasap": "whatsapp:"
+

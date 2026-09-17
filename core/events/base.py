@@ -154,3 +154,28 @@ class ErrorOccurred(Event):
     details: dict[str, Any] = field(default_factory=dict)
     traceback: str | None = None
     session_id: str | None = None
+
+
+@dataclass(kw_only=True)
+class IntegrationStatusChanged(Event):
+    """Notifica un cambio de estado en el ciclo de vida de un Integration Adapter."""
+
+    adapter_name: str = ""
+    old_status: str = ""
+    new_status: str = ""
+    message: str = ""
+    details: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(kw_only=True)
+class IntegrationExecuted(Event):
+    """Notifica la ejecución de una capacidad mediante un Integration Adapter."""
+
+    adapter_name: str = ""
+    capability: str = ""
+    status: str = ""
+    duration_ms: float = 0.0
+    executed: bool = False
+    verified: bool = False
+    details: dict[str, Any] = field(default_factory=dict)
+

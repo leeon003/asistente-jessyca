@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from enum import StrEnum
 from pathlib import Path
+from typing import Any
 
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -1059,6 +1060,43 @@ class AppSettings(BaseSettings):
         default_factory=lambda: frozenset({".mp4", ".mkv", ".avi", ".mov", ".webm", ".wmv", ".m4v"}),
         description="Extensiones de archivo de vídeo permitidas (case-insensitive).",
     )
+
+    # Configuración de Mobile API Bridge (JESSYCA 4.0 Core ↔ Mobile)
+    MOBILE_API_ENABLED: bool = Field(
+        default=True,
+        description="Habilita el servidor Mobile API para comunicación con cliente Android.",
+    )
+    MOBILE_API_HOST: str = Field(
+        default="0.0.0.0",
+        description="Host de escucha para Mobile API (0.0.0.0 para acceso LAN).",
+    )
+    MOBILE_API_PORT: int = Field(
+        default=8765,
+        description="Puerto TCP de escucha para Mobile API.",
+    )
+    MOBILE_API_AUTH_TOKEN: str = Field(
+        default="jessyca-dev-token-insecure",
+        description="Token de autenticación para cliente móvil (X-Jessyca-Token). En producción, configurar vía variable de entorno.",
+    )
+    MOBILE_API_TIMEOUT: int = Field(
+        default=30,
+        description="Timeout máximo en segundos para procesamiento de solicitudes móviles.",
+    )
+
+    # Integraciones Externas (Integration Hub / Adapter Layer)
+    INTEGRATIONS_ENABLED: bool = Field(
+        default=True,
+        description="Habilita o deshabilita globalmente el subsistema de Integration Hub.",
+    )
+    INTEGRATIONS_ADAPTERS: dict[str, dict[str, Any]] = Field(
+        default_factory=lambda: {
+            "jarvis": {"enabled": False},
+            "are": {"enabled": False},
+            "windows_computer_use": {"enabled": False},
+        },
+        description="Configuración y estado de habilitación de adapters específicos.",
+    )
+
 
     @field_validator("ENVIRONMENT", mode="before")
     @classmethod

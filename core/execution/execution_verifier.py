@@ -108,6 +108,10 @@ class ProcessExistsVerificationStrategy:
     EXECUTABLE_ALIASES: dict[str, tuple[str, ...]] = {
         "notepad": ("notepad.exe", "notepad"),
         "bloc de notas": ("notepad.exe", "notepad"),
+        "block de notas": ("notepad.exe", "notepad"),
+        "bloc notas": ("notepad.exe", "notepad"),
+        "block notas": ("notepad.exe", "notepad"),
+        "blog de notas": ("notepad.exe", "notepad"),
         "calc": ("calculatorapp.exe", "calc.exe", "calculator.exe", "applicationframehost.exe"),
         "calculadora": ("calculatorapp.exe", "calc.exe", "calculator.exe", "applicationframehost.exe"),
         "explorer": ("explorer.exe", "explorer"),

@@ -137,6 +137,21 @@ def run_voice_mode() -> int:
         return 1
 
 
+def run_mobile_mode(host: str | None = None, port: int | None = None) -> int:
+    """Ejecuta exclusivamente el servidor Mobile API Bridge standalone."""
+    try:
+        from interfaces.mobile_api.server import run_mobile_server
+
+        logger.info("[MOBILE STANDALONE] Iniciando servidor Mobile API Bridge...")
+        return run_mobile_server(host=host, port=port)
+    except KeyboardInterrupt:
+        logger.info("[MOBILE STANDALONE] Servidor Mobile API detenido por el usuario.")
+        return 0
+    except Exception as e:
+        logger.critical(f"[MOBILE STANDALONE FATAL] Error en servidor Mobile API: {e}", exc_info=True)
+        return 1
+
+
 def parse_arguments(argv: Sequence[str] | None = None) -> argparse.Namespace:
     """Parsea los argumentos de línea de comandos para seleccionar el modo de ejecución."""
     parser = argparse.ArgumentParser(
@@ -159,11 +174,28 @@ def parse_arguments(argv: Sequence[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="Inicia exclusivamente la interfaz interactiva de voz",
     )
+    group.add_argument(
+        "--mobile",
+        action="store_true",
+        help="Inicia exclusivamente el servidor Mobile API Bridge",
+    )
     parser.add_argument(
         "--transport",
         type=str,
         default=None,
         help="Transporte para el servidor MCP (ej. stdio, sse, streamable-http)",
+    )
+    parser.add_argument(
+        "--host",
+        type=str,
+        default=None,
+        help="Host de escucha personalizado para servidores de red",
+    )
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=None,
+        help="Puerto TCP de escucha personalizado para servidores de red",
     )
     return parser.parse_args(args=argv if argv is not None else [])
 
@@ -176,6 +208,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return run_mcp_mode(transport=args.transport)
     if args.voice:
         return run_voice_mode()
+    if args.mobile:
+        return run_mobile_mode(host=args.host, port=args.port)
 
     # Modo DEMO predeterminado
     return run_demo_mode()

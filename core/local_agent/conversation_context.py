@@ -217,13 +217,45 @@ class ConversationContextManager:
                 session.set_context_item("last_referenced_entity", "Google", relevance=1.0)
                 return "open_browser", {"url": "https://www.google.com", "site": "Google"}, False, None
 
-            if any(lower.startswith(w) or lower == w for w in ("abre bloc de notas", "abre el bloc de notas", "abrir bloc de notas", "abrir el bloc de notas", "abre notepad", "abrir notepad", "inicia bloc de notas", "iniciar bloc de notas")):
+            # 4.0.0.0.1 APERTURA / CREACIÓN DE BLOC DE NOTAS (INCLUYENDO ÓRDENES COMPUESTAS CON TEXTO)
+            is_notepad_mention = any(v in lower for v in ("bloc de notas", "block de notas", "blog de notas", "bloc notas", "block notas", "notepad"))
+            is_closing_cmd = any(w in lower for w in ("cierra", "cerrar", "apaga", "deten", "termina"))
+            is_launch_or_create = any(w in lower for w in ("abre", "abrir", "inicia", "iniciar", "lanza", "ejecuta", "crea", "crear", "nuevo", "nueva"))
+
+            if is_notepad_mention and is_launch_or_create and not is_closing_cmd:
                 session.set_context_item("current_application", "notepad", relevance=1.0)
                 session.set_context_item("last_app", "notepad", relevance=1.0)
                 session.set_context_item("last_referenced_entity", "notepad", relevance=1.0)
+
+                # Comprobar cláusula de escritura compuesta: "abre / crea ... y escribe <texto>"
+                m_write = re.search(r"(?:,\s*|\s+y\s+|\s+)(?:escribe|escribir|redacta|anota|pon)\s+(.+)$", text, flags=re.IGNORECASE)
+                if m_write:
+                    txt_to_write = m_write.group(1).strip()
+                    txt_to_write = re.sub(r"\s+(?:dentro\s+de(?:l)?|en\s+el|en)\s+(?:bloc|block|blog)?\s*(?:de\s+notas|notas|notepad)\s*$", "", txt_to_write, flags=re.IGNORECASE).strip()
+                    if txt_to_write:
+                        session.set_context_item("last_written_text", txt_to_write, relevance=0.9)
+                        return "open_application", {"app_name": "notepad", "text_to_write": txt_to_write}, False, None
+
                 return "open_application", {"app_name": "notepad"}, False, None
 
-            if any(w in lower for w in ("cierra", "cerrar", "apaga", "deten", "termina")) and any(a in lower for a in ("bloc de notas", "notepad", "el bloc")):
+            # 4.0.0.0.2 ESCRITURA CONTEXTUAL DIRECTA O CONTINUA ("Escribe feliz cumpleaños dentro del block de notas", "Escribe feliz cumpleaños")
+            is_writing_cmd = (
+                any(lower.startswith(w) for w in ("escribe ", "escribir ", "redacta ", "redactar ", "anota ", "anotar ", "digita ", "digitar ", "teclea ", "teclear ", "pon "))
+                and not any(k in lower for k in ("cancion", "canción", "baile", "musica", "música", "youtube", "video", "vídeo", "lista"))
+                and lower not in ("ahora escribe una lista", "escribe una lista", "haz una lista", "crea una lista")
+            )
+            curr_app = str(session.get_context("current_application") or session.get_context("last_app") or "").lower()
+            if is_writing_cmd and (is_notepad_mention or curr_app == "notepad"):
+                txt_clean = re.sub(r"^(?:jessyca,?\s*|jessica,?\s*)?(?:escribe|escribir|redacta|redactar|anota|anotar|digita|digitar|teclea|teclear|pon)\s+", "", text, flags=re.IGNORECASE).strip()
+                txt_clean = re.sub(r"\s+(?:dentro\s+de(?:l)?|en\s+el|en)\s+(?:bloc|block|blog)?\s*(?:de\s+notas|notas|notepad)\s*$", "", txt_clean, flags=re.IGNORECASE).strip()
+                if txt_clean:
+                    session.set_context_item("current_application", "notepad", relevance=1.0)
+                    session.set_context_item("last_app", "notepad", relevance=1.0)
+                    session.set_context_item("last_referenced_entity", "notepad", relevance=1.0)
+                    session.set_context_item("last_written_text", txt_clean, relevance=0.9)
+                    return "type_text", {"app_name": "notepad", "text": txt_clean}, False, None
+
+            if is_closing_cmd and any(a in lower for a in ("bloc de notas", "block de notas", "notepad", "el bloc", "el block")):
                 session.set_context_item("last_referenced_entity", "notepad", relevance=1.0)
                 return "close_application", {"app_name": "notepad"}, False, None
 

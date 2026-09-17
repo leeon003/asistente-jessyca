@@ -30,3 +30,23 @@ browser:
 logging:
   level: "INFO"
   console_output: true
+
+# Configuración Mobile API Bridge (JESSYCA 4.0 Core ↔ Mobile)
+mobile_api:
+  enabled: true
+  host: "0.0.0.0"
+  port: 8765
+  timeout: 30
+  # Nota de seguridad: definir MOBILE_API_AUTH_TOKEN mediante variable de entorno o .env
+
+# Configuración de Integraciones Externas (Integration Hub / Adapter Layer)
+integrations:
+  enabled: true
+  adapters:
+    jarvis:
+      enabled: false
+    are:
+      enabled: false
+    windows_computer_use:
+      enabled: false
+

@@ -87,11 +87,15 @@ class BrowserSearchSkill(BaseSkill):
 
             return {
                 "exito": True,
+                "executed": True,
                 "mensaje": success_msg,
                 "consulta": query,
                 "url": search_url,
                 "motor": search_engine,
                 "navegador": "Microsoft Edge",
+                "verified": False,
+                "verification_status": "UNVERIFIED",
+                "verification_required": True,
                 "resultados_extraidos": nav_result.get("snippets", [
                     f"Resultados principales de {query} en la web.",
                     f"Información técnica y noticias actualizadas sobre {query}.",

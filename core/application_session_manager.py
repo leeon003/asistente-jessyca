@@ -202,7 +202,12 @@ class WindowsApplicationAdapter(IApplicationAdapter):
 
             windows = self.ui_service.list_windows()
             for win in windows:
-                if desc.executable.lower() in win.title.lower() or desc.name.lower() in win.title.lower():
+                win_title_low = win.title.lower()
+                if (
+                    desc.executable.lower() in win_title_low
+                    or desc.name.lower() in win_title_low
+                    or any(a.lower() in win_title_low for a in desc.aliases)
+                ):
                     now = datetime.now(UTC)
                     sid = f"win-sess-{app_id}-{win.hwnd}"
                     session = ApplicationSession(
@@ -217,6 +222,41 @@ class WindowsApplicationAdapter(IApplicationAdapter):
                     )
                     self.active_sessions[sid] = session
                     return session
+
+            if os.name == "nt":
+                try:
+                    import win32gui, win32process
+                    real_wins: list[tuple[int, str, int]] = []
+                    def _enum_win(h: int, _: Any) -> None:
+                        if win32gui.IsWindowVisible(h):
+                            t = win32gui.GetWindowText(h)
+                            if t:
+                                _, pid = win32process.GetWindowThreadProcessId(h)
+                                real_wins.append((h, t, pid))
+                    win32gui.EnumWindows(_enum_win, None)
+                    for h, t, p in real_wins:
+                        t_lower = t.lower()
+                        if (
+                            desc.executable.lower() in t_lower
+                            or desc.name.lower() in t_lower
+                            or any(a.lower() in t_lower for a in desc.aliases)
+                        ):
+                            now = datetime.now(UTC)
+                            sid = f"win-sess-{app_id}-{h}"
+                            session = ApplicationSession(
+                                session_id=sid,
+                                app_id=app_id,
+                                pid=p,
+                                hwnd=h,
+                                state=ApplicationState.RUNNING,
+                                is_single_instance=desc.supports_single_instance,
+                                start_time=now,
+                                last_active_time=now,
+                            )
+                            self.active_sessions[sid] = session
+                            return session
+                except Exception:
+                    pass
         except Exception as e:
             logger.warning(f"[WINDOWS APP ADAPTER] Error al inspeccionar ventanas activas ({e})")
 

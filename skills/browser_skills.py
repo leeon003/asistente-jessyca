@@ -80,9 +80,13 @@ class BrowserOpenSkill(BaseSkill):
                 pass
             return {
                 "exito": True,
-                "mensaje": f"URL '{url}' abierta en Microsoft Edge.",
+                "executed": True,
+                "mensaje": f"Se solicitó abrir la URL '{url}' en el navegador.",
                 "url": url,
                 "tab_id": tab.tab_id if tab else "tab-1",
+                "verified": False,
+                "verification_status": "UNVERIFIED",
+                "verification_required": True,
             }
         except Exception as exc:
             return {"exito": False, "mensaje": f"Error al abrir la URL: {exc}"}

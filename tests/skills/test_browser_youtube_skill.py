@@ -62,17 +62,18 @@ def test_intent_reproduce_en_youtube() -> None:
     assert "playing your face" in decision.parameters.get("query", "").lower()
 
 
-# ── TEST 4: Ejecución exitosa de reproducción con verificación ──
+# ── TEST 4: Ejecución exitosa de reproducción sin auto-certificación (Fase 1) ──
 def test_skill_execution_success() -> None:
     skill = BrowserYouTubeSkill()
     res = skill.execute({"operacion": "play", "query": "Playing Your Face", "video_id": "lKYQZrBm040"})  # type: ignore[arg-type]
     assert res.success is True
     result = res.output
     assert result["exito"] is True
-    assert result["verification_status"] == "VERIFIED"
-    assert result["verified"] is True
+    assert result["verification_status"] == "UNVERIFIED"
+    assert result["verified"] is False
+    assert result["verification_required"] is True
     assert "lKYQZrBm040" in result["url"]
-    assert "Listo, está reproduciendo" in result["mensaje"]
+    assert "reproducir" in result["mensaje"].lower()
 
 
 # ── TEST 5: Fallo en SEARCH no debe continuar a PLAY ──
@@ -125,7 +126,7 @@ def test_skill_execution_unverifiable() -> None:
     assert "no fue posible verificar" in result["mensaje"]
 
 
-# ── TEST 8: Tarea compuesta (OPEN -> SEARCH -> SELECT -> PLAY -> VERIFY) ──
+# ── TEST 8: Tarea compuesta (OPEN -> SEARCH -> SELECT -> PLAY) sin auto-certificación ──
 def test_skill_compound_task_steps() -> None:
     skill = BrowserYouTubeSkill()
     res = skill.execute({  # type: ignore[arg-type]
@@ -141,8 +142,9 @@ def test_skill_compound_task_steps() -> None:
     assert "SEARCH_YOUTUBE" in steps
     assert "SELECT_RESULT" in steps
     assert "PLAY_MEDIA" in steps
-    assert "VERIFY_PLAYBACK" in steps
-    assert result["step"] == "VERIFY_PLAYBACK"
+    assert result["step"] == "PLAY_MEDIA"
+    assert result["verification_status"] == "UNVERIFIED"
+    assert result["verified"] is False
 
 
 # ── TEST 9: Conversación multi-turno ("Abre YouTube" -> "Busca X" -> "Reprodúcelo") ──
@@ -201,4 +203,5 @@ def test_local_agent_end_to_end_no_general_query() -> None:
     )
     assert resp.intent == "youtube_play"
     assert resp.intent != "general_query"
-    assert "Listo, está reproduciendo" in resp.response_text or "reproduciendo" in resp.response_text
+    assert any(term in resp.response_text.lower() for term in ("reproducción", "reproduciendo", "youtube"))
+
