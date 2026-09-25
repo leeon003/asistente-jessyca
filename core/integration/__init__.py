@@ -5,7 +5,10 @@ la frontera de seguridad y el hub central de ejecución con fallback.
 """
 
 from core.integration.adapter import IntegrationAdapter
-from core.integration.hub import IntegrationHub, get_integration_hub
+from core.integration.adapters.are_adapter import AREAdapter
+from core.integration.adapters.computer_use_adapter import ComputerUseAdapter
+from core.integration.adapters.jarvis_adapter import JarvisAdapter
+from core.integration.hub import IntegrationHub, get_integration_hub, register_default_adapters
 from core.integration.models import (
     IntegrationCapability,
     IntegrationContext,
@@ -21,6 +24,8 @@ from core.integration.security_boundary import (
 )
 
 __all__ = [
+    "AREAdapter",
+    "ComputerUseAdapter",
     "IntegrationAdapter",
     "IntegrationCapability",
     "IntegrationContext",
@@ -31,7 +36,9 @@ __all__ = [
     "IntegrationRegistry",
     "IntegrationSecurityBoundary",
     "IntegrationStatus",
+    "JarvisAdapter",
     "get_integration_hub",
     "get_integration_registry",
+    "register_default_adapters",
     "sanitize_context_parameters",
 ]

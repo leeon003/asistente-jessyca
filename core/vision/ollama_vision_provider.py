@@ -45,10 +45,12 @@ class OllamaVisionProvider(IVisionProvider):
         provider: LLMProvider | None = None,
         sanitizer: OCRTextSanitizer | None = None,
         default_model: str = DEFAULT_VISION_MODEL,
+        fallback_confidence: float = 0.5,
     ) -> None:
         self._provider = provider or OllamaProvider()
         self._sanitizer = sanitizer or OCRTextSanitizer()
         self.default_model = default_model
+        self.fallback_confidence = fallback_confidence
 
     def analyze_screenshot(
         self,
@@ -120,7 +122,7 @@ class OllamaVisionProvider(IVisionProvider):
                 detected_windows=(),
                 detected_text=(),
                 ui_elements=(),
-                confidence=0.5,
+                confidence=self.fallback_confidence,
                 model_used=self.default_model,
                 raw_response=resp.content,
                 duration_ms=duration_ms,
@@ -161,19 +163,42 @@ class OllamaVisionProvider(IVisionProvider):
 
     def create_observation(
         self,
-        screenshot: ScreenshotResult | str | bytes,
-        prompt: str | None = None,
+        target: VisionAnalysis | ScreenshotResult | str | bytes,
+        prompt_or_request_id: str | None = None,
+        request_id: str | None = None,
     ) -> VisionObservation:
-        """Crea una observación formal estructurada a partir de una captura de pantalla."""
-        analysis = self.analyze_screenshot(screenshot=screenshot, prompt=prompt)
-        obs_id = f"obs_vis_{uuid.uuid4().hex[:8]}"
+        """Crea una observación formal estructurada a partir de un VisionAnalysis o una captura de pantalla."""
+        if isinstance(target, VisionAnalysis):
+            obs_id = request_id or prompt_or_request_id or f"vis-obs-{uuid.uuid4().hex[:8]}"
+            return VisionObservation(
+                observation_id=obs_id,
+                summary=target.summary,
+                analysis=target,
+                is_safe=True,
+                metadata={
+                    "model": target.model_used or self.default_model,
+                    "model_used": target.model_used or self.default_model,
+                    "duration_ms": target.duration_ms,
+                    "windows_count": len(target.detected_windows),
+                    "text_count": len(target.detected_text),
+                },
+            )
+
+        analysis = self.analyze_screenshot(screenshot=target, prompt=prompt_or_request_id)
+        obs_id = request_id or f"obs_vis_{uuid.uuid4().hex[:8]}"
 
         return VisionObservation(
             observation_id=obs_id,
             summary=analysis.summary,
             analysis=analysis,
             is_safe=True,
-            metadata={"model": self.default_model, "duration_ms": analysis.duration_ms},
+            metadata={
+                "model": self.default_model,
+                "model_used": self.default_model,
+                "duration_ms": analysis.duration_ms,
+                "windows_count": len(analysis.detected_windows),
+                "text_count": len(analysis.detected_text),
+            },
         )
 
     def _prepare_image_base64(self, screenshot: ScreenshotResult | str | bytes) -> str:
@@ -189,7 +214,10 @@ class OllamaVisionProvider(IVisionProvider):
                     code="EMPTY_SCREENSHOT",
                 )
             if not screenshot.image_base64:
-                raise EmptyScreenshotError("El objeto ScreenshotResult no contiene datos Base64.", code="EMPTY_SCREENSHOT")
+                raise EmptyScreenshotError(
+                    "La captura de pantalla no contiene datos de imagen o datos Base64 válidos.",
+                    code="EMPTY_SCREENSHOT",
+                )
             return self._validate_base64(screenshot.image_base64)
 
         # 2. Si es bytes crudos

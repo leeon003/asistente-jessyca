@@ -342,3 +342,277 @@ def test_no_memory_or_llm_duplication() -> None:
     assert not hasattr(adapter, "memory_engine")
     assert not hasattr(adapter, "vector_store")
     assert not hasattr(adapter, "tts_engine")
+
+
+# --- 12. Descubrimiento y Registro Predeterminado desde Configuración ---
+
+
+def test_jarvis_adapter_discovery_and_auto_registration(clean_registry: IntegrationRegistry) -> None:
+    """Comprueba el descubrimiento y registro automático de JarvisAdapter en el IntegrationHub."""
+    from core.integration.hub import register_default_adapters
+
+    hub = IntegrationHub(registry=clean_registry)
+    register_default_adapters(hub)
+
+    jarvis = hub.registry.get("jarvis-py")
+    assert jarvis is not None
+    assert jarvis.name == "jarvis-py"
+    assert jarvis.version == "3.5.2"
+    # Debe estar presente en el catálogo de integraciones
+    all_integrations = {info.name for info in hub.registry.list_integrations()}
+    assert "jarvis-py" in all_integrations
+
+
+# --- 13. Capacidad Seleccionada: jarvis.volume_control (Casos Válidos, Inválidos y Deps Ausentes) ---
+
+
+@pytest.mark.anyio
+async def test_jarvis_volume_control(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verifica control de volumen multimedia (increase, decrease, mute), acciones inválidas y falta de dependencia."""
+    adapter = JarvisAdapter()
+    await adapter.initialize()
+
+    pressed_keys: list[str] = []
+
+    class FakePyAutoGUI:
+        @staticmethod
+        def press(key: str) -> None:
+            pressed_keys.append(key)
+
+    monkeypatch.setattr("pyautogui.press", FakePyAutoGUI.press, raising=False)
+
+    # 1. Increase
+    res_inc = await adapter.execute(
+        "jarvis.volume_control",
+        IntegrationContext(session_id="vol1", parameters={"action": "increase"}),
+    )
+    assert res_inc.executed is True
+    assert res_inc.status == ExecutionStatus.SUCCEEDED
+    assert res_inc.verified is False
+    assert res_inc.verification_required is True
+    assert "volumeup" in pressed_keys
+
+    # 2. Decrease
+    res_dec = await adapter.execute(
+        "jarvis.volume_control",
+        IntegrationContext(session_id="vol2", parameters={"action": "decrease"}),
+    )
+    assert res_dec.executed is True
+    assert res_dec.status == ExecutionStatus.SUCCEEDED
+    assert "volumedown" in pressed_keys
+
+    # 3. Mute
+    res_mute = await adapter.execute(
+        "jarvis.volume_control",
+        IntegrationContext(session_id="vol3", parameters={"action": "mute"}),
+    )
+    assert res_mute.executed is True
+    assert res_mute.status == ExecutionStatus.SUCCEEDED
+    assert "volumemute" in pressed_keys
+
+    # 4. Acción inválida
+    res_inv = await adapter.execute(
+        "jarvis.volume_control",
+        IntegrationContext(session_id="vol4", parameters={"action": "explode"}),
+    )
+    assert res_inv.executed is False
+    assert res_inv.status == ExecutionStatus.FAILED
+    assert "inválida" in (res_inv.error or "")
+
+    # 5. Dependencia pyautogui ausente
+    import builtins
+    real_import = builtins.__import__
+
+    def fake_import(name: str, *args: object, **kwargs: object) -> object:
+        if name == "pyautogui":
+            raise ImportError("No module named 'pyautogui'")
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", fake_import)
+    res_no_dep = await adapter.execute(
+        "jarvis.volume_control",
+        IntegrationContext(session_id="vol5", parameters={"action": "increase"}),
+    )
+    assert res_no_dep.executed is False
+    assert res_no_dep.status == ExecutionStatus.FAILED
+    assert "pyautogui no disponible" in (res_no_dep.error or "")
+
+
+# --- 14. Capacidad Seleccionada: jarvis.clipboard (Lectura, Escritura, Recorte y Deps) ---
+
+
+@pytest.mark.anyio
+async def test_jarvis_clipboard(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verifica portapapeles: escritura, lectura, recorte de longitud, acción inválida y falta de dependencia."""
+    adapter = JarvisAdapter()
+    await adapter.initialize()
+
+    fake_clipboard = {"content": ""}
+
+    class FakePyperclip:
+        @staticmethod
+        def copy(text: str) -> None:
+            fake_clipboard["content"] = text
+
+        @staticmethod
+        def paste() -> str:
+            return fake_clipboard["content"]
+
+    monkeypatch.setattr("pyperclip.copy", FakePyperclip.copy, raising=False)
+    monkeypatch.setattr("pyperclip.paste", FakePyperclip.paste, raising=False)
+
+    # 1. Escribir texto
+    res_w = await adapter.execute(
+        "jarvis.clipboard",
+        IntegrationContext(session_id="clip1", parameters={"action": "write", "text": "Texto para clipboard"}),
+    )
+    assert res_w.executed is True
+    assert res_w.status == ExecutionStatus.SUCCEEDED
+    assert res_w.verified is False
+    assert res_w.verification_required is True
+    assert fake_clipboard["content"] == "Texto para clipboard"
+
+    # 2. Leer texto
+    res_r = await adapter.execute(
+        "jarvis.clipboard",
+        IntegrationContext(session_id="clip2", parameters={"action": "read"}),
+    )
+    assert res_r.executed is True
+    assert res_r.status == ExecutionStatus.SUCCEEDED
+    assert res_r.output["text"] == "Texto para clipboard"
+
+    # 3. Recorte de contenido largo (> 200 caracteres)
+    fake_clipboard["content"] = "A" * 300
+    res_long = await adapter.execute(
+        "jarvis.clipboard",
+        IntegrationContext(session_id="clip3", parameters={"action": "read"}),
+    )
+    assert res_long.executed is True
+    assert "contiene 300 caracteres" in res_long.output["text"]
+
+    # 4. Acción inválida
+    res_inv = await adapter.execute(
+        "jarvis.clipboard",
+        IntegrationContext(session_id="clip4", parameters={"action": "delete"}),
+    )
+    assert res_inv.executed is False
+    assert res_inv.status == ExecutionStatus.FAILED
+    assert "desconocida" in (res_inv.error or "")
+
+    # 5. Dependencia pyperclip ausente
+    import builtins
+    real_import = builtins.__import__
+
+    def fake_import(name: str, *args: object, **kwargs: object) -> object:
+        if name == "pyperclip":
+            raise ImportError("No module named 'pyperclip'")
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", fake_import)
+    res_no_clip = await adapter.execute(
+        "jarvis.clipboard",
+        IntegrationContext(session_id="clip5", parameters={"action": "read"}),
+    )
+    assert res_no_clip.executed is False
+    assert res_no_clip.status == ExecutionStatus.FAILED
+    assert "pyperclip no disponible" in (res_no_clip.error or "")
+
+
+# --- 15. Capacidad Seleccionada: jarvis.app_control (Apertura, Cierre, UWP y Validación) ---
+
+
+@pytest.mark.anyio
+async def test_jarvis_app_control(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verifica lanzamiento y cierre de aplicaciones con mapeo de alias UWP y validaciones."""
+    adapter = JarvisAdapter()
+    await adapter.initialize()
+
+    started_targets: list[str] = []
+    taskkilled_images: list[str] = []
+
+    def fake_startfile(target: str) -> None:
+        started_targets.append(target)
+
+    def fake_run(cmd: list[str], *args: object, **kwargs: object) -> object:
+        if len(cmd) >= 4 and cmd[0] == "taskkill":
+            taskkilled_images.append(cmd[3])
+        class FakeProc:
+            returncode = 0
+        return FakeProc()
+
+    monkeypatch.setattr("os.startfile", fake_startfile, raising=False)
+    monkeypatch.setattr("subprocess.run", fake_run, raising=False)
+
+    # 1. Abrir con alias (calculator -> calc)
+    res_open = await adapter.execute(
+        "jarvis.app_control",
+        IntegrationContext(session_id="app1", parameters={"action": "open", "app_name": "calculator"}),
+    )
+    assert res_open.executed is True
+    assert res_open.status == ExecutionStatus.SUCCEEDED
+    assert res_open.verified is False  # NUNCA auto-certificar
+    assert res_open.verification_required is True
+    assert "calc" in started_targets
+
+    # 2. Cerrar con resolución UWP (calculator -> CalculatorApp.exe)
+    res_close = await adapter.execute(
+        "jarvis.app_control",
+        IntegrationContext(session_id="app2", parameters={"action": "close", "app_name": "calculator"}),
+    )
+    assert res_close.executed is True
+    assert res_close.status == ExecutionStatus.SUCCEEDED
+    assert res_close.verified is False
+    assert "CalculatorApp.exe" in taskkilled_images
+
+    # 3. Parámetro app_name vacío
+    res_empty = await adapter.execute(
+        "jarvis.app_control",
+        IntegrationContext(session_id="app3", parameters={"action": "open", "app_name": ""}),
+    )
+    assert res_empty.executed is False
+    assert res_empty.status == ExecutionStatus.FAILED
+    assert "Debe especificar 'app_name'" in (res_empty.error or "")
+
+    # 4. Acción inválida
+    res_inv = await adapter.execute(
+        "jarvis.app_control",
+        IntegrationContext(session_id="app4", parameters={"action": "restart", "app_name": "notepad"}),
+    )
+    assert res_inv.executed is False
+    assert res_inv.status == ExecutionStatus.FAILED
+    assert "inválida" in (res_inv.error or "")
+
+
+# --- 16. Capacidad Desconocida y Errores de Workspace ---
+
+
+@pytest.mark.anyio
+async def test_jarvis_unknown_capability_and_workspace_errors(temp_workspace: Path) -> None:
+    """Verifica manejo controlado de capacidad no declarada y operaciones de archivo con error."""
+    adapter = JarvisAdapter(workspace_root=temp_workspace)
+    await adapter.initialize()
+
+    # 1. Capacidad desconocida
+    res_unknown = await adapter.execute("jarvis.nonexistent_service", IntegrationContext(session_id="err1"))
+    assert res_unknown.executed is False
+    assert res_unknown.status == ExecutionStatus.FAILED
+    assert "Capacidad desconocida" in (res_unknown.error or "")
+
+    # 2. Leer archivo que no existe
+    res_nofile = await adapter.execute(
+        "jarvis.workspace_files",
+        IntegrationContext(session_id="err2", parameters={"operation": "read", "filename": "no_existe.txt"}),
+    )
+    assert res_nofile.executed is False
+    assert res_nofile.status == ExecutionStatus.FAILED
+    assert "no encontrado" in (res_nofile.error or "")
+
+    # 3. Búsqueda de archivos en workspace
+    (temp_workspace / "reporte_ventas.txt").write_text("datos", encoding="utf-8")
+    (temp_workspace / "notas.txt").write_text("datos", encoding="utf-8")
+    res_search = await adapter.execute(
+        "jarvis.workspace_files",
+        IntegrationContext(session_id="err3", parameters={"operation": "search", "query": "ventas"}),
+    )
+    assert res_search.executed is True
+    assert res_search.output["matches"] == ["reporte_ventas.txt"]

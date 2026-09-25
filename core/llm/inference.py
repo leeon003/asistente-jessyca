@@ -8,9 +8,10 @@ Soporta inferencia de texto y multimodal con imágenes en base64.
 
 from __future__ import annotations
 
+import json
 import os
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from typing import Any, Protocol, runtime_checkable
 
@@ -39,6 +40,7 @@ class InferenceRequest:
     max_tokens: int | None = None
     stream: bool = False
     extra_options: dict[str, Any] = field(default_factory=dict)
+    timeout_seconds: float | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -50,6 +52,7 @@ class InferenceRequest:
             "max_tokens": self.max_tokens,
             "stream": self.stream,
             "extra_options": dict(self.extra_options),
+            "timeout_seconds": self.timeout_seconds,
         }
 
 
@@ -82,6 +85,10 @@ class LLMProvider(Protocol):
 
     def generate(self, request: InferenceRequest) -> InferenceResponse:
         """Ejecuta la inferencia estructurada y retorna un InferenceResponse."""
+        ...
+
+    def generate_stream(self, request: InferenceRequest) -> Iterator[str]:
+        """Ejecuta la inferencia en streaming token a token."""
         ...
 
     def generate_text(
@@ -153,8 +160,9 @@ class OllamaProvider:
         start_time = time.perf_counter()
         post_callable = self._post_fn if self._post_fn is not None else requests.post
 
+        eff_timeout = request.timeout_seconds if request.timeout_seconds is not None else self.timeout_seconds
         try:
-            resp = post_callable(self.endpoint, json=payload, timeout=self.timeout_seconds)
+            resp = post_callable(self.endpoint, json=payload, timeout=eff_timeout)
             if hasattr(resp, "raise_for_status"):
                 resp.raise_for_status()
             data = resp.json() if hasattr(resp, "json") else {}
@@ -166,10 +174,10 @@ class OllamaProvider:
                 original_error=str(e),
             ) from e
         except requests.exceptions.Timeout as e:
-            logger.warning(f"[OLLAMA PROVIDER] Timeout ({self.timeout_seconds}s) consultando {self.endpoint}")
+            logger.warning(f"[OLLAMA PROVIDER] Timeout ({eff_timeout}s) consultando {self.endpoint}")
             raise ProviderTimeoutError(
                 provider_name="ollama",
-                timeout_seconds=self.timeout_seconds,
+                timeout_seconds=eff_timeout,
             ) from e
         except Exception as e:
             logger.error(f"[OLLAMA PROVIDER] Error en llamada de inferencia a {self.endpoint}: {e}")
@@ -187,6 +195,65 @@ class OllamaProvider:
             raw_response=data,
             success=True,
         )
+
+    def generate_stream(self, request: InferenceRequest) -> Iterator[str]:
+        """Ejecuta inferencia generativa en streaming token a token contra Ollama."""
+        if not request.prompt or not isinstance(request.prompt, str):
+            raise InferenceError("El prompt de inferencia no puede estar vacío.")
+
+        model_profile = self.model_manager.get_model(request.model_name)
+        resolved_model = model_profile.name
+
+        options_dict: dict[str, Any] = dict(model_profile.default_parameters)
+        options_dict["temperature"] = request.temperature
+        if request.max_tokens is not None:
+            options_dict["num_predict"] = request.max_tokens
+        if request.extra_options:
+            options_dict.update(request.extra_options)
+
+        payload: dict[str, Any] = {
+            "model": resolved_model,
+            "prompt": request.prompt,
+            "stream": True,
+            "options": options_dict,
+        }
+
+        if request.system_prompt:
+            payload["system"] = request.system_prompt
+
+        if request.images:
+            payload["images"] = list(request.images)
+
+        post_callable = self._post_fn if self._post_fn is not None else requests.post
+        eff_timeout = request.timeout_seconds if request.timeout_seconds is not None else self.timeout_seconds
+
+        try:
+            resp = post_callable(self.endpoint, json=payload, stream=True, timeout=eff_timeout)
+            if hasattr(resp, "raise_for_status"):
+                resp.raise_for_status()
+
+            if hasattr(resp, "iter_lines"):
+                for line in resp.iter_lines():
+                    if line:
+                        decoded = line.decode("utf-8") if isinstance(line, bytes) else line
+                        data = json.loads(decoded)
+                        chunk = data.get("response", "")
+                        if chunk:
+                            yield chunk
+                        if data.get("done", False):
+                            break
+            elif hasattr(resp, "json"):
+                data = resp.json()
+                yield str(data.get("response", ""))
+        except requests.exceptions.ConnectionError as e:
+            logger.warning(f"[OLLAMA PROVIDER] Fallo de conexión con {self.host}: {e}")
+            raise ProviderConnectionError(provider_name="ollama", host=self.host, original_error=str(e)) from e
+        except requests.exceptions.Timeout as e:
+            logger.warning(f"[OLLAMA PROVIDER] Timeout ({eff_timeout}s) en stream {self.endpoint}")
+            raise ProviderTimeoutError(provider_name="ollama", timeout_seconds=eff_timeout) from e
+        except Exception as e:
+            logger.error(f"[OLLAMA PROVIDER] Error en llamada streaming a {self.endpoint}: {e}")
+            raise InferenceError(f"Error durante streaming con modelo '{resolved_model}': {e}") from e
 
     def generate_text(
         self,
@@ -250,6 +317,17 @@ class FakeLLMProvider:
             raw_response={"response": text, "fake": True},
             success=True,
         )
+
+    def generate_stream(self, request: InferenceRequest) -> Iterator[str]:
+        """Emite tokens sintéticos para pruebas sin red ni Ollama."""
+        self.call_history.append(request)
+        if not self.is_connected:
+            raise ProviderConnectionError("fake_llm", "localhost:fake", "Simulated disconnection")
+
+        text = self._responses_queue.pop(0) if self._responses_queue else self.default_response
+        words = text.split(" ")
+        for i, w in enumerate(words):
+            yield w + (" " if i < len(words) - 1 else "")
 
     def generate_text(
         self,

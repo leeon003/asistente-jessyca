@@ -253,6 +253,7 @@ class JarvisAdapter(IntegrationAdapter):
     # --- Métodos de Ejecución Específicos ---
 
     def _execute_system_status(self, context: IntegrationContext, start_time: float) -> IntegrationExecutionResult:
+        # Fuente: jarvis-py (core/agent/builtins.py:system_status)
         import psutil
 
         cpu = psutil.cpu_percent(interval=0.1)
@@ -275,10 +276,11 @@ class JarvisAdapter(IntegrationAdapter):
             status=ExecutionStatus.SUCCEEDED,
             output={"message": text, "telemetry": data},
             duration_ms=dur,
-            metadata={"adapter": "jarvis-py", "capability": "jarvis.system_status"},
+            metadata={"adapter": "jarvis-py", "capability": "jarvis.system_status", "source": "jarvis-py:builtins.system_status"},
         )
 
     def _execute_volume_control(self, context: IntegrationContext, start_time: float) -> IntegrationExecutionResult:
+        # Fuente: jarvis-py (core/agent/builtins.py:increase_volume, decrease_volume, mute_volume)
         action = str(context.parameters.get("action", "")).lower()
         try:
             import pyautogui
@@ -321,11 +323,22 @@ class JarvisAdapter(IntegrationAdapter):
             status=ExecutionStatus.SUCCEEDED,
             output={"message": msg, "action": action},
             duration_ms=dur,
-            metadata={"adapter": "jarvis-py", "capability": "jarvis.volume_control"},
+            metadata={"adapter": "jarvis-py", "capability": "jarvis.volume_control", "source": "jarvis-py:builtins.volume"},
         )
 
     def _execute_clipboard(self, context: IntegrationContext, start_time: float) -> IntegrationExecutionResult:
-        import pyperclip
+        # Fuente: jarvis-py (core/agent/builtins.py:read_clipboard, write_clipboard)
+        try:
+            import pyperclip
+        except ImportError:
+            dur = (time.perf_counter() - start_time) * 1000.0
+            return IntegrationExecutionResult(
+                executed=False,
+                verified=False,
+                status=ExecutionStatus.FAILED,
+                error="pyperclip no disponible para clipboard",
+                duration_ms=dur,
+            )
 
         action = str(context.parameters.get("action", "read")).lower()
         if action == "read":
@@ -343,9 +356,9 @@ class JarvisAdapter(IntegrationAdapter):
                 verified=False,
                 verification_required=False,
                 status=ExecutionStatus.SUCCEEDED,
-                output={"text": out, "length": len(content)},
+                output={"text": out, "length": len(content) if content else 0},
                 duration_ms=dur,
-                metadata={"adapter": "jarvis-py", "capability": "jarvis.clipboard"},
+                metadata={"adapter": "jarvis-py", "capability": "jarvis.clipboard", "source": "jarvis-py:builtins.read_clipboard"},
             )
 
         elif action == "write":
@@ -359,7 +372,7 @@ class JarvisAdapter(IntegrationAdapter):
                 status=ExecutionStatus.SUCCEEDED,
                 output={"message": "Texto copiado al portapapeles.", "length": len(text_to_write)},
                 duration_ms=dur,
-                metadata={"adapter": "jarvis-py", "capability": "jarvis.clipboard"},
+                metadata={"adapter": "jarvis-py", "capability": "jarvis.clipboard", "source": "jarvis-py:builtins.write_clipboard"},
             )
 
         dur = (time.perf_counter() - start_time) * 1000.0
@@ -372,6 +385,7 @@ class JarvisAdapter(IntegrationAdapter):
         )
 
     def _execute_workspace_files(self, context: IntegrationContext, start_time: float) -> IntegrationExecutionResult:
+        # Fuente: jarvis-py (core/agent/fs_tools.py:list_files, read_file, write_file, search_files)
         op = str(context.parameters.get("operation", "list")).lower()
         root = self._workspace_root.resolve()
 
@@ -385,7 +399,7 @@ class JarvisAdapter(IntegrationAdapter):
                 status=ExecutionStatus.SUCCEEDED,
                 output={"files": files, "count": len(files)},
                 duration_ms=dur,
-                metadata={"adapter": "jarvis-py", "capability": "jarvis.workspace_files"},
+                metadata={"adapter": "jarvis-py", "capability": "jarvis.workspace_files", "source": "jarvis-py:fs_tools.list_files"},
             )
 
         elif op == "read":
@@ -410,7 +424,7 @@ class JarvisAdapter(IntegrationAdapter):
                 status=ExecutionStatus.SUCCEEDED,
                 output={"content": content, "filename": fname},
                 duration_ms=dur,
-                metadata={"adapter": "jarvis-py", "capability": "jarvis.workspace_files"},
+                metadata={"adapter": "jarvis-py", "capability": "jarvis.workspace_files", "source": "jarvis-py:fs_tools.read_file"},
             )
 
         elif op == "write":
@@ -436,7 +450,7 @@ class JarvisAdapter(IntegrationAdapter):
                 status=ExecutionStatus.SUCCEEDED,
                 output={"message": f"Guardado {fname}.", "filename": fname, "bytes": len(content.encode("utf-8"))},
                 duration_ms=dur,
-                metadata={"adapter": "jarvis-py", "capability": "jarvis.workspace_files"},
+                metadata={"adapter": "jarvis-py", "capability": "jarvis.workspace_files", "source": "jarvis-py:fs_tools.write_file"},
             )
 
         elif op == "search":
@@ -450,7 +464,7 @@ class JarvisAdapter(IntegrationAdapter):
                 status=ExecutionStatus.SUCCEEDED,
                 output={"matches": matches, "count": len(matches)},
                 duration_ms=dur,
-                metadata={"adapter": "jarvis-py", "capability": "jarvis.workspace_files"},
+                metadata={"adapter": "jarvis-py", "capability": "jarvis.workspace_files", "source": "jarvis-py:fs_tools.search_files"},
             )
 
         dur = (time.perf_counter() - start_time) * 1000.0
@@ -463,8 +477,19 @@ class JarvisAdapter(IntegrationAdapter):
         )
 
     def _execute_app_control(self, context: IntegrationContext, start_time: float) -> IntegrationExecutionResult:
+        # Fuente: jarvis-py (core/agent/builtins.py:open_app, close_app, resolve_app, resolve_close_image)
         action = str(context.parameters.get("action", "")).lower()
         app_name = str(context.parameters.get("app_name", "")).strip()
+
+        if not app_name:
+            dur = (time.perf_counter() - start_time) * 1000.0
+            return IntegrationExecutionResult(
+                executed=False,
+                verified=False,
+                status=ExecutionStatus.FAILED,
+                error="Debe especificar 'app_name' para app_control.",
+                duration_ms=dur,
+            )
 
         if action == "open":
             target = _APP_ALIASES.get(app_name.lower(), app_name)
@@ -481,7 +506,7 @@ class JarvisAdapter(IntegrationAdapter):
                 status=ExecutionStatus.SUCCEEDED,
                 output={"message": f"Se solicitó abrir {app_name}.", "target": target},
                 duration_ms=dur,
-                metadata={"adapter": "jarvis-py", "capability": "jarvis.app_control", "action": "open"},
+                metadata={"adapter": "jarvis-py", "capability": "jarvis.app_control", "action": "open", "source": "jarvis-py:builtins.open_app"},
             )
 
         elif action == "close":
@@ -499,7 +524,7 @@ class JarvisAdapter(IntegrationAdapter):
                 status=ExecutionStatus.SUCCEEDED,
                 output={"message": f"Se envió señal de cierre para {app_name}.", "image": image, "returncode": proc.returncode},
                 duration_ms=dur,
-                metadata={"adapter": "jarvis-py", "capability": "jarvis.app_control", "action": "close"},
+                metadata={"adapter": "jarvis-py", "capability": "jarvis.app_control", "action": "close", "source": "jarvis-py:builtins.close_app"},
             )
 
         dur = (time.perf_counter() - start_time) * 1000.0

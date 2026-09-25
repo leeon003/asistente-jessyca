@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+import time
 import uuid
 from datetime import UTC, datetime
 from typing import Any
@@ -225,22 +226,73 @@ class WindowsApplicationAdapter(IApplicationAdapter):
 
             if os.name == "nt":
                 try:
-                    import win32gui, win32process
-                    real_wins: list[tuple[int, str, int]] = []
-                    def _enum_win(h: int, _: Any) -> None:
-                        if win32gui.IsWindowVisible(h):
-                            t = win32gui.GetWindowText(h)
-                            if t:
-                                _, pid = win32process.GetWindowThreadProcessId(h)
-                                real_wins.append((h, t, pid))
-                    win32gui.EnumWindows(_enum_win, None)
-                    for h, t, p in real_wins:
+                    import ctypes
+
+                    import win32gui
+                    import win32process
+
+                    try:
+                        user32 = ctypes.windll.user32
+                        hdesk = user32.OpenDesktopW("Default", 0, False, 0x01FF)
+                        if hdesk:
+                            user32.SetThreadDesktop(hdesk)
+                    except Exception:
+                        pass
+
+                    real_wins: list[tuple[int, str, str, int]] = []
+
+                    def _enum_win(h: int, _: Any) -> bool:
+                        try:
+                            if win32gui.IsWindowVisible(h):
+                                t = win32gui.GetWindowText(h) or ""
+                                c = win32gui.GetClassName(h) or ""
+                                if t or c:
+                                    _, pid = win32process.GetWindowThreadProcessId(h)
+                                    real_wins.append((h, t, c, pid))
+                        except Exception:
+                            pass
+                        return True
+
+                    try:
+                        win32gui.EnumWindows(_enum_win, None)
+                    except Exception:
+                        from ctypes import wintypes
+                        wnd_enum_proc_type = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+
+                        def _ctypes_enum(h_val: int, _: int) -> bool:
+                            _enum_win(h_val, None)
+                            return True
+
+                        user32 = ctypes.windll.user32
+                        user32.EnumWindows(wnd_enum_proc_type(_ctypes_enum), 0)
+
+                    import psutil
+
+                    for h, t, c, p in real_wins:
                         t_lower = t.lower()
-                        if (
+                        c_lower = c.lower()
+
+                        # Obtener nombre de proceso para evitar falsos positivos con navegadores
+                        p_name = ""
+                        try:
+                            p_name = psutil.Process(p).name().lower()
+                        except Exception:
+                            p_name = ""
+
+                        proc_matches = any(
+                            alias in p_name
+                            for alias in (desc.app_id.lower(), desc.executable.lower(), "notepad")
+                            if alias
+                        )
+
+                        title_or_class_matches = (
                             desc.executable.lower() in t_lower
                             or desc.name.lower() in t_lower
                             or any(a.lower() in t_lower for a in desc.aliases)
-                        ):
+                            or (app_id == "notepad" and ("notepad" in c_lower or "bloc de notas" in t_lower or "sin título" in t_lower))
+                        )
+
+                        if proc_matches and title_or_class_matches:
                             now = datetime.now(UTC)
                             sid = f"win-sess-{app_id}-{h}"
                             session = ApplicationSession(
@@ -265,18 +317,49 @@ class WindowsApplicationAdapter(IApplicationAdapter):
     def launch(self, descriptor: ApplicationDescriptor, args: tuple[str, ...] = ()) -> ApplicationSession:
         sid = f"sess-{descriptor.app_id}-{uuid.uuid4().hex[:6]}"
         now = datetime.now(UTC)
-        proc_pid = 5000
-        proc_hwnd = 2000
+        proc_pid: int | None = None
+        proc_hwnd: int | None = None
 
         try:
             if os.name == "nt":
+                is_cli = descriptor.executable.lower() in ("cmd.exe", "powershell.exe", "pwsh.exe")
+
                 cmd = [descriptor.executable] + list(args)
-                p = subprocess.Popen(cmd, shell=True)
+                p = subprocess.Popen(cmd, shell=False)
                 proc_pid = p.pid
+
+                if not is_cli:
+                    # Aplicaciones GUI interactivas (e.g. notepad.exe, calc.exe, mspaint.exe):
+                    # Se utiliza Shell.Application para que Windows Explorer cree la ventana
+                    # directamente en la sesión y escritorio interactivo de usuario (WinSta0\Default),
+                    # evitando el aislamiento de subshell / cmd.exe /c que dejaba el proceso sin ventana.
+                    try:
+                        import win32com.client
+                        shell = win32com.client.Dispatch("Shell.Application")
+                        arg_str = " ".join(args) if args else ""
+                        shell.ShellExecute(descriptor.executable, arg_str, "", "open", 1)
+                    except Exception as shell_err:
+                        logger.debug(f"[WINDOWS APP ADAPTER] ShellExecute fallback: {shell_err}")
+
+                # Esperar hasta 2.0s a que aparezca la ventana interactiva visible
+                deadline = time.time() + 2.0
+                while time.time() < deadline:
+                    existing = self.find_existing_session(descriptor.app_id)
+                    if existing and existing.hwnd:
+                        proc_hwnd = existing.hwnd
+                        proc_pid = existing.pid
+                        break
+                    time.sleep(0.15)
             else:
                 proc_pid = 1234
+                proc_hwnd = 1001
         except Exception as e:
             logger.warning(f"[WINDOWS APP ADAPTER] Error al invocar {descriptor.executable} en SO: {e}")
+
+        if proc_pid is None:
+            proc_pid = 5000
+        if proc_hwnd is None:
+            proc_hwnd = 0
 
         session = ApplicationSession(
             session_id=sid,
@@ -338,6 +421,14 @@ class ApplicationSessionManager:
         self._executed_actions: dict[str, ApplicationSession] = {}
         self._execution_counts: dict[str, int] = {}
         self._action_call_counts: dict[str, int] = {}
+
+    def reset(self) -> None:
+        """Reinicia el estado en memoria para aislamiento en tests."""
+        self._executed_actions.clear()
+        self._execution_counts.clear()
+        self._action_call_counts.clear()
+        if hasattr(self.adapter, "active_sessions"):
+            self.adapter.active_sessions.clear()
 
     def get_execution_count(self, app_alias: str) -> int:
         """Obtiene la cantidad de ejecuciones reales del proceso para un alias."""

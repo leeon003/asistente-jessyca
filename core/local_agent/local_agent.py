@@ -30,7 +30,7 @@ from __future__ import annotations
 import re
 import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from typing import Any, ClassVar
 
 from core.action_intent_contract import ActionIntentContract
@@ -61,6 +61,7 @@ from core.interaction.interaction_models import (
     ConfirmationPrompt,
 )
 from core.interaction.trusted_interaction_engine import TrustedInteractionEngine
+from core.llm.experimental_router import get_experimental_router
 from core.llm.model_router import ModelRouter, get_model_router
 from core.local_agent.conversation_context import ConversationContextManager
 from core.local_agent.conversational_handler import ConversationalDialogueHandler
@@ -113,6 +114,7 @@ class JessycaLocalAgent:
         self.risk_engine = risk_engine or RiskEngine()
         self.permission_manager = permission_manager or PermissionManager()
         self.model_router = model_router or get_model_router()
+        self.experimental_router = get_experimental_router()
         self.skill_manager = skill_manager or get_skill_manager()
         self.collaboration_engine = collaboration_engine or CollaborationEngine()
         self.interaction_engine = interaction_engine or TrustedInteractionEngine(emergency_stop=self.emergency_stop_mgr)
@@ -156,6 +158,88 @@ class JessycaLocalAgent:
             cancellation_token=cancellation_token,
             user_confirmation_callback=user_confirmation_callback,
         )
+
+    def interact_stream(
+        self,
+        request: JessycaRequest | str,
+        cancellation_token: CancellationToken | None = None,
+        user_confirmation_callback: Callable[[ConfirmationPrompt], bool] | None = None,
+    ) -> Iterator[str]:
+        """Punto de entrada universal en streaming respetando el principio Anti-False Success.
+
+        Para consultas conversacionales directas (general_query, saludos, preguntas):
+        Emite los tokens en tiempo real directamente según los genera Ollama.
+
+        Para acciones sobre el sistema operativo (e.g. abrir aplicaciones, ejecutar comandos):
+        Primero ejecuta la acción y verifica su efecto real en el SO (ExecutionVerifier).
+        Solo después de verificar el éxito real, emite la respuesta confirmada.
+        """
+        if isinstance(request, str):
+            req = JessycaRequest(user_input=request, modality=InputModality.TEXT)
+        else:
+            req = request
+
+        # Ingestión y deduplicación de contexto conversacional externo (OWUI-MEM-02)
+        if req.conversation_context:
+            self.context_manager.ingest_external_context(
+                session_id=req.session_id,
+                messages=req.conversation_context,
+            )
+
+        user_text = (req.user_input or "").strip()
+        intent, extracted_params, is_ambiguous = self._resolve_intent_and_slots(user_text, req.session_id)
+        dialogue_decision = self.dialogue_manager.evaluate_dialogue(
+            user_input=user_text,
+            intent=intent,
+            params=extracted_params,
+            is_ambiguous=is_ambiguous,
+        )
+
+        is_pure_conv = (
+            (intent in ("general_query", "conversational", "greeting", "chit_chat")
+             or dialogue_decision.action_type == DialogueActionType.CONVERSATIONAL)
+            and not is_ambiguous
+            and dialogue_decision.action_type != DialogueActionType.CLARIFICATION
+        )
+
+        # Si es una acción con efectos secundarios o aclaración/confirmación:
+        if not is_pure_conv:
+            response = self._execute_unified_pipeline(
+                req=req,
+                cancellation_token=cancellation_token,
+                user_confirmation_callback=user_confirmation_callback,
+            )
+            resp_text = response.spoken_text or response.response_text or ""
+            words = re.split(r"(\s+)", resp_text)
+            for w in words:
+                if w:
+                    yield w
+            return
+
+        # Para consultas puramente conversacionales: emitir tokens progresivos
+        active_model = self._select_model_for_intent(intent)
+        full_response_parts: list[str] = []
+        for chunk in self.conversational_handler.generate_response_stream(
+            user_input=user_text,
+            session_id=req.session_id,
+            params=extracted_params,
+            context_manager=self.context_manager,
+            preferred_model=active_model,
+        ):
+            full_response_parts.append(chunk)
+            yield chunk
+
+        final_text = "".join(full_response_parts)
+        if final_text.strip():
+            self.context_manager.record_turn(
+                session_id=req.session_id,
+                user_prompt=user_text,
+                assistant_response=final_text,
+                intent="general_query",
+                modality=req.modality,
+                tools_executed=[],
+                security_verdict="ALLOW",
+            )
 
     def process_text(
         self,
@@ -306,6 +390,13 @@ class JessycaLocalAgent:
                 self._log_turn_experience(req, resp, category=ExperienceCategory.CANCELLED)
                 return resp
 
+            # Ingestión y deduplicación de contexto conversacional externo (OWUI-MEM-02)
+            if req.conversation_context:
+                self.context_manager.ingest_external_context(
+                    session_id=req.session_id,
+                    messages=req.conversation_context,
+                )
+
             # ── PASO 1: PROCESAMIENTO MULTIMODAL & UNTRUSTED DATA SANITIZATION ──
             is_mm_valid, mm_err, mm_context = MultimodalProcessor.process_request(req)
             if not is_mm_valid:
@@ -323,6 +414,22 @@ class JessycaLocalAgent:
                 return resp
 
             user_text = req.user_input.strip()
+
+            # ── OBSERVACIÓN / ENRUTAMIENTO DEL MODEL ROUTER (FASE 4 / FASE 5) ──
+            router_selected_model: str | None = None
+            router_decision: Any = None
+            try:
+                if hasattr(self, "experimental_router") and self.experimental_router:
+                    is_voice = (req.modality == InputModality.VOICE)
+                    router_selected_model, router_decision = self.experimental_router.route_execution(
+                        user_text=user_text,
+                        current_model="gemma4:e4b",
+                        is_voice=is_voice,
+                        request_id=req.request_id,
+                        context={"session_id": req.session_id, "modality": req.modality.value},
+                    )
+            except Exception as e:
+                logger.warning(f"[ROUTER PIPELINE] Error no crítico en enrutamiento del router: {e}")
 
             # ── PASO 1.5: QUALITY GATE Y COMPLETITUD DE TRANSCRIPCIÓN ──
             from core.local_agent.quality_analyzer import (
@@ -582,12 +689,17 @@ class JessycaLocalAgent:
             # ── PASO 2.2: CONSULTAS Y DIÁLOGO CONVERSACIONAL PURO (CONVERSATIONAL_REQUEST) ──
             if intent == "general_query" or dialogue_decision.action_type == DialogueActionType.CONVERSATIONAL:
                 t_conv_0 = time.perf_counter()
+                active_routed_model = (
+                    router_selected_model
+                    if (hasattr(self, "experimental_router") and self.experimental_router and self.experimental_router.is_enabled() and router_selected_model)
+                    else self._select_model_for_intent(intent)
+                )
                 conv_text = self.conversational_handler.generate_response(
                     user_input=user_text,
                     session_id=req.session_id,
                     params=extracted_params,
                     context_manager=self.context_manager,
-                    preferred_model=self._select_model_for_intent(intent),
+                    preferred_model=active_routed_model,
                 )
                 metrics.model_inference_latency_ms = (time.perf_counter() - t_conv_0) * 1000
                 metrics.total_latency_ms = (time.perf_counter() - start_time) * 1000
@@ -610,7 +722,7 @@ class JessycaLocalAgent:
                     response_text=conv_text,
                     spoken_text=conv_text,
                     intent="general_query",
-                    selected_model=self._select_model_for_intent(intent),
+                    selected_model=active_routed_model,
                     selected_agent="general_assistant_agent",
                     selected_skill="core.assistant@1.0.0",
                     selected_graph="conversational_graph",
@@ -625,7 +737,12 @@ class JessycaLocalAgent:
             # ── PASO 3: ENRUTAMIENTO DE MODELO Y AGENTE ──
             t_model_0 = time.perf_counter()
             # Selección automática de modelo según la complejidad del intent
-            selected_model = self._select_model_for_intent(intent)
+            active_routed_model = (
+                router_selected_model
+                if (hasattr(self, "experimental_router") and self.experimental_router and self.experimental_router.is_enabled() and router_selected_model)
+                else self._select_model_for_intent(intent)
+            )
+            selected_model = active_routed_model
             metrics.model_inference_latency_ms = (time.perf_counter() - t_model_0) * 1000
 
             t_agent_0 = time.perf_counter()
@@ -1268,6 +1385,58 @@ class JessycaLocalAgent:
                 agent_used=resp.selected_agent,
                 skill_used=resp.selected_skill,
             )
+
+            # Actualización de métricas de ejecución en Shadow Logger (Fase 4)
+            try:
+                if hasattr(self, "experimental_router") and self.experimental_router:
+                    exec_lat = max(0.0, resp.metrics.total_latency_ms - getattr(resp.metrics, "intent_latency_ms", 0.0))
+                    self.experimental_router.shadow_logger.update_execution_metrics(
+                        request_id=req.request_id,
+                        tool_selected=tool_name or (resp.tools_executed[0] if resp.tools_executed else resp.selected_skill),
+                        tool_result="success" if resp.success else "failed",
+                        verification_result="PASSED" if is_verified or resp.success else "FAILED",
+                        execution_latency_ms=exec_lat,
+                        total_latency_ms=resp.metrics.total_latency_ms,
+                        error=resp.error,
+                    )
+
+                    # Registro estructurado para Fase 6
+                    if hasattr(self.experimental_router, "phase6_logger") and self.experimental_router.phase6_logger:
+                        gov = getattr(self.experimental_router, "vram_governor", None)
+                        v_rep = gov.get_budget_report() if gov else None
+                        v_after = (v_rep.total_vram_mb - v_rep.remaining_budget_mb) if v_rep else 0.0
+                        v_total = v_rep.total_vram_mb if v_rep else 12288.0
+                        has_tool = bool(tool_name or resp.tools_executed)
+                        verif_str = "VERIFIED" if is_verified else (
+                            "COMPLETED" if (resp.success and not has_tool) else (
+                                "NOT_VERIFIABLE" if (has_tool and not is_verified and resp.success) else (
+                                    "COMPLETED" if resp.success else "FAILED"
+                                )
+                            )
+                        )
+                        self.experimental_router.phase6_logger.log_interaction(
+                            request_id=req.request_id,
+                            router_enabled=self.experimental_router.is_enabled(),
+                            intent=resp.intent,
+                            recommended_model=resp.selected_model,
+                            selected_model=resp.selected_model,
+                            execution_model=resp.selected_model,
+                            routing_latency_ms=getattr(resp.metrics, "agent_routing_latency_ms", 0.0),
+                            inference_latency_ms=getattr(resp.metrics, "model_inference_latency_ms", 0.0),
+                            tool_latency_ms=getattr(resp.metrics, "execution_latency_ms", 0.0),
+                            verification_latency_ms=0.0,
+                            total_latency_ms=resp.metrics.total_latency_ms,
+                            vram_before_mb=v_after,
+                            vram_after_mb=v_after,
+                            vram_budget_mb=v_total,
+                            fallback=False,
+                            fallback_reason=None,
+                            success=resp.success,
+                            verification=verif_str,
+                            tool_executed=has_tool,
+                        )
+            except Exception as shadow_ex:
+                logger.warning(f"[SHADOW/PHASE6 RECORDER FAILED - NON-FATAL] {shadow_ex}")
         except Exception as ex:
             logger.warning(f"[LOCAL AGENT EXPERIENCE LOGGING FAILED - NON-FATAL] {ex}")
 
@@ -1307,7 +1476,8 @@ class JessycaLocalAgent:
             return "delete_file", {"path": path or "C:\\Data\\temp.tmp"}, False
 
         # 3. Patrones de Abrir / Crear Aplicación o Navegador ("abre el bloc de notas", "crea un nuevo block de notas", "iniciar calculadora")
-        if any(w in lower for w in ("abre", "abrir", "inicia", "iniciar", "ejecuta", "lanza", "crea", "crear", "nuevo", "nueva")):
+        is_meta_request = any(k in lower for k in ("genera un título", "generar un título", "genera un titulo", "generar un titulo", "genera un resumen", "resumen de", "explica cómo", "explica como", "qué significa", "que significa", "título para", "titulo para"))
+        if not is_meta_request and any(w in lower for w in ("abre", "abrir", "inicia", "iniciar", "ejecuta", "lanza", "crea", "crear", "nuevo", "nueva")):
             # Sitios web conocidos → browser.open (NO intentar google.exe)
             if "google" in lower and not any(w in lower for w in ("bloc", "block", "notas", "notepad", "calc", "paint")):
                 return "open_browser", {"url": "https://www.google.com", "site": "Google"}, False
@@ -1413,7 +1583,7 @@ class JessycaLocalAgent:
         if intent in ("multistep_research", "complex_reasoning"):
             return "qwen2.5-coder:7b"
         if intent in ("open_application", "close_application", "type_text", "search_file", "browser_search", "play_random_video"):
-            return "llama3.2:3b"
+            return "llama3.2"
         return "auto-routed"
 
     def _select_agent_for_intent(self, intent: str) -> str:

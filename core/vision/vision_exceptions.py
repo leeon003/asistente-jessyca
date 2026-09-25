@@ -7,9 +7,10 @@ y respuestas corruptas o malformadas.
 from __future__ import annotations
 
 from core.exceptions import MCPError
+from core.llm.exceptions import InferenceError
 
 
-class VisionError(MCPError):
+class VisionError(InferenceError):
     """Excepción base para todos los errores del pipeline de visión multimodal."""
 
     pass

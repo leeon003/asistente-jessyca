@@ -108,6 +108,28 @@ class AppSettings(BaseSettings):
         default="streamable-http",
         description="Mecanismo de transporte MCP para modo DEMO interactivo (streamable-http, sse, http).",
     )
+
+    # Configuración del Router Inteligente (Fase 3 / Fase 4 Shadow / Fase 5 Controlled)
+    MODEL_ROUTER_ENABLED: bool = Field(
+        default=False,
+        description="Flag maestro de activación del Model Router (False=desactivado/comportamiento anterior, True=enrutamiento controlado activo).",
+    )
+    MODEL_ROUTER_MODE: str = Field(
+        default="shadow",
+        description="Modo de operación del router de modelos (static, shadow, experimental).",
+    )
+    ROUTER_CONFIDENCE_THRESHOLD: float = Field(
+        default=0.80,
+        description="Umbral mínimo de confianza para aplicar recomendación de modelo complejo.",
+    )
+    ROUTER_SHADOW_LOG_FILE: Path = Field(
+        default=Path("logs/router_shadow.jsonl"),
+        description="Ruta del archivo de registro estructurado para decisiones en modo shadow.",
+    )
+    NEMOTRON_ENABLED: bool = Field(
+        default=False,
+        description="Flag de habilitación para el provider remoto NVIDIA Nemotron 3 Ultra (False por defecto).",
+    )
     MCP_EXTERNAL_TRANSPORT: str = Field(
         default="stdio",
         description="Mecanismo de transporte MCP para clientes externos dedicados (stdio).",
@@ -1083,6 +1105,28 @@ class AppSettings(BaseSettings):
         description="Timeout máximo en segundos para procesamiento de solicitudes móviles.",
     )
 
+    # Configuración de Web Bridge (OpenAI-Compatible Bridge para Open WebUI)
+    WEBUI_BRIDGE_ENABLED: bool = Field(
+        default=True,
+        description="Habilita el servidor Web Bridge OpenAI-Compatible para Open WebUI.",
+    )
+    WEBUI_BRIDGE_HOST: str = Field(
+        default="0.0.0.0",
+        description="Host de escucha para Web Bridge.",
+    )
+    WEBUI_BRIDGE_PORT: int = Field(
+        default=8088,
+        description="Puerto TCP de escucha para Web Bridge.",
+    )
+    WEBUI_BRIDGE_AUTH_TOKEN: str = Field(
+        default="",
+        description="Token de autenticación Bearer para Web Bridge. Requerido por seguridad.",
+    )
+    WEBUI_BRIDGE_TIMEOUT: float = Field(
+        default=60.0,
+        description="Timeout máximo en segundos para procesamiento de solicitudes de Web Bridge.",
+    )
+
     # Integraciones Externas (Integration Hub / Adapter Layer)
     INTEGRATIONS_ENABLED: bool = Field(
         default=True,
@@ -1097,8 +1141,55 @@ class AppSettings(BaseSettings):
         description="Configuración y estado de habilitación de adapters específicos.",
     )
 
+    # Proveedor Experimental Remoto: NVIDIA Nemotron 3 Ultra
+    NEMOTRON_ENABLED: bool = Field(
+        default=False,
+        description="Habilita de forma experimental el proveedor remoto NVIDIA Nemotron 3 Ultra.",
+    )
+    NEMOTRON_API_KEY: str = Field(
+        default="",
+        description="API Key de NVIDIA Cloud Functions / NGC para Nemotron. Jamás hardcodear.",
+    )
+    NEMOTRON_BASE_URL: str = Field(
+        default="https://integrate.api.nvidia.com/v1",
+        description="Base URL de la API OpenAI-compatible de NVIDIA para inferencia.",
+    )
+    NEMOTRON_MODEL: str = Field(
+        default="nvidia/nemotron-3-ultra-550b-a55b",
+        description="Identificador del modelo Nemotron en NVIDIA API Catalog.",
+    )
+    NEMOTRON_TIMEOUT_SECONDS: float = Field(
+        default=30.0,
+        description="Timeout total en segundos para la llamada HTTP a Nemotron.",
+    )
+    NEMOTRON_CONNECT_TIMEOUT_SECONDS: float = Field(
+        default=5.0,
+        description="Timeout de conexión inicial en segundos.",
+    )
+    NEMOTRON_MAX_RETRIES: int = Field(
+        default=2,
+        description="Cantidad máxima de reintentos con backoff para errores transitorios de red.",
+    )
 
-    @field_validator("ENVIRONMENT", mode="before")
+    # Router Inteligente (Fase 3: static, shadow, experimental / Fase 5 Controlled)
+    MODEL_ROUTER_ENABLED: bool = Field(
+        default=False,
+        description="Flag maestro de activación del Model Router (False=desactivado, True=enrutamiento controlado activo).",
+    )
+    MODEL_ROUTER_MODE: str = Field(
+        default="shadow",
+        description="Modo de operación del router inteligente: static, shadow (por defecto Fase 4), experimental.",
+    )
+    ROUTER_CONFIDENCE_THRESHOLD: float = Field(
+        default=0.80,
+        description="Umbral mínimo de confianza para enrutamiento avanzado hacia modelos de alto cómputo.",
+    )
+    ROUTER_SHADOW_LOG_FILE: Path = Field(
+        default=Path("logs/router_shadow.jsonl"),
+        description="Ruta del archivo de registro estructurado para decisiones en shadow mode.",
+    )
+
+
     @classmethod
     def validate_environment(cls, value: str | EnvironmentMode) -> EnvironmentMode:
         if isinstance(value, EnvironmentMode):

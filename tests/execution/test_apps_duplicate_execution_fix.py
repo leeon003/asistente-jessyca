@@ -38,6 +38,13 @@ def reset_idempotency_guard() -> Iterator[None]:
     """Reinicia el guardián de idempotencia antes de cada test."""
     guard = get_idempotency_guard()
     guard.reset()
+    try:
+        from skills import SKILLS_DISPONIBLES
+        apps = SKILLS_DISPONIBLES.get("windows.apps")
+        if apps and hasattr(apps, "session_manager"):
+            apps.session_manager.reset()
+    except Exception:
+        pass
     yield
     guard.reset()
 

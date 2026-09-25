@@ -114,6 +114,92 @@ class ConversationContextManager:
 
         return turn
 
+    def ingest_external_context(
+        self,
+        session_id: str,
+        messages: list[dict[str, Any]],
+    ) -> int:
+        """Normaliza, deduplica e incorpora el contexto externo enviado por clientes (Open WebUI).
+
+        Empareja secuencialmente los mensajes precedentes de tipo 'user' y 'assistant'
+        e incorpora únicamente los turnos que no se encuentren ya registrados en session.turns.
+
+        Returns:
+            Cantidad de nuevos turnos incorporados.
+        """
+        if not messages:
+            return 0
+
+        # 1. Filtrar y sanitizar mensajes válidos
+        clean_msgs: list[dict[str, str]] = []
+        for m in messages:
+            role = str(m.get("role") or "").strip().lower()
+            content = str(m.get("content") or "").strip()
+            if role in ("user", "assistant") and content:
+                clean_msgs.append({"role": role, "content": content})
+
+        if not clean_msgs:
+            return 0
+
+        # Si el último mensaje es del usuario (es la petición activa en curso),
+        # solo se consideran históricos los mensajes anteriores a esta petición.
+        history_msgs = clean_msgs[:-1] if clean_msgs[-1]["role"] == "user" else clean_msgs
+
+        # 2. Agrupar mensajes históricos en pares de turnos (user, assistant)
+        pairs: list[tuple[str, str]] = []
+        i = 0
+        while i < len(history_msgs):
+            if history_msgs[i]["role"] == "user":
+                u_text = history_msgs[i]["content"]
+                a_text = ""
+                if i + 1 < len(history_msgs) and history_msgs[i + 1]["role"] == "assistant":
+                    a_text = history_msgs[i + 1]["content"]
+                    i += 2
+                else:
+                    i += 1
+                pairs.append((u_text, a_text))
+            else:
+                # Mensaje de asistente suelto sin usuario precedente
+                i += 1
+
+        if not pairs:
+            return 0
+
+        ingested_count = 0
+        with self._lock:
+            session = self.get_or_create_session(session_id)
+            existing_turns = list(session.turns)
+
+            for idx, (u_text, a_text) in enumerate(pairs):
+                # 3. Deduplicación posicional y de contenido
+                if idx < len(existing_turns):
+                    existing = existing_turns[idx]
+                    if existing.user_prompt.strip() == u_text.strip():
+                        # Si ya existe en la misma posición, actualizar respuesta si estaba vacía
+                        if a_text and not existing.assistant_response:
+                            self._update_recent_entities(session, u_text, a_text, existing.intent)
+                        continue
+
+                # Si es un turno que no coincide por posición, verificar por contenido
+                already_exists = any(
+                    t.user_prompt.strip() == u_text.strip() and (not a_text or t.assistant_response.strip() == a_text.strip())
+                    for t in session.turns
+                )
+                if already_exists:
+                    continue
+
+                # 4. Registrar turno deduplicado en la sesión
+                self.record_turn(
+                    session_id=session_id,
+                    user_prompt=u_text,
+                    assistant_response=a_text,
+                    intent="general_query",
+                    modality=InputModality.TEXT,
+                )
+                ingested_count += 1
+
+        return ingested_count
+
     def get_history(self, session_id: str) -> list[ConversationTurn]:
         """Obtiene una copia inmutable del historial de turnos de la sesión."""
         with self._lock:
@@ -789,6 +875,32 @@ class ConversationContextManager:
             if p_name.lower() not in ("jessyca", "jessica", "todos", "alguien", "un", "una", "el", "la"):
                 session.set_context_item("last_mentioned_person", p_name, relevance=1.0, source="entity_extractor")
                 session.set_context_item("last_referenced_entity", p_name, relevance=1.0, source="entity_extractor")
+
+        # Nombre propio del usuario ("Mi nombre es Carlos", "Me llamo Carlos", "Soy Carlos")
+        name_match = re.search(
+            r"(?:mi\s+nombre\s+es|me\s+llamo|soy)\s+([a-záéíóúñ]+)",
+            prompt_lower,
+            re.IGNORECASE,
+        )
+        if name_match:
+            u_name = name_match.group(1).capitalize()
+            if u_name.lower() not in ("jessyca", "jessica", "un", "una", "el", "la", "nuevo", "nueva"):
+                session.set_context_item("user_name", u_name, relevance=1.0, source="entity_extractor")
+                session.set_context_item("last_mentioned_person", u_name, relevance=0.95, source="entity_extractor")
+
+        # Palabra secreta ("La palabra secreta ... es LUCERO")
+        secret_match = re.search(
+            r"(?:palabra\s+secreta.*?es|clave\s+secreta.*?es)\s+([a-záéíóúñ0-9]+)",
+            prompt_lower,
+            re.IGNORECASE,
+        )
+        if secret_match:
+            s_word = secret_match.group(1).upper()
+            session.set_context_item("secret_word", s_word, relevance=1.0, source="entity_extractor")
+
+        # Proyecto o tema ("proyecto JESSYCA", "ayudes con JESSYCA", "trabajando en JESSYCA")
+        if "jessyca" in prompt_lower or "jessica" in prompt_lower:
+            session.set_context_item("mentioned_project", "JESSYCA", relevance=1.0, source="entity_extractor")
 
         # Tarea activa
         if intent and intent not in ("unknown", "general_query", "cancel_task"):

@@ -21,12 +21,16 @@ htmlcov/
 logs/*.log
 logs/*.log.*
 *.log
+logs/*.jsonl
 logs/audit/*.jsonl
 logs/audit/audit.jsonl.*
 
 # Datos locales y bases de datos runtime
 data/*.db
 data/*.json
+
+# Scripts temporales
+scratch/
 
 # Archivos de entorno local con datos sensibles
 .env

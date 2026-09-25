@@ -29,7 +29,7 @@ logger = get_logger("jessyca.llm.consensus")
 DEFAULT_CONSENSUS_ENSEMBLE: tuple[str, ...] = (
     "qwen3:8b",
     "gemma4:e4b",
-    "llama3.1:latest",
+    "llama3.1",
 )
 
 

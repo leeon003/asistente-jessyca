@@ -120,8 +120,14 @@ class ModelRouter:
         """Resuelve un modelo de respaldo alternativo cuando el modelo intentado falla o no está disponible."""
         with self._lock:
             base_context = context or RoutingContext()
-            # Agregar el modelo fallido a la lista de excluidos
-            updated_excluded = tuple(set(base_context.excluded_model_ids) | {attempted_model.strip()})
+            excluded_set = set(base_context.excluded_model_ids) | {attempted_model.strip()}
+            try:
+                canonical_profile = self._registry.get(attempted_model)
+                excluded_set.add(canonical_profile.name)
+                excluded_set.add(canonical_profile.model_id)
+            except Exception:
+                pass
+            updated_excluded = tuple(excluded_set)
             fallback_context = RoutingContext(
                 task_type=base_context.task_type,
                 complexity=base_context.complexity,

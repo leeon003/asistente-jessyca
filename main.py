@@ -152,6 +152,21 @@ def run_mobile_mode(host: str | None = None, port: int | None = None) -> int:
         return 1
 
 
+def run_webui_mode(host: str | None = None, port: int | None = None) -> int:
+    """Ejecuta exclusivamente el servidor Web Bridge OpenAI-Compatible standalone."""
+    try:
+        from interfaces.webui_bridge.server import run_webui_server
+
+        logger.info("[WEBUI STANDALONE] Iniciando servidor Web Bridge OpenAI-Compatible...")
+        return run_webui_server(host=host, port=port)
+    except KeyboardInterrupt:
+        logger.info("[WEBUI STANDALONE] Servidor Web Bridge detenido por el usuario.")
+        return 0
+    except Exception as e:
+        logger.critical(f"[WEBUI STANDALONE FATAL] Error en servidor Web Bridge: {e}", exc_info=True)
+        return 1
+
+
 def parse_arguments(argv: Sequence[str] | None = None) -> argparse.Namespace:
     """Parsea los argumentos de línea de comandos para seleccionar el modo de ejecución."""
     parser = argparse.ArgumentParser(
@@ -178,6 +193,11 @@ def parse_arguments(argv: Sequence[str] | None = None) -> argparse.Namespace:
         "--mobile",
         action="store_true",
         help="Inicia exclusivamente el servidor Mobile API Bridge",
+    )
+    group.add_argument(
+        "--webui",
+        action="store_true",
+        help="Inicia exclusivamente el servidor Web Bridge OpenAI-Compatible",
     )
     parser.add_argument(
         "--transport",
@@ -210,6 +230,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return run_voice_mode()
     if args.mobile:
         return run_mobile_mode(host=args.host, port=args.port)
+    if args.webui:
+        return run_webui_mode(host=args.host, port=args.port)
 
     # Modo DEMO predeterminado
     return run_demo_mode()

@@ -37,9 +37,11 @@ class ModelManager:
         self,
         registry: ModelRegistry | None = None,
         default_model_name: str | None = None,
+        router: Any | None = None,
     ) -> None:
         self._lock = threading.RLock()
         self._registry = registry or ModelRegistry.get_instance()
+        self._router = router
         # Resolución inicial del modelo por defecto (prioridad: argumento -> variable de entorno -> fallback)
         env_model = os.getenv("OLLAMA_MODEL")
         initial_default = default_model_name if default_model_name else (env_model if env_model else FALLBACK_DEFAULT_MODEL)
@@ -58,24 +60,42 @@ class ModelManager:
         """Acceso de solo lectura al registro de modelos."""
         return self._registry
 
-    def get_model(self, name: str | None = None) -> ModelProfile:
+    def get_model(self, name: str | None = None, context: Any | None = None) -> ModelProfile:
         """Resuelve y obtiene el ModelProfile solicitado o el modelo predeterminado si name es None.
 
-        El marcador semántico AUTO_ROUTE_MODEL ('auto-routed') se interpreta como
-        selección automática y resuelve al modelo predeterminado configurado, sin
-        necesidad de estar registrado en el catálogo de modelos.
+        Si se solicita explícitamente el marcador semántico AUTO_ROUTE_MODEL ('auto-routed'),
+        delega la selección dinámicamente al ModelRouter mediante RoutingPolicy.
+        En caso de fallo en el router o indisponibilidad, activa automáticamente un
+        fallback seguro al modelo predeterminado del sistema.
         """
         with self._lock:
             stripped = name.strip() if name and name.strip() else ""
-            if not stripped or stripped == AUTO_ROUTE_MODEL:
-                if stripped == AUTO_ROUTE_MODEL:
-                    logger.info(
-                        f"[MODEL MANAGER] Auto-route solicitado. "
-                        f"Resolviendo al modelo predeterminado: '{self._default_model_name}'"
-                    )
+            if not stripped:
+                # Resolución directa al modelo predeterminado sin invocar el router
                 target_name = self._default_model_name
+            elif stripped == AUTO_ROUTE_MODEL:
+                # Delegación explícita a ModelRouter
+                try:
+                    from core.llm.model_router import ModelRouter
+                    from core.llm.routing_policy import RoutingContext
+
+                    active_router = self._router or ModelRouter.get_instance()
+                    ctx = context if isinstance(context, RoutingContext) else RoutingContext()
+                    routed_profile = active_router.route(ctx)
+                    logger.info(
+                        f"[MODEL MANAGER] Auto-route resuelto dinámicamente por ModelRouter: '{routed_profile.name}' "
+                        f"(provider: {routed_profile.provider})"
+                    )
+                    return routed_profile
+                except Exception as ex:
+                    logger.warning(
+                        f"[MODEL MANAGER] Error durante delegación auto-route a ModelRouter ({ex}). "
+                        f"Activando fallback seguro al modelo predeterminado: '{self._default_model_name}'"
+                    )
+                    target_name = self._default_model_name
             else:
                 target_name = stripped
+
             try:
                 profile = self._registry.get(target_name)
                 logger.debug(f"[MODEL MANAGER] Modelo resuelto: '{profile.name}'")

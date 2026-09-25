@@ -106,6 +106,7 @@ class JessycaRequest:
     file_attachments: list[str] = field(default_factory=list)
     browser_context: dict[str, Any] = field(default_factory=dict)
     require_wake_word: bool = False
+    conversation_context: list[dict[str, str]] = field(default_factory=list)
     metadata: dict[str, Any] = field(default_factory=dict)
     timestamp: float = field(default_factory=time.time)
 

@@ -31,7 +31,9 @@ class ConsensusPolicy:
         default_factory=lambda: {
             "qwen3:8b": 1.2,
             "gemma4:e4b": 1.0,
+            "llama3.1": 1.0,
             "llama3.1:latest": 1.0,
+            "llama3.2": 0.9,
             "llama3.2:latest": 0.9,
         }
     )

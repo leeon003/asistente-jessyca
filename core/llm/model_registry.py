@@ -7,6 +7,7 @@ El Registry NO ejecuta modelos, NO realiza inferencia, NO llama a Ollama ni ejec
 
 from __future__ import annotations
 
+import os
 import threading
 from typing import ClassVar
 
@@ -120,6 +121,26 @@ def get_default_built_in_profiles() -> list[ModelProfile]:
             default_parameters={"temperature": 0.1},
             description="Gemma 4 (e4b) - Modelo de inferencia local para resolución estructurada de intenciones.",
         ),
+        ModelProfile(
+            model_id="nvidia/nemotron-3-ultra-550b-a55b",
+            name="nvidia/nemotron-3-ultra-550b-a55b",
+            provider="nemotron",
+            capabilities=("completion", "tools", "thinking", "reasoning", "planning"),
+            context_length=131072,
+            max_context_length=131072,
+            input_modalities=("text",),
+            output_modalities=("text",),
+            vision=False,
+            supports_vision=False,
+            tool_calling=True,
+            supports_tools=True,
+            reasoning=True,
+            priority=4,
+            vram_estimate_mb=0,  # 0 MB de VRAM local (modelo remoto consumido vía API)
+            enabled=os.getenv("NEMOTRON_ENABLED", "false").strip().lower() in ("true", "1", "yes", "on"),
+            default_parameters={"temperature": 0.1},
+            description="NVIDIA Nemotron 3 Ultra (550B-A55B) - Modelo remoto de ultra alta capacidad para razonamiento y planificación.",
+        ),
     ]
 
 
@@ -160,6 +181,10 @@ class ModelRegistry:
             clean_name = name.strip() if name else ""
             if clean_name not in self._profiles:
                 # Búsqueda por alias o versión exacta (e.g. "llama3.1:latest" -> "llama3.1")
+                if clean_name in ("nemotron", "nemotron-3-ultra", "nvidia/nemotron"):
+                    target = "nvidia/nemotron-3-ultra-550b-a55b"
+                    if target in self._profiles:
+                        return self._profiles[target]
                 base_name = clean_name.split(":")[0] if ":" in clean_name else clean_name
                 if base_name in self._profiles:
                     return self._profiles[base_name]
@@ -172,6 +197,8 @@ class ModelRegistry:
             clean_name = name.strip() if name else ""
             if clean_name in self._profiles:
                 return True
+            if clean_name in ("nemotron", "nemotron-3-ultra", "nvidia/nemotron"):
+                return "nvidia/nemotron-3-ultra-550b-a55b" in self._profiles
             base_name = clean_name.split(":")[0] if ":" in clean_name else clean_name
             return base_name in self._profiles
 

@@ -379,12 +379,60 @@ class IntegrationHub:
             pass
 
 
+def register_default_adapters(hub: IntegrationHub) -> None:
+    """Registra los adaptadores oficiales construidos para JESSYCA según la configuración global."""
+    try:
+        from config.manager import get_settings
+
+        settings = get_settings()
+        if not getattr(settings, "INTEGRATIONS_ENABLED", True):
+            logger.info("[INTEGRATION_HUB] Integraciones deshabilitadas globalmente por configuración.")
+            return
+
+        adapters_cfg = getattr(settings, "INTEGRATIONS_ADAPTERS", {})
+        # 1. Jarvis Adapter
+        jarvis_cfg = adapters_cfg.get("jarvis", {})
+        jarvis_enabled = bool(jarvis_cfg.get("enabled", False))
+
+        if hub.registry.get("jarvis-py") is None:
+            from core.integration.adapters.jarvis_adapter import JarvisAdapter
+
+            jarvis_adapter = JarvisAdapter()
+            hub.registry.register(jarvis_adapter, enabled=jarvis_enabled)
+            logger.info(f"[INTEGRATION_HUB] Auto-registrado JarvisAdapter [enabled={jarvis_enabled}].")
+
+        # 2. ARE Adapter (Autonomous / Action Reasoning Engine)
+        are_cfg = adapters_cfg.get("are", {})
+        are_enabled = bool(are_cfg.get("enabled", False))
+
+        if hub.registry.get("are") is None:
+            from core.integration.adapters.are_adapter import AREAdapter
+
+            are_adapter = AREAdapter()
+            hub.registry.register(are_adapter, enabled=are_enabled)
+            logger.info(f"[INTEGRATION_HUB] Auto-registrado AREAdapter [enabled={are_enabled}].")
+
+        # 3. Windows Computer Use Adapter
+        wcu_cfg = adapters_cfg.get("windows_computer_use", {})
+        wcu_enabled = bool(wcu_cfg.get("enabled", False))
+
+        if hub.registry.get("windows_computer_use") is None:
+            from core.integration.adapters.computer_use_adapter import ComputerUseAdapter
+
+            wcu_adapter = ComputerUseAdapter()
+            hub.registry.register(wcu_adapter, enabled=wcu_enabled)
+            logger.info(f"[INTEGRATION_HUB] Auto-registrado ComputerUseAdapter [enabled={wcu_enabled}].")
+    except Exception as exc:
+        logger.warning(f"[INTEGRATION_HUB] Error al auto-registrar adaptadores predeterminados: {exc}")
+
+
 _global_hub: IntegrationHub | None = None
 
 
 def get_integration_hub() -> IntegrationHub:
-    """Devuelve la instancia global del IntegrationHub."""
+    """Devuelve la instancia global del IntegrationHub con adaptadores registrados."""
     global _global_hub
     if _global_hub is None:
         _global_hub = IntegrationHub()
+        register_default_adapters(_global_hub)
     return _global_hub

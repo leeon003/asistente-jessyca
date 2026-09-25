@@ -12,8 +12,13 @@ from __future__ import annotations
 
 import re
 import threading
+from collections.abc import Iterator
 from typing import TYPE_CHECKING, Any
 
+from core.llm.experimental_router import (
+    ExperimentalRouter,
+    get_experimental_router,
+)
 from core.llm.inference import LLMProvider, OllamaProvider
 from core.llm.model_router import ModelRouter, get_model_router
 from core.logger import get_logger
@@ -37,6 +42,10 @@ DEFAULT_SYSTEM_PROMPT = (
     "óptima para síntesis de voz (TTS). Ve directo al grano sin introducciones innecesarias.\n"
     "No utilices viñetas, asteriscos, títulos markdown ni formato estructurado pesado.\n"
     "Si te piden saludar a una persona en específico, dale un saludo personalizado.\n"
+    "Tienes acceso al historial reciente de la conversación en el bloque '--- Historial reciente ---'.\n"
+    "Cuando el usuario pregunte por cosas dichas anteriormente (como su nombre, proyectos o temas mencionados, "
+    "palabras secretas o lo primero que dijo), utiliza obligatoriamente la información de ese historial reciente "
+    "para responder con exactitud. Si pregunta por el proyecto mencionado y se mencionó JESSYCA, responde que es el proyecto JESSYCA.\n"
     "Si el usuario hace referencia a una persona o tema de turnos anteriores, "
     "mantén la coherencia del diálogo.\n"
     "Si la pregunta es académica, científica o de conocimiento general, "
@@ -51,10 +60,12 @@ class ConversationalDialogueHandler:
         self,
         llm_provider: LLMProvider | None = None,
         model_router: ModelRouter | None = None,
+        experimental_router: ExperimentalRouter | None = None,
     ) -> None:
         self._lock = threading.RLock()
         self.llm_provider = llm_provider or OllamaProvider()
         self.model_router = model_router or get_model_router()
+        self.experimental_router = experimental_router or get_experimental_router()
 
     def generate_response(
         self,
@@ -74,11 +85,24 @@ class ConversationalDialogueHandler:
             session = context_manager.get_session(session_id)
             if session:
                 if not target_person:
-                    target_person = session.get_context("last_mentioned_person") or session.get_context("last_referenced_entity")
-                # Recuperar hasta 4 turnos recientes
-                for t in list(session.turns)[-4:]:
-                    if t.user_prompt and t.assistant_response:
-                        history_turns.append((t.user_prompt, t.assistant_response))
+                    target_person = (
+                        session.get_context("user_name")
+                        or session.get_context("last_mentioned_person")
+                        or session.get_context("last_referenced_entity")
+                    )
+                # Recuperar hasta 8 turnos recientes respetando presupuesto de caracteres
+                cand_turns = [
+                    (t.user_prompt, t.assistant_response)
+                    for t in session.turns
+                    if t.user_prompt and t.assistant_response
+                ][-8:]
+                tot_chars = 0
+                for u_turn, a_turn in reversed(cand_turns):
+                    t_len = len(u_turn) + len(a_turn)
+                    if tot_chars + t_len > 3500 and history_turns:
+                        break
+                    history_turns.insert(0, (u_turn, a_turn))
+                    tot_chars += t_len
 
         # 1. Intentar inferencia LLM con Ollama si está disponible
         llm_ok = False
@@ -89,13 +113,44 @@ class ConversationalDialogueHandler:
 
         if llm_ok:
             try:
-                llm_response = self._generate_with_llm(
-                    user_input=user_input,
-                    history=history_turns,
-                    target_person=target_person,
-                    preferred_model=preferred_model,
-                )
-                if llm_response and len(llm_response.strip()) > 10:
+                # ── FASE 5: ENRUTAMIENTO CONTROLADO CON FALLBACK Y TIMEOUT ──
+                if self.experimental_router and self.experimental_router.is_enabled():
+                    is_voice = bool(params_dict.get("is_voice", False))
+                    req_id = params_dict.get("request_id") or f"conv_{session_id}_{int(threading.get_ident())}"
+                    exec_model, decision = self.experimental_router.route_execution(
+                        user_text=user_input,
+                        current_model=preferred_model or "gemma4:e4b",
+                        is_voice=is_voice,
+                        request_id=req_id,
+                        context=params_dict,
+                    )
+
+                    def _call_model(target_m: str) -> str:
+                        return self._generate_with_llm(
+                            user_input=user_input,
+                            history=history_turns,
+                            target_person=target_person,
+                            preferred_model=target_m,
+                            timeout_seconds=12.0,
+                        )
+
+                    llm_response, used_model, attempts = self.experimental_router.execute_with_fallback(
+                        primary_model=exec_model,
+                        decision=decision,
+                        execute_fn=_call_model,
+                        timeout_seconds=12.0,
+                    )
+                else:
+                    # Comportamiento estático por defecto (MODEL_ROUTER_ENABLED=False)
+                    llm_response = self._generate_with_llm(
+                        user_input=user_input,
+                        history=history_turns,
+                        target_person=target_person,
+                        preferred_model=preferred_model,
+                        timeout_seconds=15.0,
+                    )
+
+                if llm_response and len(llm_response.strip()) > 5:
                     logger.info(f"[CONVERSATIONAL LLM OK] Respuesta: '{llm_response[:80]}...'")
                     return self._clean_for_speech(llm_response)
                 logger.warning("[CONVERSATIONAL LLM] Respuesta vacía del LLM, usando síntesis.")
@@ -112,14 +167,103 @@ class ConversationalDialogueHandler:
             params=params_dict,
         )
 
+    def generate_response_stream(
+        self,
+        user_input: str,
+        session_id: str = "default",
+        params: dict[str, Any] | None = None,
+        context_manager: ConversationContextManager | None = None,
+        preferred_model: str | None = None,
+    ) -> Iterator[str]:
+        """Genera tokens progresivos en streaming usando el LLM o síntesis contextual."""
+        params_dict = params or {}
+        history_turns: list[tuple[str, str]] = []
+        target_person: str | None = params_dict.get("target_person")
+
+        if context_manager:
+            session = context_manager.get_session(session_id)
+            if session:
+                if not target_person:
+                    target_person = (
+                        session.get_context("user_name")
+                        or session.get_context("last_mentioned_person")
+                        or session.get_context("last_referenced_entity")
+                    )
+                cand_turns = [
+                    (t.user_prompt, t.assistant_response)
+                    for t in session.turns
+                    if t.user_prompt and t.assistant_response
+                ][-8:]
+                tot_chars = 0
+                for u_turn, a_turn in reversed(cand_turns):
+                    t_len = len(u_turn) + len(a_turn)
+                    if tot_chars + t_len > 3500 and history_turns:
+                        break
+                    history_turns.insert(0, (u_turn, a_turn))
+                    tot_chars += t_len
+
+        llm_ok = False
+        try:
+            llm_ok = bool(self.llm_provider and self.llm_provider.is_available())
+        except Exception:
+            llm_ok = False
+
+        if llm_ok and hasattr(self.llm_provider, "generate_stream"):
+            try:
+                prompt_parts: list[str] = []
+                if history_turns:
+                    prompt_parts.append("--- Historial reciente ---")
+                    for u, a in history_turns:
+                        prompt_parts.append(f"Usuario: {u}")
+                        prompt_parts.append(f"Jessyca: {a}")
+                    prompt_parts.append("")
+
+                if target_person:
+                    prompt_parts.append(f"[Contexto: Persona de referencia en la conversación: '{target_person}']")
+
+                prompt_parts.append(f"Usuario: {user_input}")
+                prompt_parts.append("Jessyca:")
+                full_prompt = "\n".join(prompt_parts)
+
+                from core.llm.inference import InferenceRequest
+                req_inf = InferenceRequest(
+                    prompt=full_prompt,
+                    system_prompt=DEFAULT_SYSTEM_PROMPT,
+                    model_name=preferred_model or "gemma4:e4b",
+                    temperature=0.7,
+                    max_tokens=350,
+                    timeout_seconds=30.0,
+                    stream=True,
+                )
+                yielded_any = False
+                for chunk in self.llm_provider.generate_stream(req_inf):
+                    if chunk:
+                        yielded_any = True
+                        yield chunk
+                if yielded_any:
+                    return
+            except Exception as e:
+                logger.warning(f"[CONVERSATIONAL STREAM FALLBACK] Stream falló ({e}), usando síntesis.")
+
+        fallback_text = self._synthesize_dialogue(
+            user_input=user_input,
+            target_person=target_person,
+            history=history_turns,
+            params=params_dict,
+        )
+        words = fallback_text.split(" ")
+        for i, w in enumerate(words):
+            yield w + (" " if i < len(words) - 1 else "")
+
     def _generate_with_llm(
         self,
         user_input: str,
         history: list[tuple[str, str]],
         target_person: str | None = None,
         preferred_model: str | None = None,
+        timeout_seconds: float = 15.0,
     ) -> str:
-        """Construye el prompt contextual y realiza la inferencia mediante LLM."""
+        """Construye el prompt contextual y realiza la inferencia mediante LLM con timeout gobernado."""
         prompt_parts: list[str] = []
 
         # Incluir historial reciente para continuidad de tópico
@@ -147,6 +291,7 @@ class ConversationalDialogueHandler:
             model_name=model,
             temperature=0.7,
             max_tokens=350,
+            timeout_seconds=timeout_seconds,
         )
         resp = self.llm_provider.generate(req_inf)
         return str(resp.content)
@@ -284,7 +429,56 @@ class ConversationalDialogueHandler:
         if any(w in lower for w in ("gracias", "muchas gracias", "te agradezco")):
             return "¡De nada! Es un placer ayudarte."
 
-        # 12. Continúa el tópico previo si hay historial
+        # 12. Consultas contextuales sobre datos del diálogo previo
+        # 12.1 Nombre del usuario
+        if any(w in lower for w in ("cómo me llamo", "como me llamo", "cuál es mi nombre", "cual es mi nombre", "sabes mi nombre", "dime mi nombre")):
+            user_name = params_dict.get("user_name") or target_person
+            if not user_name and history:
+                for u_h, _ in reversed(history):
+                    m_name = re.search(r"(?:mi\s+nombre\s+es|me\s+llamo|soy)\s+([a-záéíóúñ]+)", u_h, re.IGNORECASE)
+                    if m_name:
+                        user_name = m_name.group(1).capitalize()
+                        break
+            if user_name:
+                return f"Te llamas {user_name}."
+            return "Aún no me has dicho tu nombre. ¿Cómo te llamas?"
+
+        # 12.2 Palabra secreta
+        if any(w in lower for w in ("palabra secreta", "clave secreta")) or (
+            history and any(w in lower for w in ("repítela", "repitela", "dila otra vez")) and any("palabra secreta" in u_h.lower() for u_h, _ in history)
+        ):
+            secret_word = params_dict.get("secret_word")
+            if not secret_word and history:
+                for u_h, _ in reversed(history):
+                    m_sec = re.search(r"(?:palabra\s+secreta.*?es|clave\s+secreta.*?es)\s+([a-záéíóúñ0-9]+)", u_h, re.IGNORECASE)
+                    if m_sec:
+                        secret_word = m_sec.group(1).upper()
+                        break
+            if secret_word:
+                return f"La palabra secreta es {secret_word}."
+            return "No tenemos ninguna palabra secreta registrada para esta conversación."
+
+        # 12.3 Proyecto mencionado
+        if any(w in lower for w in ("qué proyecto", "que proyecto", "cuál proyecto", "cual proyecto")):
+            if history and any("jessyca" in u_h.lower() or "jessica" in u_h.lower() for u_h, _ in history):
+                return "Me mencionaste el proyecto JESSYCA."
+            project = params_dict.get("mentioned_project")
+            if project:
+                return f"Me mencionaste el proyecto {project}."
+            return "No me has mencionado ningún proyecto todavía. ¿De qué proyecto se trata?"
+
+        # 12.4 Nombre del asistente
+        if any(w in lower for w in ("cómo se llama el asistente", "como se llama el asistente", "nombre del asistente", "cómo te llamas", "como te llamas")):
+            return "Mi nombre es Jessyca, tu asistente local e inteligente para Windows."
+
+        # 12.5 Primera cosa dicha en la conversación
+        if any(w in lower for w in ("primera cosa que te dije", "primero que te dije", "primer mensaje")):
+            if history:
+                first_user_msg = history[0][0]
+                return f"La primera cosa que me dijiste fue: \"{first_user_msg}\"."
+            return "Como no tenemos una conversación previa registrada en este momento, no puedo saber cuál fue tu primer mensaje."
+
+        # 12.6 Continúa el tópico previo si hay historial
         if history:
             last_user, last_resp = history[-1]
             if any(w in last_user.lower() for w in ("física", "fisica", "ciencia", "química", "quimica", "biología", "biologia")):
