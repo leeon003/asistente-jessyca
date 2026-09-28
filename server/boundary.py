@@ -33,6 +33,7 @@ class ExecutionStatus(StrEnum):
     SUCCESS = "SUCCESS"
     DENIED = "DENIED"
     FAILED = "FAILED"
+    UNKNOWN = "UNKNOWN"
 
 
 @dataclass(frozen=True)
@@ -46,7 +47,14 @@ class ExecutionResult:
     output: Any = None
     message: str = ""
     duration_ms: float = 0.0
+    is_verified: bool = False
+    evidence: Any = None
     timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
+
+    @property
+    def claims_success(self) -> bool:
+        """Determina si la acción declara éxito genuino con evidencia comprobable."""
+        return self.status == ExecutionStatus.SUCCESS and self.is_verified
 
     def to_dict(self) -> dict[str, Any]:
         """Devuelve un diccionario explícito del resultado."""
@@ -58,6 +66,9 @@ class ExecutionResult:
             "output": self.output,
             "message": self.message,
             "duration_ms": self.duration_ms,
+            "is_verified": self.is_verified,
+            "claims_success": self.claims_success,
+            "evidence": self.evidence,
             "timestamp": self.timestamp.isoformat(),
         }
 

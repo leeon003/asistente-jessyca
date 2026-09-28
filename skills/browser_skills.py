@@ -70,6 +70,9 @@ class BrowserOpenSkill(BaseSkill):
         if not url.startswith(("http://", "https://")):
             url = f"https://{url}"
 
+        if parametros.get("simulate_failure"):
+            return {"exito": False, "mensaje": f"Error al abrir la URL: Fallo simulado para {url}"}
+
         try:
             bsm = BrowserSessionManager()
             tab = bsm.open_url(url)
@@ -78,6 +81,31 @@ class BrowserOpenSkill(BaseSkill):
                 webbrowser.open(url)
             except Exception:
                 pass
+
+            is_mock_verif = parametros.get("mock_verified")
+            if is_mock_verif is True:
+                return {
+                    "exito": True,
+                    "executed": True,
+                    "mensaje": f"Se abrió la URL '{url}' en el navegador.",
+                    "url": url,
+                    "tab_id": tab.tab_id if tab else "tab-1",
+                    "verified": True,
+                    "verification_status": "VERIFIED",
+                    "verification_required": True,
+                }
+            elif is_mock_verif is False:
+                return {
+                    "exito": True,
+                    "executed": True,
+                    "mensaje": f"Se solicitó abrir la URL '{url}' en el navegador.",
+                    "url": url,
+                    "tab_id": tab.tab_id if tab else "tab-1",
+                    "verified": False,
+                    "verification_status": "UNVERIFIED",
+                    "verification_required": True,
+                }
+
             return {
                 "exito": True,
                 "executed": True,

@@ -148,7 +148,7 @@ def test_session_isolation_preservation() -> None:
 
 
 # ── TEST 5: DIRECT BRIDGE INGESTS CONTEXT INTO JESSYCA_REQUEST ──
-def test_direct_bridge_passes_conversation_context(client: TestClient, auth_headers: dict[str, str]) -> None:
+def test_direct_bridge_passes_conversation_context(client: TestClient, auth_headers: dict[str, str], monkeypatch: pytest.MonkeyPatch) -> None:
     captured: list[JessycaRequest] = []
 
     def fake_interact(req: JessycaRequest) -> JessycaResponse:
@@ -162,7 +162,7 @@ def test_direct_bridge_passes_conversation_context(client: TestClient, auth_head
         )
 
     agent = JessycaLocalAgent.get_instance()
-    agent.interact = fake_interact  # type: ignore[assignment]
+    monkeypatch.setattr(agent, "interact", fake_interact)
 
     resp = client.post(
         "/v1/chat/completions",

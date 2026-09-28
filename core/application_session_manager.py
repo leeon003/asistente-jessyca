@@ -9,6 +9,7 @@ un ejecutable duplicado en el SO.
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
 import time
 import uuid
@@ -324,7 +325,20 @@ class WindowsApplicationAdapter(IApplicationAdapter):
             if os.name == "nt":
                 is_cli = descriptor.executable.lower() in ("cmd.exe", "powershell.exe", "pwsh.exe")
 
-                cmd = [descriptor.executable] + list(args)
+                exe_target = descriptor.executable
+                if not shutil.which(exe_target):
+                    candidates = [
+                        os.path.join(os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)"), "Microsoft", "Edge", "Application", "msedge.exe"),
+                        os.path.join(os.environ.get("ProgramFiles", r"C:\Program Files"), "Microsoft", "Edge", "Application", "msedge.exe"),
+                        os.path.join(os.environ.get("ProgramFiles", r"C:\Program Files"), "Google", "Chrome", "Application", "chrome.exe"),
+                        os.path.join(os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)"), "Google", "Chrome", "Application", "chrome.exe"),
+                    ]
+                    for cand in candidates:
+                        if os.path.basename(cand).lower() == descriptor.executable.lower() and os.path.exists(cand):
+                            exe_target = cand
+                            break
+
+                cmd = [exe_target] + list(args)
                 p = subprocess.Popen(cmd, shell=False)
                 proc_pid = p.pid
 
@@ -337,7 +351,7 @@ class WindowsApplicationAdapter(IApplicationAdapter):
                         import win32com.client
                         shell = win32com.client.Dispatch("Shell.Application")
                         arg_str = " ".join(args) if args else ""
-                        shell.ShellExecute(descriptor.executable, arg_str, "", "open", 1)
+                        shell.ShellExecute(exe_target, arg_str, "", "open", 1)
                     except Exception as shell_err:
                         logger.debug(f"[WINDOWS APP ADAPTER] ShellExecute fallback: {shell_err}")
 
@@ -355,6 +369,8 @@ class WindowsApplicationAdapter(IApplicationAdapter):
                 proc_hwnd = 1001
         except Exception as e:
             logger.warning(f"[WINDOWS APP ADAPTER] Error al invocar {descriptor.executable} en SO: {e}")
+            if os.name == "nt":
+                raise ApplicationNotFoundError(f"No se pudo iniciar '{descriptor.executable}': {e}") from e
 
         if proc_pid is None:
             proc_pid = 5000

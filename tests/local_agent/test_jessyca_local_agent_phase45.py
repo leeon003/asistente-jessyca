@@ -59,10 +59,20 @@ class TestJessycaLocalAgentPhase45:
     # ── 1. VOICE → OPEN APPLICATION ──
     def test_01_voice_open_application(self) -> None:
         """Verifica que el comando de voz 'Jessyca, abre el bloc de notas' seleccione internamente la skill y ejecute la acción."""
+        from unittest.mock import patch
+        from core.execution.execution_verifier import ExecutionEvidence
+
         self.stt_service.set_transcription("Jessyca, abre el bloc de notas.")
         self.wake_word_service.trigger_manually()
 
-        resp = self.agent.process_voice(require_wake_word=True)
+        mock_ev = ExecutionEvidence(
+            verification_type="gui_application_visible",
+            target="notepad",
+            is_verified=True,
+            details={"hwnd": 1001, "is_visible": True, "title": "Bloc de notas"},
+        )
+        with patch("core.execution.execution_verifier.ExecutionVerifier.verify_execution", return_value=mock_ev):
+            resp = self.agent.process_voice(require_wake_word=True)
 
         assert resp.success is True
         assert resp.status == AgentExecutionState.COMPLETED
@@ -73,6 +83,27 @@ class TestJessycaLocalAgentPhase45:
         assert "bloc de notas" in resp.response_text.lower()
         assert resp.metrics.wake_word_detected is True
         assert len(self.tts_service.spoken_texts) > 0
+
+    def test_01b_voice_open_application_unverified_prevents_false_success(self) -> None:
+        """Verifica que si Windows no confirma ventana visible interactiva, el agente no declare éxito falso."""
+        from unittest.mock import patch
+        from core.execution.execution_verifier import ExecutionEvidence
+
+        self.stt_service.set_transcription("Jessyca, abre el bloc de notas.")
+        self.wake_word_service.trigger_manually()
+
+        mock_ev = ExecutionEvidence(
+            verification_type="gui_application_visible",
+            target="notepad",
+            is_verified=False,
+            details={"hwnd": 0, "is_visible": False, "error": "No visible interactive window"},
+        )
+        with patch("core.execution.execution_verifier.ExecutionVerifier.verify_execution", return_value=mock_ev):
+            resp = self.agent.process_voice(require_wake_word=True)
+
+        assert resp.success is False
+        assert resp.status == AgentExecutionState.FAILED
+        assert "no confirmó" in resp.response_text or "no pude" in resp.response_text
 
     # ── 2. VOICE → SEARCH FILE ──
     def test_02_voice_search_file(self) -> None:
@@ -91,9 +122,20 @@ class TestJessycaLocalAgentPhase45:
     # ── 3. VOICE → BROWSER ──
     def test_03_voice_browser_search(self) -> None:
         """Verifica que el comando de voz 'Jessyca, busca en internet sobre IA' active browser_agent."""
+        from unittest.mock import patch
+        from core.execution.execution_verifier import ExecutionEvidence
+
         self.stt_service.set_transcription("Jessyca, busca en internet sobre inteligencia artificial.")
 
-        resp = self.agent.process_voice(require_wake_word=False)
+        mock_ev = ExecutionEvidence(
+            verification_type="browser_navigated",
+            target="browser",
+            is_verified=True,
+            details={"url": "https://www.google.com/search?q=inteligencia+artificial", "verified": True},
+        )
+        with patch("core.execution.execution_verifier.ExecutionVerifier.verify_execution", return_value=mock_ev), \
+             patch("skills.browser_search_skill.BrowserSearchSkill.ejecutar", return_value={"exito": True, "verified": True, "mensaje": "Listo, busqué 'inteligencia artificial' en el navegador."}):
+            resp = self.agent.process_voice(require_wake_word=False)
 
         assert resp.success is True
         assert resp.intent == "browser_search"
@@ -118,6 +160,9 @@ class TestJessycaLocalAgentPhase45:
     # ── 5. VOICE → CLARIFICATION ──
     def test_05_voice_clarification_flow(self) -> None:
         """Verifica que un comando ambiguo active una solicitud de aclaración interactiva."""
+        from unittest.mock import patch
+        from core.execution.execution_verifier import ExecutionEvidence
+
         # Paso 1: Petición ambigua ("Abre por favor")
         self.stt_service.set_transcription("Jessyca, abre por favor.")
         resp1 = self.agent.process_voice(session_id="clarify_session")
@@ -128,7 +173,14 @@ class TestJessycaLocalAgentPhase45:
 
         # Paso 2: Usuario responde con el slot faltante ("El bloc de notas")
         self.stt_service.set_transcription("El bloc de notas")
-        resp2 = self.agent.process_voice(session_id="clarify_session")
+        mock_ev = ExecutionEvidence(
+            verification_type="gui_application_visible",
+            target="notepad",
+            is_verified=True,
+            details={"hwnd": 1001, "is_visible": True, "title": "Bloc de notas"},
+        )
+        with patch("core.execution.execution_verifier.ExecutionVerifier.verify_execution", return_value=mock_ev):
+            resp2 = self.agent.process_voice(session_id="clarify_session")
 
         assert resp2.success is True
         assert resp2.status == AgentExecutionState.COMPLETED

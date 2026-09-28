@@ -24,10 +24,13 @@ logs/*.log.*
 logs/*.jsonl
 logs/audit/*.jsonl
 logs/audit/audit.jsonl.*
+logs/jde/
 
 # Datos locales y bases de datos runtime
 data/*.db
 data/*.json
+data/anydoc/
+data/archify/
 
 # Scripts temporales
 scratch/

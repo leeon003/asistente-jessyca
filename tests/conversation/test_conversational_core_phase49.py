@@ -92,26 +92,45 @@ def test_conversation_turn():
 
 def test_multi_turn_context():
     """Valida que una acción previa enriquezca el contexto del siguiente turno (Navegador -> Busca hoteles)."""
+    from core.execution.execution_verifier import ExecutionEvidence
+
     agent = JessycaLocalAgent.get_instance()
     session_id = "session_browser_context"
 
     fake_proc = MagicMock()
     fake_proc.info = {"pid": 5555, "name": "msedge.exe"}
 
+    mock_ev_browser = ExecutionEvidence(
+        verification_type="browser_tab",
+        target="browser",
+        is_verified=True,
+        details={"url": "https://www.google.com", "verified": True},
+    )
+    mock_ev_search = ExecutionEvidence(
+        verification_type="browser_navigated",
+        target="browser",
+        is_verified=True,
+        details={"query": "hoteles", "verified": True},
+    )
+
     with patch("subprocess.Popen"), patch("psutil.process_iter", return_value=[fake_proc]):
         # Turno 1: Abrir navegador
-        req1 = JessycaRequest(user_input="Abre el navegador", session_id=session_id)
-        res1 = agent.interact(req1)
+        with patch("core.execution.execution_verifier.ExecutionVerifier.verify_execution", return_value=mock_ev_browser), \
+             patch("skills.browser_skills.BrowserOpenSkill.ejecutar", return_value={"exito": True, "verified": True, "url": "https://www.google.com", "mensaje": "Listo, abrí el navegador."}):
+            req1 = JessycaRequest(user_input="Abre el navegador", session_id=session_id)
+            res1 = agent.interact(req1)
         assert res1.success is True
-        assert res1.intent == "open_application"
+        assert res1.intent in ("open_application", "open_browser")
 
         # Verificar que el contexto corto registró la aplicación activa
         active_app = agent.context_manager.get_recent_entity(session_id, "current_application")
         assert active_app == "browser"
 
         # Turno 2: "Busca hoteles" en el contexto del navegador abierto
-        req2 = JessycaRequest(user_input="Busca hoteles", session_id=session_id)
-        res2 = agent.interact(req2)
+        with patch("core.execution.execution_verifier.ExecutionVerifier.verify_execution", return_value=mock_ev_search), \
+             patch("skills.browser_search_skill.BrowserSearchSkill.ejecutar", return_value={"exito": True, "verified": True, "mensaje": "Listo, busqué 'hoteles' en el navegador."}):
+            req2 = JessycaRequest(user_input="Busca hoteles", session_id=session_id)
+            res2 = agent.interact(req2)
 
         assert res2.success is True
         assert res2.intent == "browser_search"

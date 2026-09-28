@@ -53,7 +53,17 @@ class TestActionIntentContractIntegration:
     # ── A, B, C, D, E, I, J: ACCIÓN VÁLIDA CONSERVACIÓN Y CONTRATO ────────────
     def test_valid_action_produces_and_transports_contract(self) -> None:
         """Demuestra que LocalAgent produce/transporta un ActionIntentContract para una acción válida."""
-        resp = self.agent.process_text("abre el bloc de notas", session_id="valid_action_session")
+        from unittest.mock import patch
+        from core.execution.execution_verifier import ExecutionEvidence
+
+        mock_ev = ExecutionEvidence(
+            verification_type="gui_application_visible",
+            target="notepad",
+            is_verified=True,
+            details={"hwnd": 1001, "is_visible": True, "title": "Bloc de notas"},
+        )
+        with patch("core.execution.execution_verifier.ExecutionVerifier.verify_execution", return_value=mock_ev):
+            resp = self.agent.process_text("abre el bloc de notas", session_id="valid_action_session")
 
         assert resp.success is True
         assert resp.status == AgentExecutionState.COMPLETED

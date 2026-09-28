@@ -1,0 +1,122 @@
+[
+  {
+    "scenario": "E01 convert CSV",
+    "expected": "VERIFIED_SUCCESS",
+    "actual": "VERIFIED_SUCCESS",
+    "decision_id": "dec_e01",
+    "verified": true,
+    "side_effects": 0
+  },
+  {
+    "scenario": "E02 convert DOCX",
+    "expected": "VERIFIED_SUCCESS",
+    "actual": "VERIFIED_SUCCESS",
+    "decision_id": "dec_e02",
+    "verified": true,
+    "side_effects": 0
+  },
+  {
+    "scenario": "E03 convert XLSX",
+    "expected": "VERIFIED_SUCCESS",
+    "actual": "VERIFIED_SUCCESS",
+    "decision_id": "dec_e03",
+    "verified": true,
+    "side_effects": 0
+  },
+  {
+    "scenario": "E04 convert PPTX",
+    "expected": "VERIFIED_SUCCESS",
+    "actual": "VERIFIED_SUCCESS",
+    "decision_id": "dec_e04",
+    "verified": true,
+    "side_effects": 0
+  },
+  {
+    "scenario": "E05 convert PDF",
+    "expected": "VERIFIED_SUCCESS",
+    "actual": "VERIFIED_SUCCESS",
+    "decision_id": "dec_e05",
+    "verified": true,
+    "side_effects": 0
+  },
+  {
+    "scenario": "E06 detect format",
+    "expected": "VERIFIED_SUCCESS",
+    "actual": "VERIFIED_SUCCESS",
+    "decision_id": "dec_e06",
+    "verified": true,
+    "side_effects": 0
+  },
+  {
+    "scenario": "E07 inspect document",
+    "expected": "VERIFIED_SUCCESS",
+    "actual": "VERIFIED_SUCCESS",
+    "decision_id": "dec_e07",
+    "verified": true,
+    "side_effects": 0
+  },
+  {
+    "scenario": "E08 extract structure",
+    "expected": "VERIFIED_SUCCESS",
+    "actual": "VERIFIED_SUCCESS",
+    "decision_id": "dec_e08",
+    "verified": true,
+    "side_effects": 0
+  },
+  {
+    "scenario": "E09 extract assets",
+    "expected": "VERIFIED_SUCCESS",
+    "actual": "VERIFIED_SUCCESS",
+    "decision_id": "dec_e09",
+    "verified": true,
+    "side_effects": 0
+  },
+  {
+    "scenario": "E10 JDE DENY",
+    "expected": "DENIED",
+    "actual": "DENIED",
+    "decision_id": "dec_e10",
+    "verified": false,
+    "side_effects": 0
+  },
+  {
+    "scenario": "E11 path traversal",
+    "expected": "SECURITY_BLOCKED",
+    "actual": "SECURITY_BLOCKED",
+    "decision_id": "dec_e11",
+    "verified": false,
+    "side_effects": 0
+  },
+  {
+    "scenario": "E12 zip bomb",
+    "expected": "RESOURCE_LIMIT",
+    "actual": "RESOURCE_LIMIT",
+    "decision_id": "dec_e12",
+    "verified": false,
+    "side_effects": 0
+  },
+  {
+    "scenario": "E13 prompt injection",
+    "expected": "VERIFIED_SUCCESS",
+    "actual": "VERIFIED_SUCCESS",
+    "decision_id": "dec_e13",
+    "verified": true,
+    "side_effects": 0
+  },
+  {
+    "scenario": "E14 idempotency",
+    "expected": "VERIFIED_SUCCESS",
+    "actual": "VERIFIED_SUCCESS",
+    "decision_id": "dec_e14",
+    "verified": true,
+    "side_effects": 0
+  },
+  {
+    "scenario": "E15 verification failure",
+    "expected": "VERIFICATION_FAILED",
+    "actual": "VERIFICATION_FAILED",
+    "decision_id": "dec_e15",
+    "verified": false,
+    "side_effects": 0
+  }
+]

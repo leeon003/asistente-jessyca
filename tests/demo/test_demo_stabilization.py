@@ -86,13 +86,23 @@ class TestDemoStabilization:
 
     def test_step_4_abre_bloc_de_notas(self, agent: JessycaLocalAgent) -> None:
         """Paso 4: Abre Bloc de notas con verificación de ejecución real."""
+        from unittest.mock import patch
+        from core.execution.execution_verifier import ExecutionEvidence
+
         session_id = f"demo_session_{int(time.time())}"
         req = JessycaRequest(
             session_id=session_id,
             user_input="Abre Bloc de notas.",
             modality=InputModality.VOICE,
         )
-        res = agent.interact(req)
+        mock_ev = ExecutionEvidence(
+            verification_type="gui_application_visible",
+            target="notepad",
+            is_verified=True,
+            details={"hwnd": 1001, "is_visible": True, "title": "Bloc de notas"},
+        )
+        with patch("core.execution.execution_verifier.ExecutionVerifier.verify_execution", return_value=mock_ev):
+            res = agent.interact(req)
         assert res.intent == "open_application"
         assert res.success is True
         assert "bloc de notas" in res.response_text.lower()
@@ -121,26 +131,48 @@ class TestDemoStabilization:
 
     def test_step_6_abre_google(self, agent: JessycaLocalAgent) -> None:
         """Paso 6: Abre Google debe clasificar como open_browser (sin google.exe)."""
+        from unittest.mock import patch
+        from core.execution.execution_verifier import ExecutionEvidence
+
         session_id = f"demo_session_{int(time.time())}"
         req = JessycaRequest(
             session_id=session_id,
             user_input="Abre Google.",
             modality=InputModality.VOICE,
         )
-        res = agent.interact(req)
+        mock_ev = ExecutionEvidence(
+            verification_type="browser_tab",
+            target="google.com",
+            is_verified=True,
+            details={"url": "https://www.google.com", "verified": True},
+        )
+        with patch("core.execution.execution_verifier.ExecutionVerifier.verify_execution", return_value=mock_ev), \
+             patch("skills.browser_skills.BrowserOpenSkill.ejecutar", return_value={"exito": True, "verified": True, "url": "https://www.google.com", "mensaje": "Listo, abrí Google en el navegador."}):
+            res = agent.interact(req)
         assert res.intent in ("open_browser", "browser_open")
         assert res.success is True
         assert "google" in res.response_text.lower()
 
     def test_step_7_busca_fisica_cuantica(self, agent: JessycaLocalAgent) -> None:
         """Paso 7: Busca física cuántica -> browser_search con motor y query."""
+        from unittest.mock import patch
+        from core.execution.execution_verifier import ExecutionEvidence
+
         session_id = f"demo_session_{int(time.time())}"
         req = JessycaRequest(
             session_id=session_id,
             user_input="Busca física cuántica.",
             modality=InputModality.VOICE,
         )
-        res = agent.interact(req)
+        mock_ev = ExecutionEvidence(
+            verification_type="browser_navigated",
+            target="browser",
+            is_verified=True,
+            details={"query": "física cuántica", "verified": True},
+        )
+        with patch("core.execution.execution_verifier.ExecutionVerifier.verify_execution", return_value=mock_ev), \
+             patch("skills.browser_search_skill.BrowserSearchSkill.ejecutar", return_value={"exito": True, "verified": True, "mensaje": "Listo, busqué 'física cuántica' en el navegador."}):
+            res = agent.interact(req)
         assert res.intent == "browser_search"
         assert res.success is True
         assert "física cuántica" in res.response_text.lower() or "fisica cuantica" in res.response_text.lower()

@@ -1,0 +1,74 @@
+[
+  {
+    "observation_id": "archify_obs_1790491754218",
+    "timestamp": "2026-09-27 06:49:14.218131+00:00",
+    "intent": "Explicar arquitectura del bus de eventos",
+    "diagram_type": "architecture",
+    "validation_status": true,
+    "nodes_count": 3,
+    "edges_count": 2,
+    "jessyca_baseline": "Respuesta textual: producer envía a bus y consumer recibe.",
+    "archify_proposal": "Diagrama interactivo architecture con 3 nodos y 2 aristas",
+    "comparison_verdict": "ENRICHED_VISUALIZATION",
+    "latency_ms": 0.04,
+    "details": {
+      "warnings": [],
+      "errors": []
+    }
+  },
+  {
+    "observation_id": "archify_obs_1790491754218",
+    "timestamp": "2026-09-27 06:49:14.218712+00:00",
+    "intent": "Mostrar flujo de login",
+    "diagram_type": "workflow",
+    "validation_status": true,
+    "nodes_count": 3,
+    "edges_count": 2,
+    "jessyca_baseline": "Diagrama Mermaid de texto plano en bloque de markdown.",
+    "archify_proposal": "Diagrama interactivo workflow con 3 nodos y 2 aristas",
+    "comparison_verdict": "ENRICHED_VISUALIZATION",
+    "latency_ms": 0.02,
+    "details": {
+      "warnings": [],
+      "errors": []
+    }
+  },
+  {
+    "observation_id": "archify_obs_1790491754218",
+    "timestamp": "2026-09-27 06:49:14.218712+00:00",
+    "intent": "Diagramar pipeline ETL",
+    "diagram_type": "dataflow",
+    "validation_status": true,
+    "nodes_count": 3,
+    "edges_count": 2,
+    "jessyca_baseline": "Explicación paso a paso de extracción, transformación y carga.",
+    "archify_proposal": "Diagrama interactivo dataflow con 3 nodos y 2 aristas",
+    "comparison_verdict": "ENRICHED_VISUALIZATION",
+    "latency_ms": 0.02,
+    "details": {
+      "warnings": [],
+      "errors": []
+    }
+  },
+  {
+    "observation_id": "archify_obs_1790491754219",
+    "timestamp": "2026-09-27 06:49:14.219216+00:00",
+    "intent": "Especificación con error de sintaxis",
+    "diagram_type": "architecture",
+    "validation_status": false,
+    "nodes_count": 0,
+    "edges_count": 0,
+    "jessyca_baseline": "Error sintáctico manejado.",
+    "archify_proposal": "Diagrama interactivo architecture con 0 nodos y 0 aristas",
+    "comparison_verdict": "INVALID_SPEC",
+    "latency_ms": 0.02,
+    "details": {
+      "warnings": [
+        "El diagrama no define nodos ni componentes."
+      ],
+      "errors": [
+        "El campo de nodos/componentes debe ser una lista."
+      ]
+    }
+  }
+]

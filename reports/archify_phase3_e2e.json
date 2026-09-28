@@ -1,0 +1,221 @@
+{
+  "certification_phase": "Phase 3 - Production Certification",
+  "timestamp": "2026-09-27T17:26:48.224272+00:00",
+  "archify_mode": "ACTIVE",
+  "system_status": {
+    "status": "HEALTHY",
+    "mode": "ACTIVE",
+    "node_available": true,
+    "node_version": "v24.5.0",
+    "output_dir": "D:\\JESSYCA 3.0\\asistente-jessyca\\data\\archify",
+    "output_dir_writable": true,
+    "supported_diagram_types": [
+      "architecture",
+      "workflow",
+      "sequence",
+      "dataflow",
+      "lifecycle"
+    ]
+  },
+  "scenarios": [
+    {
+      "scenario_id": "SMOKE_01_ARCHITECTURE",
+      "diagram_type": "architecture",
+      "title": "Arquitectura JESSYCA Core",
+      "success": true,
+      "generation_latency_ms": 2.38,
+      "verification_latency_ms": 15.77,
+      "is_verified": true,
+      "verification_status": "VERIFIED",
+      "artifact_path": "D:\\JESSYCA 3.0\\asistente-jessyca\\data\\archify\\diagram_diag_architecture_7e9efa59b6.html",
+      "artifact_size_bytes": 4162,
+      "checksum": "3e715b0b47c8c78872180e8cfb711a460f4a9ff788943791b8cd39d4c746c685"
+    },
+    {
+      "scenario_id": "SMOKE_02_WORKFLOW",
+      "diagram_type": "workflow",
+      "title": "Flujo de Venta E-Commerce",
+      "success": true,
+      "generation_latency_ms": 1.37,
+      "verification_latency_ms": 16.07,
+      "is_verified": true,
+      "verification_status": "VERIFIED",
+      "artifact_path": "D:\\JESSYCA 3.0\\asistente-jessyca\\data\\archify\\diagram_diag_workflow_eea9020853.html",
+      "artifact_size_bytes": 4169,
+      "checksum": "3e345b0dd56f46da725649e6345666ee757f93e19cedfff09d3e1ae5c861a517"
+    },
+    {
+      "scenario_id": "SMOKE_03_SEQUENCE",
+      "diagram_type": "sequence",
+      "title": "Secuencia Autenticación",
+      "success": true,
+      "generation_latency_ms": 1.27,
+      "verification_latency_ms": 11.5,
+      "is_verified": true,
+      "verification_status": "VERIFIED",
+      "artifact_path": "D:\\JESSYCA 3.0\\asistente-jessyca\\data\\archify\\diagram_diag_sequence_154bf3be59.html",
+      "artifact_size_bytes": 4124,
+      "checksum": "cdbb8713c0e4ca02b34aba82b4ddea56f939cd7e4333fd0ea283601e0b6070a3"
+    },
+    {
+      "scenario_id": "SMOKE_04_DATAFLOW",
+      "diagram_type": "dataflow",
+      "title": "Flujo de Datos Ingesta",
+      "success": true,
+      "generation_latency_ms": 1.21,
+      "verification_latency_ms": 14.25,
+      "is_verified": true,
+      "verification_status": "VERIFIED",
+      "artifact_path": "D:\\JESSYCA 3.0\\asistente-jessyca\\data\\archify\\diagram_diag_dataflow_5ff75345ec.html",
+      "artifact_size_bytes": 4162,
+      "checksum": "7466e832f907cdcdd7a93b8c7f6295d7c24580834b43fc512fe44a303336390d"
+    },
+    {
+      "scenario_id": "SMOKE_05_LIFECYCLE",
+      "diagram_type": "lifecycle",
+      "title": "Ciclo de Vida de Acción JDE",
+      "success": true,
+      "generation_latency_ms": 1.34,
+      "verification_latency_ms": 12.65,
+      "is_verified": true,
+      "verification_status": "VERIFIED",
+      "artifact_path": "D:\\JESSYCA 3.0\\asistente-jessyca\\data\\archify\\diagram_diag_lifecycle_5e0e416b15.html",
+      "artifact_size_bytes": 4783,
+      "checksum": "3b6a37dae0a4ba34434dd9ed43425fbda3bf180f1e67b42ae787aa03ecd24f34"
+    }
+  ],
+  "capability_audit": {
+    "architecture": {
+      "registered": true,
+      "certified": true,
+      "production_enabled": true,
+      "risk_tier": "LOW",
+      "authority_level": "LIMITED",
+      "requires_verification": true,
+      "verdict": "PASS"
+    },
+    "workflow": {
+      "registered": true,
+      "certified": true,
+      "production_enabled": true,
+      "risk_tier": "LOW",
+      "authority_level": "LIMITED",
+      "requires_verification": true,
+      "verdict": "PASS"
+    },
+    "sequence": {
+      "registered": true,
+      "certified": true,
+      "production_enabled": true,
+      "risk_tier": "LOW",
+      "authority_level": "LIMITED",
+      "requires_verification": true,
+      "verdict": "PASS"
+    },
+    "dataflow": {
+      "registered": true,
+      "certified": true,
+      "production_enabled": true,
+      "risk_tier": "LOW",
+      "authority_level": "LIMITED",
+      "requires_verification": true,
+      "verdict": "PASS"
+    },
+    "lifecycle": {
+      "registered": true,
+      "certified": true,
+      "production_enabled": true,
+      "risk_tier": "LOW",
+      "authority_level": "LIMITED",
+      "requires_verification": true,
+      "verdict": "PASS"
+    },
+    "generic": {
+      "registered": true,
+      "certified": false,
+      "production_enabled": false,
+      "risk_tier": "LOW",
+      "authority_level": "LIMITED",
+      "requires_verification": true,
+      "verdict": "PASS"
+    },
+    "skill": {
+      "registered": true,
+      "certified": false,
+      "production_enabled": false,
+      "risk_tier": "LOW",
+      "authority_level": "LIMITED",
+      "requires_verification": true,
+      "verdict": "PASS"
+    }
+  },
+  "idempotency_benchmark": {
+    "cache_status": "CACHE_HIT",
+    "cache_hit_latency_ms": 0.408,
+    "speedup_factor": 3.0,
+    "fingerprint": "42e45a98ae647034bcd5b84ec34c02980f26a8afa86569d2bbae6d4c2d04c98d",
+    "duplicates_created": 0,
+    "verdict": "PASS"
+  },
+  "concurrency_benchmark": {
+    "1_workers": {
+      "total_requests": 1,
+      "success_count": 1,
+      "all_passed": true,
+      "total_wall_ms": 2.48,
+      "avg_worker_latency_ms": 1.96,
+      "max_worker_latency_ms": 1.96,
+      "throughput_req_per_sec": 403.16,
+      "race_conditions_detected": 0
+    },
+    "5_workers": {
+      "total_requests": 5,
+      "success_count": 5,
+      "all_passed": true,
+      "total_wall_ms": 6.32,
+      "avg_worker_latency_ms": 4.06,
+      "max_worker_latency_ms": 5.32,
+      "throughput_req_per_sec": 790.66,
+      "race_conditions_detected": 0
+    },
+    "10_workers": {
+      "total_requests": 10,
+      "success_count": 10,
+      "all_passed": true,
+      "total_wall_ms": 8.74,
+      "avg_worker_latency_ms": 4.61,
+      "max_worker_latency_ms": 5.55,
+      "throughput_req_per_sec": 1144.14,
+      "race_conditions_detected": 0
+    },
+    "20_workers": {
+      "total_requests": 20,
+      "success_count": 20,
+      "all_passed": true,
+      "total_wall_ms": 18.08,
+      "avg_worker_latency_ms": 8.95,
+      "max_worker_latency_ms": 11.56,
+      "throughput_req_per_sec": 1106.35,
+      "race_conditions_detected": 0
+    }
+  },
+  "security_audit": {
+    "path_traversal_blocked": "PASS",
+    "governance_enforced": "PASS",
+    "dos_node_limit_enforced": "PASS",
+    "secret_redaction_verified": "PASS"
+  },
+  "metrics_summary": {
+    "total_suite_time_ms": 159.23,
+    "avg_generation_latency_ms": 1.52,
+    "min_generation_latency_ms": 1.21,
+    "max_generation_latency_ms": 2.38,
+    "cache_hit_latency_ms": 0.408,
+    "avg_artifact_size_bytes": 4280.0,
+    "false_success_rate": 0.0,
+    "failure_rate": 0.0,
+    "ram_process_mb": 99.55,
+    "vram_allocated_mb": 0.0,
+    "certification_status": "ARCHIFY PRODUCTION CERTIFIED"
+  }
+}

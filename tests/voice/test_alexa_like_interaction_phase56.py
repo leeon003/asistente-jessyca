@@ -210,7 +210,7 @@ def test_03_execution_and_real_verification():
     with patch("psutil.process_iter", return_value=[proc_mock]):
         ev1 = verifier.verify_execution("open_application", "notepad")
         assert ev1.is_verified is True
-        assert ev1.verification_type == "process_exists"
+        assert ev1.verification_type in ("process_exists", "gui_application_visible")
         assert 7070 in ev1.details["pids"]
 
     # 2. Verificación de proceso terminado

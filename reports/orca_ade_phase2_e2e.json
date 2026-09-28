@@ -1,0 +1,104 @@
+{
+  "phase": "Fase 2 \u2014 Controlled Integration",
+  "total_scenarios": 12,
+  "passed": 12,
+  "all_pass": true,
+  "results": [
+    {
+      "scenario_id": "E2E-01",
+      "name": "Simple authorized task",
+      "expected_status": "VERIFIED_SUCCESS",
+      "actual_status": "VERIFIED_SUCCESS",
+      "verified": true,
+      "pass": true
+    },
+    {
+      "scenario_id": "E2E-02",
+      "name": "Denied task by JDE",
+      "expected_status": "DENIED",
+      "actual_status": "DENIED",
+      "verified": false,
+      "pass": true
+    },
+    {
+      "scenario_id": "E2E-03",
+      "name": "Isolated worktree task",
+      "expected_status": "VERIFIED_SUCCESS",
+      "actual_status": "VERIFIED_SUCCESS",
+      "verified": true,
+      "pass": true
+    },
+    {
+      "scenario_id": "E2E-04",
+      "name": "Parallel agents dispatch",
+      "expected_status": "VERIFIED_SUCCESS",
+      "actual_status": "VERIFIED_SUCCESS",
+      "verified": true,
+      "pass": true
+    },
+    {
+      "scenario_id": "E2E-05",
+      "name": "Task collision handling",
+      "expected_status": "CLAIMED_SUCCESS",
+      "actual_status": "CLAIMED_SUCCESS",
+      "verified": false,
+      "pass": true
+    },
+    {
+      "scenario_id": "E2E-06",
+      "name": "Task timeout",
+      "expected_status": "TIMEOUT",
+      "actual_status": "TIMEOUT",
+      "verified": false,
+      "pass": true
+    },
+    {
+      "scenario_id": "E2E-07",
+      "name": "Agent crash recovery",
+      "expected_status": "FAILED",
+      "actual_status": "FAILED",
+      "verified": false,
+      "pass": true
+    },
+    {
+      "scenario_id": "E2E-08",
+      "name": "Prompt injection attack",
+      "expected_status": "DENIED",
+      "actual_status": "DENIED",
+      "verified": false,
+      "pass": true
+    },
+    {
+      "scenario_id": "E2E-09",
+      "name": "Secret access attempt",
+      "expected_status": "VERIFIED_SUCCESS",
+      "actual_status": "VERIFIED_SUCCESS",
+      "verified": true,
+      "pass": true
+    },
+    {
+      "scenario_id": "E2E-10",
+      "name": "Disallowed command execution",
+      "expected_status": "DENIED",
+      "actual_status": "DENIED",
+      "verified": false,
+      "pass": true
+    },
+    {
+      "scenario_id": "E2E-11",
+      "name": "Verification failure",
+      "expected_status": "VERIFICATION_FAILED",
+      "actual_status": "VERIFICATION_FAILED",
+      "verified": false,
+      "pass": true
+    },
+    {
+      "scenario_id": "E2E-12",
+      "name": "Successful verified task with review",
+      "expected_status": "VERIFIED_SUCCESS",
+      "actual_status": "VERIFIED_SUCCESS",
+      "verified": true,
+      "pass": true
+    }
+  ]
+}

@@ -51,7 +51,7 @@ def test_clarification_triggers_tts_and_turn_manager():
     )
     mock_tts = MockTTSService()
 
-    # 1. Usuario emite orden ambigua ("Abre YouTube")
+    # 1. Usuario emite orden ambigua ("Busca una canción")
     voice_session.on_wake_detected()
     assert voice_session.mode == VoiceSessionMode.CONVERSATION_ACTIVE
     assert turn_mgr.current_state == VoiceTurnState.USER_TURN
@@ -61,7 +61,7 @@ def test_clarification_triggers_tts_and_turn_manager():
 
     req = JessycaRequest(
         session_id=session_id,
-        user_input="Abre YouTube",
+        user_input="Busca una canción",
         modality=InputModality.VOICE,
     )
     res = agent.interact(req)
@@ -70,8 +70,7 @@ def test_clarification_triggers_tts_and_turn_manager():
     assert res.requires_clarification is True
     assert res.status == AgentExecutionState.AWAITING_CLARIFICATION
     expected_question = res.clarification_question or res.response_text
-    assert "YouTube" in expected_question
-    assert "busque o reproduzca" in expected_question or "¿Quieres que solo" in expected_question
+    assert "¿Qué canción quieres que busque?" in expected_question
 
     # 3. Transición a habla (ASSISTANT_TURN) y envío a TTS
     voice_session.on_speaking_started()
@@ -88,7 +87,7 @@ def test_clarification_triggers_tts_and_turn_manager():
     assert turn_mgr.current_state == VoiceTurnState.COMPLETED
     assert voice_session.should_require_wake_word() is False
 
-    # 5. Turno 2: Usuario responde a la aclaración sin wake word ("Solo ábrelo")
+    # 5. Turno 2: Usuario responde a la aclaración sin wake word ("La Yerba del Rey")
     voice_session.on_listening_started()
     assert voice_session.mode == VoiceSessionMode.LISTENING
     assert turn_mgr.current_state == VoiceTurnState.USER_TURN
@@ -96,7 +95,7 @@ def test_clarification_triggers_tts_and_turn_manager():
     voice_session.on_processing_started()
     req2 = JessycaRequest(
         session_id=session_id,
-        user_input="Solo ábrelo",
+        user_input="La Yerba del Rey",
         modality=InputModality.VOICE,
     )
     with patch("webbrowser.open", return_value=True):

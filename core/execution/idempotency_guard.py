@@ -212,6 +212,9 @@ class ExecutionIdempotencyGuard:
             self._records.clear()
             self._hash_to_execution_id.clear()
 
+    # Alias para compatibilidad de interfaz
+    clear = reset
+
 
 def get_idempotency_guard() -> ExecutionIdempotencyGuard:
     """Función de acceso singleton al guardián de idempotencia."""

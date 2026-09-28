@@ -22,6 +22,9 @@ from core.local_agent.local_agent import JessycaLocalAgent, JessycaRequest, Inpu
 from skills.apps_skill import WindowsAppsSkill
 
 
+from core.execution.execution_verifier import ExecutionEvidence
+
+
 @pytest.fixture
 def fake_notepad_proc():
     proc = MagicMock()
@@ -29,7 +32,19 @@ def fake_notepad_proc():
     return proc
 
 
-def test_intent_and_execution_abre_el_bloc_de_notas(fake_notepad_proc):
+@pytest.fixture
+def mock_verified_gui():
+    mock_ev = ExecutionEvidence(
+        verification_type="gui_application_visible",
+        target="notepad",
+        is_verified=True,
+        details={"hwnd": 1001, "is_visible": True, "title": "Bloc de notas"},
+    )
+    with patch("core.execution.execution_verifier.ExecutionVerifier.verify_execution", return_value=mock_ev):
+        yield mock_ev
+
+
+def test_intent_and_execution_abre_el_bloc_de_notas(fake_notepad_proc, mock_verified_gui):
     agent = JessycaLocalAgent.get_instance()
     session_id = "test_sess_bloc_1"
 
@@ -47,7 +62,7 @@ def test_intent_and_execution_abre_el_bloc_de_notas(fake_notepad_proc):
         assert "cuéntame un poco más" not in resp.response_text
 
 
-def test_intent_and_execution_abre_notepad(fake_notepad_proc):
+def test_intent_and_execution_abre_notepad(fake_notepad_proc, mock_verified_gui):
     agent = JessycaLocalAgent.get_instance()
     session_id = "test_sess_notepad_1"
 
@@ -65,7 +80,7 @@ def test_intent_and_execution_abre_notepad(fake_notepad_proc):
         assert "cuéntame un poco más" not in resp.response_text
 
 
-def test_intent_and_execution_crea_un_nuevo_block_de_notas(fake_notepad_proc):
+def test_intent_and_execution_crea_un_nuevo_block_de_notas(fake_notepad_proc, mock_verified_gui):
     agent = JessycaLocalAgent.get_instance()
     session_id = "test_sess_crea_block_1"
 
@@ -83,7 +98,7 @@ def test_intent_and_execution_crea_un_nuevo_block_de_notas(fake_notepad_proc):
         assert "cuéntame un poco más" not in resp.response_text
 
 
-def test_compound_abre_block_de_notas_y_escribe(fake_notepad_proc):
+def test_compound_abre_block_de_notas_y_escribe(fake_notepad_proc, mock_verified_gui):
     agent = JessycaLocalAgent.get_instance()
     session_id = "test_sess_compound_1"
 
@@ -102,7 +117,7 @@ def test_compound_abre_block_de_notas_y_escribe(fake_notepad_proc):
         assert "cuéntame un poco más" not in resp.response_text
 
 
-def test_compound_crea_un_nuevo_block_de_notas_y_escribe(fake_notepad_proc):
+def test_compound_crea_un_nuevo_block_de_notas_y_escribe(fake_notepad_proc, mock_verified_gui):
     agent = JessycaLocalAgent.get_instance()
     session_id = "test_sess_compound_2"
 
@@ -121,7 +136,7 @@ def test_compound_crea_un_nuevo_block_de_notas_y_escribe(fake_notepad_proc):
         assert "cuéntame un poco más" not in resp.response_text
 
 
-def test_contextual_continuity_two_turns(fake_notepad_proc):
+def test_contextual_continuity_two_turns(fake_notepad_proc, mock_verified_gui):
     """Prueba de continuidad contextual:
     Turno 1: 'crea un nuevo block de notas'
     Turno 2: 'escribe feliz cumpleaños dentro del block de notas'

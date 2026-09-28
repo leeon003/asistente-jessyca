@@ -1,0 +1,621 @@
+{
+  "report_metadata": {
+    "phase": "ARCHIFY_PHASE_2",
+    "mode": "CONTROLLED",
+    "generated_at": "2026-09-27T07:05:36.049431+00:00",
+    "total_scenarios": 10,
+    "status": "PASS"
+  },
+  "scenarios": [
+    {
+      "scenario_id": "E2E_01_ARCHITECTURE",
+      "input": "Muéstrame la arquitectura de JESSYCA",
+      "decision": {
+        "intent": "visual_explanation",
+        "capability": "diagram_generation.architecture",
+        "provider": "archify",
+        "decision_verdict": "ALLOW"
+      },
+      "provider": "archify",
+      "IR": {
+        "title": "Arquitectura Central JESSYCA 3.0",
+        "nodes": [
+          {
+            "id": "user",
+            "name": "Usuario"
+          },
+          {
+            "id": "core",
+            "name": "JESSYCA Core"
+          },
+          {
+            "id": "jde",
+            "name": "Decision Engine (JDE)"
+          },
+          {
+            "id": "skills",
+            "name": "Skill Registry"
+          },
+          {
+            "id": "verifier",
+            "name": "Execution Verifier"
+          }
+        ],
+        "edges": [
+          {
+            "from": "user",
+            "to": "core"
+          },
+          {
+            "from": "core",
+            "to": "jde"
+          },
+          {
+            "from": "jde",
+            "to": "skills"
+          },
+          {
+            "from": "skills",
+            "to": "verifier"
+          }
+        ]
+      },
+      "execution": {
+        "status": "COMPLETED",
+        "duration_ms": 13.66,
+        "mode": "CONTROLLED"
+      },
+      "verification": {
+        "status": "VERIFIED",
+        "is_verified": true
+      },
+      "artifact": {
+        "path": "D:\\JESSYCA 3.0\\asistente-jessyca\\data\\archify\\diagram_diag_architecture_a9a31579dc.html",
+        "diagram_id": "diag_architecture_a9a31579dc",
+        "checksum": "f15f424a64838b951deaeda620655d9cc7e96b7e3f285a56d3dfada5a1e3b767",
+        "size_bytes": 4870,
+        "cache_status": "NEW_ARTIFACT"
+      },
+      "final_outcome": "SUCCESS",
+      "response_message": "He generado el diagrama interactivo de architecture: 'Arquitectura Central JESSYCA 3.0'."
+    },
+    {
+      "scenario_id": "E2E_02_WORKFLOW",
+      "input": "Muéstrame el flujo de una venta",
+      "decision": {
+        "intent": "workflow_visualization",
+        "capability": "diagram_generation.workflow",
+        "provider": "archify",
+        "decision_verdict": "ALLOW"
+      },
+      "provider": "archify",
+      "IR": {
+        "title": "Workflow de Procesamiento de Ventas",
+        "nodes": [
+          {
+            "id": "carrito",
+            "name": "Selección en Carrito"
+          },
+          {
+            "id": "checkout",
+            "name": "Datos de Envío"
+          },
+          {
+            "id": "pasarela",
+            "name": "Pasarela de Pago"
+          },
+          {
+            "id": "facturacion",
+            "name": "Generación de Factura"
+          },
+          {
+            "id": "despacho",
+            "name": "Despacho de Pedido"
+          }
+        ],
+        "edges": [
+          {
+            "from": "carrito",
+            "to": "checkout"
+          },
+          {
+            "from": "checkout",
+            "to": "pasarela"
+          },
+          {
+            "from": "pasarela",
+            "to": "facturacion"
+          },
+          {
+            "from": "facturacion",
+            "to": "despacho"
+          }
+        ]
+      },
+      "execution": {
+        "status": "COMPLETED",
+        "duration_ms": 12.34,
+        "mode": "CONTROLLED"
+      },
+      "verification": {
+        "status": "VERIFIED",
+        "is_verified": true
+      },
+      "artifact": {
+        "path": "D:\\JESSYCA 3.0\\asistente-jessyca\\data\\archify\\diagram_diag_workflow_580ca2ee4f.html",
+        "diagram_id": "diag_workflow_580ca2ee4f",
+        "checksum": "736d202a295d0169b4e06d151e70dccc1c8442c16f6fc5f6a25a7f6181b21070",
+        "size_bytes": 4963,
+        "cache_status": "NEW_ARTIFACT"
+      },
+      "final_outcome": "SUCCESS",
+      "response_message": "He generado el diagrama interactivo de workflow: 'Workflow de Procesamiento de Ventas'."
+    },
+    {
+      "scenario_id": "E2E_03_SEQUENCE",
+      "input": "Muéstrame la secuencia usuario → JDE → Skill → Verifier",
+      "decision": {
+        "intent": "sequence_visualization",
+        "capability": "diagram_generation.sequence",
+        "provider": "archify",
+        "decision_verdict": "ALLOW"
+      },
+      "provider": "archify",
+      "IR": {
+        "title": "Secuencia de Verificación y Control JESSYCA",
+        "nodes": [
+          {
+            "id": "usr",
+            "name": "Usuario Final"
+          },
+          {
+            "id": "jde",
+            "name": "JDE Engine"
+          },
+          {
+            "id": "skill",
+            "name": "ArchifySkill"
+          },
+          {
+            "id": "ver",
+            "name": "ExecutionVerifier"
+          }
+        ],
+        "edges": [
+          {
+            "from": "usr",
+            "to": "jde",
+            "label": "1: Petición de diagrama"
+          },
+          {
+            "from": "jde",
+            "to": "skill",
+            "label": "2: Autorización y ejecución"
+          },
+          {
+            "from": "skill",
+            "to": "ver",
+            "label": "3: Comprobación física"
+          },
+          {
+            "from": "ver",
+            "to": "jde",
+            "label": "4: Recibo de evidencia"
+          }
+        ]
+      },
+      "execution": {
+        "status": "COMPLETED",
+        "duration_ms": 9.81,
+        "mode": "CONTROLLED"
+      },
+      "verification": {
+        "status": "VERIFIED",
+        "is_verified": true
+      },
+      "artifact": {
+        "path": "D:\\JESSYCA 3.0\\asistente-jessyca\\data\\archify\\diagram_diag_sequence_914abe5ba5.html",
+        "diagram_id": "diag_sequence_914abe5ba5",
+        "checksum": "81e1115273f643c196bc702d208d0280adf7d8f69afe9cf7e1d9573af1900331",
+        "size_bytes": 4850,
+        "cache_status": "NEW_ARTIFACT"
+      },
+      "final_outcome": "SUCCESS",
+      "response_message": "He generado el diagrama interactivo de sequence: 'Secuencia de Verificación y Control JESSYCA'."
+    },
+    {
+      "scenario_id": "E2E_04_DATAFLOW",
+      "input": "Muéstrame cómo fluye la información desde Open WebUI hasta JESSYCA",
+      "decision": {
+        "intent": "dataflow_visualization",
+        "capability": "diagram_generation.dataflow",
+        "provider": "archify",
+        "decision_verdict": "ALLOW"
+      },
+      "provider": "archify",
+      "IR": {
+        "title": "Flujo de Datos Open WebUI hacia Core",
+        "nodes": [
+          {
+            "id": "owui",
+            "name": "Open WebUI Client"
+          },
+          {
+            "id": "bridge",
+            "name": "WebUI Bridge"
+          },
+          {
+            "id": "sanitizer",
+            "name": "Prompt Sanitizer"
+          },
+          {
+            "id": "jde_flow",
+            "name": "Decision Engine"
+          },
+          {
+            "id": "llm",
+            "name": "LLM Local (Ollama)"
+          }
+        ],
+        "edges": [
+          {
+            "from": "owui",
+            "to": "bridge"
+          },
+          {
+            "from": "bridge",
+            "to": "sanitizer"
+          },
+          {
+            "from": "sanitizer",
+            "to": "jde_flow"
+          },
+          {
+            "from": "jde_flow",
+            "to": "llm"
+          }
+        ]
+      },
+      "execution": {
+        "status": "COMPLETED",
+        "duration_ms": 9.34,
+        "mode": "CONTROLLED"
+      },
+      "verification": {
+        "status": "VERIFIED",
+        "is_verified": true
+      },
+      "artifact": {
+        "path": "D:\\JESSYCA 3.0\\asistente-jessyca\\data\\archify\\diagram_diag_dataflow_dce7e0a72c.html",
+        "diagram_id": "diag_dataflow_dce7e0a72c",
+        "checksum": "c93609bd59f8cc6e9ea09b9327c8dce151a4ef6d05c5e89ea300446ba2d1ac4a",
+        "size_bytes": 4910,
+        "cache_status": "NEW_ARTIFACT"
+      },
+      "final_outcome": "SUCCESS",
+      "response_message": "He generado el diagrama interactivo de dataflow: 'Flujo de Datos Open WebUI hacia Core'."
+    },
+    {
+      "scenario_id": "E2E_05_LIFECYCLE",
+      "input": "Muéstrame el ciclo de vida de una acción de JESSYCA",
+      "decision": {
+        "intent": "lifecycle_visualization",
+        "capability": "diagram_generation.lifecycle",
+        "provider": "archify",
+        "decision_verdict": "ALLOW"
+      },
+      "provider": "archify",
+      "IR": {
+        "title": "Ciclo de Vida de una Acción en JDE",
+        "nodes": [
+          {
+            "id": "st_rec",
+            "name": "RECEIVED"
+          },
+          {
+            "id": "st_ana",
+            "name": "ANALYZING"
+          },
+          {
+            "id": "st_pla",
+            "name": "PLANNED"
+          },
+          {
+            "id": "st_exe",
+            "name": "EXECUTING"
+          },
+          {
+            "id": "st_ver",
+            "name": "VERIFYING"
+          },
+          {
+            "id": "st_com",
+            "name": "COMPLETED"
+          }
+        ],
+        "edges": [
+          {
+            "from": "st_rec",
+            "to": "st_ana"
+          },
+          {
+            "from": "st_ana",
+            "to": "st_pla"
+          },
+          {
+            "from": "st_pla",
+            "to": "st_exe"
+          },
+          {
+            "from": "st_exe",
+            "to": "st_ver"
+          },
+          {
+            "from": "st_ver",
+            "to": "st_com"
+          }
+        ]
+      },
+      "execution": {
+        "status": "COMPLETED",
+        "duration_ms": 9.67,
+        "mode": "CONTROLLED"
+      },
+      "verification": {
+        "status": "VERIFIED",
+        "is_verified": true
+      },
+      "artifact": {
+        "path": "D:\\JESSYCA 3.0\\asistente-jessyca\\data\\archify\\diagram_diag_lifecycle_d4dc377bd3.html",
+        "diagram_id": "diag_lifecycle_d4dc377bd3",
+        "checksum": "1a208c812ed04f191a76859717b70aac7e699d8fe439b1a853f8b20e17d30dd2",
+        "size_bytes": 5156,
+        "cache_status": "NEW_ARTIFACT"
+      },
+      "final_outcome": "SUCCESS",
+      "response_message": "He generado el diagrama interactivo de lifecycle: 'Ciclo de Vida de una Acción en JDE'."
+    },
+    {
+      "scenario_id": "E2E_06_TEXT_EXPLANATION",
+      "input": "Explícame la arquitectura de JESSYCA",
+      "decision": {
+        "intent": "textual_explanation",
+        "capability": "none",
+        "provider": "text",
+        "decision_verdict": "TEXT_ONLY_NO_DIAGRAM"
+      },
+      "provider": "text",
+      "IR": null,
+      "execution": {
+        "status": "SKIPPED",
+        "duration_ms": 0.5,
+        "mode": "N/A"
+      },
+      "verification": {
+        "status": "NOT_RUN",
+        "is_verified": true
+      },
+      "artifact": null,
+      "final_outcome": "SUCCESS_TEXT",
+      "response_message": "JESSYCA 3.0 opera como un agente local gobernado por el JESSYCA Decision Engine (JDE), integrando Risk Engine, Permission Manager y Execution Verifier para garantizar determinismo y seguridad."
+    },
+    {
+      "scenario_id": "E2E_07_MERMAID_EXPLICIT",
+      "input": "Dame el diagrama de arquitectura en formato Mermaid",
+      "decision": {
+        "intent": "mermaid_rendering",
+        "capability": "diagram_generation.mermaid",
+        "provider": "mermaid",
+        "decision_verdict": "ALLOW"
+      },
+      "provider": "mermaid",
+      "IR": {
+        "title": "Arquitectura Central JESSYCA 3.0",
+        "nodes": [
+          {
+            "id": "user",
+            "name": "Usuario"
+          },
+          {
+            "id": "core",
+            "name": "JESSYCA Core"
+          },
+          {
+            "id": "jde",
+            "name": "Decision Engine (JDE)"
+          },
+          {
+            "id": "skills",
+            "name": "Skill Registry"
+          },
+          {
+            "id": "verifier",
+            "name": "Execution Verifier"
+          }
+        ],
+        "edges": [
+          {
+            "from": "user",
+            "to": "core"
+          },
+          {
+            "from": "core",
+            "to": "jde"
+          },
+          {
+            "from": "jde",
+            "to": "skills"
+          },
+          {
+            "from": "skills",
+            "to": "verifier"
+          }
+        ]
+      },
+      "execution": {
+        "status": "COMPLETED",
+        "duration_ms": 1.2,
+        "mode": "FALLBACK_OR_DIRECT"
+      },
+      "verification": {
+        "status": "VERIFIED_CODE_SYNTAX",
+        "is_verified": true
+      },
+      "artifact": {
+        "type": "mermaid_markdown",
+        "lines": 11
+      },
+      "final_outcome": "SUCCESS_MERMAID",
+      "response_message": "```mermaid\ngraph TD\n    %% Arquitectura Central JESSYCA 3.0\n    user[\"Usuario\"]\n    core[\"JESSYCA Core\"]\n    jde[\"Decision Engine (JDE)\"]\n    skills[\"Skill Registry\"]\n    verifier[\"Execution Verifier\"]\n    user --> core\n    core --> jde\n    jde --> skills\n    skills --> verifier\n```"
+    },
+    {
+      "scenario_id": "E2E_08_SECURITY_BLOCKED",
+      "input": "Genera diagrama con clave secreta y guarda en ../../hacked.html",
+      "decision": {
+        "intent": "malicious_injection",
+        "capability": "diagram_generation.architecture",
+        "provider": "archify",
+        "decision_verdict": "DENY_PATH_TRAVERSAL"
+      },
+      "provider": "archify",
+      "IR": {
+        "title": "Ataque",
+        "nodes": [
+          {
+            "id": "n",
+            "secret_key": "SUPER_SECRET_LEAK"
+          }
+        ],
+        "edges": []
+      },
+      "execution": {
+        "status": "BLOCKED",
+        "duration_ms": 0.8,
+        "mode": "CONTROLLED",
+        "error": "Violación de seguridad: intento de Path Traversal detectado."
+      },
+      "verification": {
+        "status": "NOT_RUN",
+        "is_verified": false
+      },
+      "artifact": null,
+      "final_outcome": "SECURITY_BLOCKED",
+      "response_message": "Acción bloqueada: intento de violación de confinamiento de ruta detectado."
+    },
+    {
+      "scenario_id": "E2E_09_INVALID_IR",
+      "input": "Renderizar diagrama con nodos duplicados y aristas huérfanas",
+      "decision": {
+        "intent": "invalid_spec_submission",
+        "capability": "diagram_generation.workflow",
+        "provider": "archify",
+        "decision_verdict": "REJECT_INVALID_SPEC"
+      },
+      "provider": "archify",
+      "IR": {
+        "title": "Diagrama Inválido",
+        "nodes": [
+          {
+            "id": "dup",
+            "name": "Nodo 1"
+          },
+          {
+            "id": "dup",
+            "name": "Nodo 2 Duplicado"
+          }
+        ],
+        "edges": [
+          {
+            "from": "dup",
+            "to": "ghost_node"
+          }
+        ]
+      },
+      "execution": {
+        "status": "FAILED",
+        "duration_ms": 0.9,
+        "mode": "CONTROLLED",
+        "error": "INVALID_DIAGRAM_SPEC: ID de nodo duplicado: 'dup'.; Arista en índice 0 referencia nodo de destino inexistente: 'ghost_node'."
+      },
+      "verification": {
+        "status": "NOT_RUN",
+        "is_verified": false
+      },
+      "artifact": null,
+      "final_outcome": "REJECTED_INVALID_SPEC",
+      "response_message": "Especificación de diagrama rechazada: INVALID_DIAGRAM_SPEC: ID de nodo duplicado: 'dup'.; Arista en índice 0 referencia nodo de destino inexistente: 'ghost_node'."
+    },
+    {
+      "scenario_id": "E2E_10_IDEMPOTENCY_CACHE_HIT",
+      "input": "Muéstrame la arquitectura de JESSYCA (solicitud repetida)",
+      "decision": {
+        "intent": "visual_explanation",
+        "capability": "diagram_generation.architecture",
+        "provider": "archify",
+        "decision_verdict": "ALLOW_CACHE_HIT"
+      },
+      "provider": "archify",
+      "IR": {
+        "title": "Arquitectura Central JESSYCA 3.0",
+        "nodes": [
+          {
+            "id": "user",
+            "name": "Usuario"
+          },
+          {
+            "id": "core",
+            "name": "JESSYCA Core"
+          },
+          {
+            "id": "jde",
+            "name": "Decision Engine (JDE)"
+          },
+          {
+            "id": "skills",
+            "name": "Skill Registry"
+          },
+          {
+            "id": "verifier",
+            "name": "Execution Verifier"
+          }
+        ],
+        "edges": [
+          {
+            "from": "user",
+            "to": "core"
+          },
+          {
+            "from": "core",
+            "to": "jde"
+          },
+          {
+            "from": "jde",
+            "to": "skills"
+          },
+          {
+            "from": "skills",
+            "to": "verifier"
+          }
+        ]
+      },
+      "execution": {
+        "status": "COMPLETED",
+        "duration_ms": 0.59,
+        "mode": "CONTROLLED"
+      },
+      "verification": {
+        "status": "VERIFIED",
+        "is_verified": true
+      },
+      "artifact": {
+        "path": "D:\\JESSYCA 3.0\\asistente-jessyca\\data\\archify\\diagram_diag_architecture_a9a31579dc.html",
+        "diagram_id": "diag_architecture_a9a31579dc",
+        "checksum": "f15f424a64838b951deaeda620655d9cc7e96b7e3f285a56d3dfada5a1e3b767",
+        "size_bytes": 4870,
+        "cache_status": "CACHE_HIT"
+      },
+      "final_outcome": "CACHE_HIT_SUCCESS",
+      "response_message": "He generado el diagrama interactivo de architecture: 'Arquitectura Central JESSYCA 3.0'."
+    }
+  ]
+}

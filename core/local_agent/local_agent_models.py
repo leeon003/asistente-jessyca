@@ -51,6 +51,7 @@ class AgentExecutionState(StrEnum):
     INTERRUPTED = "INTERRUPTED"
     STOPPED = "STOPPED"
     FAILED = "FAILED"
+    UNKNOWN = "UNKNOWN"
 
 
 @dataclass

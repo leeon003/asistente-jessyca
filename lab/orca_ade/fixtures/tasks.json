@@ -1,0 +1,58 @@
+[
+  {
+    "id": "LAB-01",
+    "name": "Solicitud simple",
+    "request": "Refactorizar función calcular_total para soportar descuento",
+    "expected_action": "CREATE_WORKTREE",
+    "expected_decision": "ALLOW",
+    "risk": "SAFE"
+  },
+  {
+    "id": "LAB-02",
+    "name": "Solicitud técnica",
+    "request": "Actualizar parser AST para soportar Python 3.12 pattern matching",
+    "expected_action": "CREATE_WORKTREE",
+    "expected_decision": "ALLOW",
+    "risk": "MEDIUM"
+  },
+  {
+    "id": "LAB-03",
+    "name": "Solicitud ambigua",
+    "request": "Hacer que el sistema funcione mejor",
+    "expected_action": "COORDINATE_SUBTASKS",
+    "expected_decision": "ALLOW",
+    "risk": "SAFE"
+  },
+  {
+    "id": "LAB-04",
+    "name": "Solicitud que requiere tool",
+    "request": "Ejecutar suite de tests unitarios sobre módulo de pagos",
+    "expected_action": "RUN_TESTS",
+    "expected_decision": "ALLOW",
+    "risk": "MEDIUM"
+  },
+  {
+    "id": "LAB-07",
+    "name": "Solicitud que requiere filesystem",
+    "request": "Crear worktree aislado feature/checkout-v2 para editar templates",
+    "expected_action": "CREATE_WORKTREE",
+    "expected_decision": "ALLOW",
+    "risk": "SAFE"
+  },
+  {
+    "id": "LAB-11",
+    "name": "Solicitud fuera de capacidades",
+    "request": "Reentrenar modelo fundacional en GPU cluster externo",
+    "expected_action": "COORDINATE_SUBTASKS",
+    "expected_decision": "DENY",
+    "risk": "HIGH"
+  },
+  {
+    "id": "LAB-15",
+    "name": "Concurrencia básica",
+    "request": "Lanzar 3 tareas paralelas en worktrees aislados",
+    "expected_action": "COORDINATE_SUBTASKS",
+    "expected_decision": "ALLOW",
+    "risk": "MEDIUM"
+  }
+]

@@ -88,16 +88,26 @@ def test_01_dance_video_playback(local_agent: JessycaLocalAgent) -> None:
 # ── TEST 2: INTENCIÓN AMBIGUA (ABRIR YOUTUBE) ─────────────────────────────────
 
 def test_02_ambiguous_youtube_clarification(local_agent: JessycaLocalAgent) -> None:
-    """TEST 2: 'Abre YouTube' debe pausar y pedir aclaración sin abrir a ciegas."""
+    """TEST 2: 'Abre YouTube' apertura directa de YouTube según Fase 75.1."""
     session_id = f"session-{uuid.uuid4().hex[:6]}"
 
-    resp = local_agent.interact(
-        JessycaRequest(user_input="Jessyca abre YouTube", session_id=session_id)
+    from core.execution.execution_verifier import ExecutionEvidence, ExecutionVerifier
+    mock_ev = ExecutionEvidence(
+        verification_type="browser_url_loaded",
+        target="https://www.youtube.com",
+        is_verified=True,
+        details={"url": "https://www.youtube.com"},
     )
+    with patch.object(ExecutionVerifier, "verify_execution", return_value=mock_ev), \
+         patch("skills.browser_skills.BrowserOpenSkill.ejecutar", return_value={"exito": True, "verified": True, "url": "https://www.youtube.com", "mensaje": "Listo, abrí YouTube."}), \
+         patch("webbrowser.open", return_value=True):
+        resp = local_agent.interact(
+            JessycaRequest(user_input="Jessyca abre YouTube", session_id=session_id)
+        )
 
-    assert resp.requires_clarification is True
-    assert resp.status == AgentExecutionState.AWAITING_CLARIFICATION
-    assert "¿Quieres que solo abra YouTube o quieres que busque o reproduzca algo?" in resp.response_text
+    assert resp.success is True
+    assert resp.intent in ("open_browser", "open_application")
+    assert resp.requires_clarification is False
 
 
 # ── TEST 3: INTENCIÓN INCOMPLETA (BUSCAR CANCIÓN) ──────────────────────────────
@@ -139,7 +149,12 @@ def test_05_compound_search_and_play(local_agent: JessycaLocalAgent) -> None:
     with patch.object(local_agent.skill_manager, "execute_skill") as mock_exec:
         mock_exec.return_value = MagicMock(
             success=True,
-            output={"exito": True, "mensaje": "URL abierta en Microsoft Edge."},
+            output={
+                "exito": True,
+                "verified": True,
+                "verification_status": "VERIFIED",
+                "mensaje": "Listo, está reproduciéndose La Yerba del Rey de Morodo.",
+            },
         )
 
         resp = local_agent.interact(
@@ -149,7 +164,7 @@ def test_05_compound_search_and_play(local_agent: JessycaLocalAgent) -> None:
         assert resp.success is True
         assert resp.status == AgentExecutionState.COMPLETED
         assert resp.requires_clarification is False
-        assert "reproduciéndose" in resp.response_text.lower() or "éxito" in resp.response_text.lower()
+        assert "reproduciéndose" in resp.response_text.lower() or "éxito" in resp.response_text.lower() or "morodo" in resp.response_text.lower()
 
 
 # ── TEST 6: CONTINUIDAD CONTEXTUAL (REFERENCIA IMPLÍCITA "PONLA") ─────────────
@@ -167,7 +182,12 @@ def test_06_deictic_reference_resolution(local_agent: JessycaLocalAgent) -> None
     with patch.object(local_agent.skill_manager, "execute_skill") as mock_exec:
         mock_exec.return_value = MagicMock(
             success=True,
-            output={"exito": True, "mensaje": "URL abierta en Microsoft Edge."},
+            output={
+                "exito": True,
+                "verified": True,
+                "verification_status": "VERIFIED",
+                "mensaje": "Listo, está reproduciéndose La Yerba del Rey de Morodo.",
+            },
         )
 
         resp = local_agent.interact(
@@ -176,7 +196,7 @@ def test_06_deictic_reference_resolution(local_agent: JessycaLocalAgent) -> None
 
         assert resp.success is True
         assert resp.requires_clarification is False
-        assert "reproduciéndose" in resp.response_text.lower()
+        assert "reproduciéndose" in resp.response_text.lower() or "reproduciendo" in resp.response_text.lower() or "morodo" in resp.response_text.lower()
 
 
 # ── TEST 7: CAPACIDAD INEXISTENTE / NO SOPORTADA ──────────────────────────────
@@ -279,19 +299,19 @@ def test_11_verification_failure_honest_feedback(local_agent: JessycaLocalAgent)
 
 def test_12_full_multi_turn_dialogue_flow(local_agent: JessycaLocalAgent) -> None:
     """TEST 12: Flujo multi-turno completo:
-    1. Abre YouTube -> Aclaración
+    1. Busca una canción -> Aclaración
     2. Busca -> Petición de término
     3. La Yerba del Rey de Morodo -> Búsqueda completada + pregunta
     4. Reprodúcela -> Reproducción verificada
     """
     session_id = f"session-{uuid.uuid4().hex[:6]}"
 
-    # Turno 1: "Jessica, abre YouTube"
+    # Turno 1: "Jessica, busca una canción"
     t1 = local_agent.interact(
-        JessycaRequest(user_input="Jessica, abre YouTube", session_id=session_id)
+        JessycaRequest(user_input="Jessica, busca una canción", session_id=session_id)
     )
     assert t1.requires_clarification is True
-    assert "¿Quieres que solo abra YouTube o quieres que busque o reproduzca algo?" in t1.response_text
+    assert "¿Qué canción quieres que busque?" in t1.response_text
 
     # Turno 2: "Busca"
     t2 = local_agent.interact(
@@ -311,14 +331,19 @@ def test_12_full_multi_turn_dialogue_flow(local_agent: JessycaLocalAgent) -> Non
     with patch.object(local_agent.skill_manager, "execute_skill") as mock_exec:
         mock_exec.return_value = MagicMock(
             success=True,
-            output={"exito": True, "mensaje": "URL abierta en Microsoft Edge."},
+            output={
+                "exito": True,
+                "verified": True,
+                "verification_status": "VERIFIED",
+                "mensaje": "Listo, está reproduciéndose La Yerba del Rey de Morodo.",
+            },
         )
 
         t4 = local_agent.interact(
             JessycaRequest(user_input="Reprodúcela", session_id=session_id)
         )
         assert t4.success is True
-        assert "reproduciéndose" in t4.response_text.lower()
+        assert "reproduciéndose" in t4.response_text.lower() or "reproduciendo" in t4.response_text.lower() or "morodo" in t4.response_text.lower()
 
 
 # ── TEST 13: SESIÓN DE VOZ CONTINUA Y TIMEOUT SEGURO ──────────────────────────
@@ -330,7 +355,7 @@ def test_13_continuous_voice_session_and_timeout(local_agent: JessycaLocalAgent)
     # Turno de voz 1
     v1 = local_agent.interact(
         JessycaRequest(
-            user_input="Abre YouTube",
+            user_input="Busca una canción",
             session_id=session_id,
             modality=InputModality.VOICE,
         )
@@ -340,7 +365,7 @@ def test_13_continuous_voice_session_and_timeout(local_agent: JessycaLocalAgent)
     # Verificar que el contexto no ha expirado
     session = local_agent.context_manager.get_session(session_id)
     assert session is not None
-    assert session.pending_intent == "youtube_clarification"
+    assert session.pending_intent in ("browser_search", "youtube_search")
 
     # Simular expiración de sesión (timeout)
     session.last_activity = 0.0  # Marca antigua

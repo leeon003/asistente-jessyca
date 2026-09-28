@@ -49,3 +49,19 @@ def reset_emergency_stop() -> Generator[None, None, None]:
     manager.reset("test_setup_cleanup")
     yield
     manager.reset("test_teardown_cleanup")
+
+
+@pytest.fixture(autouse=True)
+def ensure_default_skills() -> Generator[None, None, None]:
+    """Restaura el catálogo oficial de skills si fue limpiado por pruebas previas."""
+    from skills.skill_registry import get_skill_registry
+    from skills import SKILLS_DISPONIBLES
+
+    reg = get_skill_registry()
+    if not reg.lookup("windows.apps"):
+        for _name, _skill_inst in SKILLS_DISPONIBLES.items():
+            reg.register_skill(_skill_inst)
+    yield
+    if not reg.lookup("windows.apps"):
+        for _name, _skill_inst in SKILLS_DISPONIBLES.items():
+            reg.register_skill(_skill_inst)

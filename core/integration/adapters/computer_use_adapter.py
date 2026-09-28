@@ -443,6 +443,8 @@ class ComputerUseAdapter(IntegrationAdapter):
             output={
                 "message": msg,
                 "action": action,
+                "input_dispatched": True,
+                "state_change_verified": False,
                 "position_before": list(pos_before),
                 "position_after": list(pos_after),
             },
@@ -532,7 +534,12 @@ class ComputerUseAdapter(IntegrationAdapter):
             status=ExecutionStatus.SUCCEEDED,
             verified=False,  # Nunca auto-certifica
             verification_required=True,
-            output={"message": msg, "action": action},
+            output={
+                "message": msg,
+                "action": action,
+                "input_dispatched": True,
+                "state_change_verified": False,
+            },
             duration_ms=dur,
             metadata={"adapter": "windows_computer_use", "capability": "computer_use.keyboard_type"},
         )
@@ -733,7 +740,7 @@ class ComputerUseAdapter(IntegrationAdapter):
         return IntegrationExecutionResult(
             executed=act_res.executed,
             status=act_res.status,
-            verified=False,  # En cumplimiento anti-falso-éxito: verified=False por defecto
+            verified=False,  # En cumplimiento anti-falso-éxito: verified=False por defecto sin sensor externo
             verification_required=True,
             output={
                 "cycle": "OBSERVAR -> ACTUAR -> OBSERVAR",
@@ -741,6 +748,8 @@ class ComputerUseAdapter(IntegrationAdapter):
                 "action_result": act_res.output,
                 "state_after": {"cursor": pos_after},
                 "delta_detected": delta_detected,
+                "input_dispatched": act_res.executed,
+                "state_change_verified": False,
             },
             duration_ms=dur,
             metadata={"adapter": "windows_computer_use", "capability": "computer_use.perceive_and_act"},

@@ -78,6 +78,15 @@ from core.logger import get_logger
 from core.permission_manager import PermissionManager
 from core.risk_engine import RiskEngine
 from core.security_architecture import SecurityLevel
+from core.jde.adapter import JDEShadowAdapter, LocalAgentExecutionContext, get_jde_shadow_adapter
+from core.jde.runtime_binding import (
+    JDERuntimeBinding,
+    JDERuntimeVerdict,
+    JDERuntimeVerdictType,
+    get_jde_runtime_binding,
+)
+from core.are.runtime import ARERuntime, get_are_runtime
+from core.are.models import ARERuntimeMode
 from core.system.system_coordinator import SystemCoordinator4, SystemResponse
 from skills.skill_manager import SkillManager, get_skill_manager
 
@@ -106,6 +115,9 @@ class JessycaLocalAgent:
         experience_logger: ExperienceLogger | None = None,
         dialogue_manager: NaturalActionDialogueManager | None = None,
         conversational_handler: ConversationalDialogueHandler | None = None,
+        jde_shadow_adapter: JDEShadowAdapter | None = None,
+        jde_runtime_binding: JDERuntimeBinding | None = None,
+        are_runtime: ARERuntime | None = None,
     ) -> None:
         self._lock = threading.RLock()
         self.emergency_stop_mgr = emergency_stop or get_emergency_stop_manager()
@@ -127,6 +139,9 @@ class JessycaLocalAgent:
             emergency_stop=self.emergency_stop_mgr,
             audit_logger=self.audit_logger,
         )
+        self.jde_shadow_adapter = jde_shadow_adapter or get_jde_shadow_adapter()
+        self.jde_runtime_binding = jde_runtime_binding or get_jde_runtime_binding()
+        self.are_runtime = are_runtime or get_are_runtime()
 
         self._active_tokens: dict[str, CancellationToken] = {}
         self._latest_metrics: LocalAgentMetrics = LocalAgentMetrics()
@@ -516,6 +531,8 @@ class JessycaLocalAgent:
             intent, extracted_params, is_ambiguous = self._resolve_intent_and_slots(user_text, req.session_id)
             metrics.intent_latency_ms = (time.perf_counter() - t_intent_0) * 1000
 
+
+
             # Manejo de cancelación conversacional o interrupción ("Olvídalo", "Déjame hablar", "Pausa")
             if intent in ("cancel_task", "interrupt_assistant"):
                 default_msg = "Te escucho, dime." if intent == "interrupt_assistant" else "Entendido, operación cancelada."
@@ -687,7 +704,13 @@ class JessycaLocalAgent:
                 return resp
 
             # ── PASO 2.2: CONSULTAS Y DIÁLOGO CONVERSACIONAL PURO (CONVERSATIONAL_REQUEST) ──
-            if intent == "general_query" or dialogue_decision.action_type == DialogueActionType.CONVERSATIONAL:
+            is_complex_are = (
+                hasattr(self, "are_runtime")
+                and self.are_runtime
+                and self.are_runtime.current_mode != ARERuntimeMode.DISABLED
+                and self.are_runtime.is_complex_task(user_text, intent, extracted_params)
+            )
+            if not is_complex_are and (intent == "general_query" or dialogue_decision.action_type == DialogueActionType.CONVERSATIONAL):
                 t_conv_0 = time.perf_counter()
                 active_routed_model = (
                     router_selected_model
@@ -750,14 +773,50 @@ class JessycaLocalAgent:
             selected_skill = self._select_skill_for_intent(intent)
             metrics.agent_routing_latency_ms = (time.perf_counter() - t_agent_0) * 1000
 
-            # ── PASO 4: PLANIFICACIÓN AUTOMÁTICA Y SKILL GRAPH ──
+            # ── PASO 4: PLANIFICACIÓN AUTOMÁTICA Y SKILL GRAPH / ARE COMPLEX TASK ──
             t_plan_0 = time.perf_counter()
             selected_graph = f"graph_{intent}"
+
+            # Evaluar si la solicitud califica como tarea compleja para ARE en modo CONTROLLED/SHADOW
+            if (
+                hasattr(self, "are_runtime")
+                and self.are_runtime
+                and self.are_runtime.current_mode != ARERuntimeMode.DISABLED
+                and self.are_runtime.is_complex_task(user_text, intent, extracted_params)
+            ):
+                logger.info(f"[LOCAL_AGENT_ARE] Solicitud '{user_text[:50]}' califica como TAREA COMPLEJA. Delegando a ARE Runtime.")
+                # Determinar si ya viene con confirmación previa del usuario
+                user_is_confirmed = bool(
+                    extracted_params.get("is_confirmed") is True
+                    or extracted_params.get("confirmed") is True
+                )
+                are_resp = self.are_runtime.execute_complex_task(
+                    agent=self,
+                    req=req,
+                    goal=user_text,
+                    context=extracted_params,
+                    user_confirmed=user_is_confirmed,
+                    cancellation_token=cancellation_token,
+                )
+                are_resp.intent = intent
+                are_resp.selected_model = selected_model
+                are_resp.selected_agent = selected_agent
+                are_resp.selected_skill = selected_skill
+                are_resp.selected_graph = selected_graph
+                if are_resp.status == AgentExecutionState.COMPLETED and intent == "multistep_research" and "multistep.orchestrate" not in are_resp.tools_executed:
+                    are_resp.tools_executed.append("multistep.orchestrate")
+                metrics.planning_latency_ms = (time.perf_counter() - t_plan_0) * 1000
+                metrics.total_latency_ms = (time.perf_counter() - start_time) * 1000
+                are_resp.metrics = metrics
+                self._latest_metrics = metrics
+                return are_resp
+
             metrics.planning_latency_ms = (time.perf_counter() - t_plan_0) * 1000
 
             # ── PASO 5: EVALUACIÓN DE SEGURIDAD Y CONFIRMACIÓN HUMANA ──
             proposed_tool = self._map_intent_to_tool(intent)
             sec_level = self._evaluate_action_security(proposed_tool, extracted_params)
+            user_approved = False
 
             # Si es acción de riesgo o peligrosa -> Exigir confirmación
             if sec_level in (SecurityLevel.MEDIUM, SecurityLevel.HIGH, SecurityLevel.CRITICAL) or "delete" in proposed_tool or "kill" in proposed_tool:
@@ -831,6 +890,110 @@ class JessycaLocalAgent:
                         action_intent_contract=action_contract,
                     )
                     self._log_turn_experience(req, resp, category=ExperienceCategory.ACTION_BLOCKED, tool_name=proposed_tool)
+                    self._observe_shadow_turn(
+                        req=req,
+                        intent=intent,
+                        tool=proposed_tool,
+                        action=intent,
+                        params=extracted_params,
+                        exec_success=False,
+                        response_text=confirm_text,
+                        is_verified=False,
+                        sec_level=sec_level,
+                    )
+                    return resp
+
+            # ── PASO 5.5: JDE RUNTIME BINDING (GOBERNANZA CENTRAL ANTES DEL SIDE EFFECT) ──
+            if hasattr(self, "jde_runtime_binding") and self.jde_runtime_binding:
+                is_user_confirmed = bool(
+                    user_approved
+                    or extracted_params.get("is_confirmed") is True
+                    or extracted_params.get("confirmed") is True
+                )
+                jde_verdict = self.jde_runtime_binding.evaluate(
+                    intent=intent,
+                    action=intent,
+                    tool=proposed_tool or "system.coordinator",
+                    parameters=extracted_params,
+                    user_confirmed=is_user_confirmed,
+                    session_id=req.session_id,
+                    request_id=req.request_id,
+                    risk_level=sec_level.value if hasattr(sec_level, "value") else str(sec_level),
+                )
+
+                if jde_verdict.verdict == JDERuntimeVerdictType.DENY:
+                    deny_msg = f"Acción denegada por gobernanza JDE: {jde_verdict.reason}"
+                    metrics.total_latency_ms = (time.perf_counter() - start_time) * 1000
+                    resp = JessycaResponse(
+                        request_id=req.request_id,
+                        session_id=req.session_id,
+                        success=False,
+                        status=AgentExecutionState.FAILED,
+                        response_text=deny_msg,
+                        spoken_text=deny_msg,
+                        intent=intent,
+                        selected_model=selected_model,
+                        selected_agent=selected_agent,
+                        selected_skill=selected_skill,
+                        selected_graph=selected_graph,
+                        security_verdict="DENY",
+                        security_level=sec_level,
+                        error=jde_verdict.reason,
+                        metrics=metrics,
+                    )
+                    self._log_turn_experience(req, resp, category=ExperienceCategory.ACTION_BLOCKED, tool_name=proposed_tool)
+                    self._observe_shadow_turn(
+                        req=req,
+                        intent=intent,
+                        tool=proposed_tool,
+                        action=intent,
+                        params=extracted_params,
+                        exec_success=False,
+                        response_text=deny_msg,
+                        is_verified=False,
+                        sec_level=sec_level,
+                    )
+                    return resp
+
+                if jde_verdict.verdict == JDERuntimeVerdictType.REQUIRE_REVIEW:
+                    review_msg = f"JDE requiere confirmación para '{proposed_tool}': {jde_verdict.reason}"
+                    session = self.context_manager.get_or_create_session(req.session_id)
+                    session.set_pending_confirmation(
+                        intent=intent,
+                        tool=proposed_tool,
+                        parameters=extracted_params,
+                        prompt=review_msg,
+                        security_level=sec_level.value if hasattr(sec_level, "value") else str(sec_level),
+                    )
+                    metrics.total_latency_ms = (time.perf_counter() - start_time) * 1000
+                    resp = JessycaResponse(
+                        request_id=req.request_id,
+                        session_id=req.session_id,
+                        success=True,
+                        status=AgentExecutionState.AWAITING_CONFIRMATION,
+                        response_text=review_msg,
+                        spoken_text=review_msg,
+                        intent=intent,
+                        selected_model=selected_model,
+                        selected_agent=selected_agent,
+                        selected_skill=selected_skill,
+                        selected_graph=selected_graph,
+                        security_level=sec_level,
+                        requires_confirmation=True,
+                        metrics=metrics,
+                    )
+                    self._log_turn_experience(req, resp, category=ExperienceCategory.ACTION_BLOCKED, tool_name=proposed_tool)
+                    self._observe_shadow_turn(
+                        req=req,
+                        intent=intent,
+                        tool=proposed_tool,
+                        action=intent,
+                        params=extracted_params,
+                        exec_success=False,
+                        response_text=review_msg,
+                        is_verified=False,
+                        sec_level=sec_level,
+                    )
                     return resp
 
             # ── PASO 6: EJECUCIÓN SEGURA Y VERIFICACIÓN POST-EJECUCIÓN REAL ──
@@ -1099,24 +1262,46 @@ class JessycaLocalAgent:
                 site = extracted_params.get("site") or "Google"
                 skill_res = self.skill_manager.execute_skill(
                     "browser.open",
-                    parameters={"url": url},
+                    parameters={"url": url, **extracted_params},
                 )
-                is_skill_ok = bool(skill_res.success and isinstance(skill_res.output, dict) and skill_res.output.get("exito"))
-                exec_success = is_skill_ok
+                raw_out = skill_res.output if isinstance(skill_res.output, dict) else {}
+                is_skill_ok = bool(skill_res.success and raw_out.get("exito"))
+                is_verif = bool(raw_out.get("verified", False))
+
+                if not is_skill_ok:
+                    exec_status = ExecutionStatus.FAILED
+                    exec_success = False
+                    msg_out = raw_out.get("mensaje") or (skill_res.error or f"No pude abrir {site} en el navegador.")
+                elif is_verif:
+                    exec_status = ExecutionStatus.SUCCEEDED
+                    exec_success = True
+                    msg_out = f"Listo, abrí {site} en el navegador."
+                else:
+                    exec_status = ExecutionStatus.UNKNOWN
+                    exec_success = False
+                    msg_out = f"Intenté abrir {site}, pero no pude confirmar que se haya abierto correctamente."
+
+                evidence_obj = ExecutionEvidence(
+                    verification_type="browser_tab",
+                    target=str(site),
+                    is_verified=is_verif,
+                    details=raw_out,
+                )
                 execution_result = ExecutionResult(
-                    status=ExecutionStatus.SUCCEEDED if is_skill_ok else ExecutionStatus.FAILED,
+                    status=exec_status,
                     action=intent,
-                    target=site,
-                    message=f"Listo, abrí {site} en el navegador." if is_skill_ok else f"No pude abrir {site} en el navegador.",
-                    output=skill_res.output if isinstance(skill_res.output, dict) else {},
+                    target=str(site),
+                    message=msg_out,
+                    evidence=evidence_obj,
+                    output=raw_out,
                 )
                 sys_resp = SystemResponse(
                     task_id=req.request_id,
                     correlation_id=req.request_id,
-                    success=is_skill_ok,
-                    status="COMPLETED" if is_skill_ok else "FAILED",
-                    output=skill_res.output if isinstance(skill_res.output, dict) else {},
-                    error=None if is_skill_ok else (skill_res.error or f"Error al abrir {site}"),
+                    success=exec_success,
+                    status="COMPLETED" if exec_success else ("FAILED" if exec_status == ExecutionStatus.FAILED else "UNKNOWN"),
+                    output=raw_out,
+                    error=None if exec_status != ExecutionStatus.FAILED else msg_out,
                 )
 
             # 6.4 Búsqueda Web en Navegador (browser_search)
@@ -1125,24 +1310,46 @@ class JessycaLocalAgent:
                 motor_val = extracted_params.get("motor", "google")
                 skill_res = self.skill_manager.execute_skill(
                     "browser.search",
-                    parameters={"query": query_val, "motor": motor_val},
+                    parameters={"query": query_val, "motor": motor_val, **extracted_params},
                 )
-                is_skill_ok = bool(skill_res.success and isinstance(skill_res.output, dict) and skill_res.output.get("exito"))
-                exec_success = is_skill_ok
+                raw_out = skill_res.output if isinstance(skill_res.output, dict) else {}
+                is_skill_ok = bool(skill_res.success and raw_out.get("exito"))
+                is_verif = bool(raw_out.get("verified", False))
+
+                if not is_skill_ok:
+                    exec_status = ExecutionStatus.FAILED
+                    exec_success = False
+                    msg_out = raw_out.get("mensaje") or (skill_res.error or "No pude realizar la búsqueda en el navegador.")
+                elif is_verif:
+                    exec_status = ExecutionStatus.SUCCEEDED
+                    exec_success = True
+                    msg_out = f"Listo, busqué '{query_val}' en el navegador."
+                else:
+                    exec_status = ExecutionStatus.UNKNOWN
+                    exec_success = False
+                    msg_out = f"Intenté buscar '{query_val}' en el navegador, pero no pude confirmar que la búsqueda se haya realizado."
+
+                evidence_obj = ExecutionEvidence(
+                    verification_type="browser_search",
+                    target=str(query_val),
+                    is_verified=is_verif,
+                    details=raw_out,
+                )
                 execution_result = ExecutionResult(
-                    status=ExecutionStatus.SUCCEEDED if is_skill_ok else ExecutionStatus.FAILED,
+                    status=exec_status,
                     action=intent,
                     target=str(query_val),
-                    message=f"Listo, busqué '{query_val}' en el navegador." if is_skill_ok else "No pude realizar la búsqueda en el navegador.",
-                    output=skill_res.output if isinstance(skill_res.output, dict) else {},
+                    message=msg_out,
+                    evidence=evidence_obj,
+                    output=raw_out,
                 )
                 sys_resp = SystemResponse(
                     task_id=req.request_id,
                     correlation_id=req.request_id,
-                    success=is_skill_ok,
-                    status="COMPLETED" if is_skill_ok else "FAILED",
-                    output=skill_res.output if isinstance(skill_res.output, dict) else {},
-                    error=None if is_skill_ok else (skill_res.error or "Error en búsqueda"),
+                    success=exec_success,
+                    status="COMPLETED" if exec_success else ("FAILED" if exec_status == ExecutionStatus.FAILED else "UNKNOWN"),
+                    output=raw_out,
+                    error=None if exec_status != ExecutionStatus.FAILED else msg_out,
                 )
 
             # 6.5 Búsqueda y Reproducción Multimedia en Navegador (search_and_play / youtube_play)
@@ -1161,20 +1368,20 @@ class JessycaLocalAgent:
                 if is_skill_ok and is_verif:
                     exec_status = ExecutionStatus.SUCCEEDED
                     exec_success = True
-                elif raw_out.get("error_code") == "SEARCH_FAILED":
+                    msg_out = raw_out.get("mensaje") or f"Listo, está reproduciendo {query_val}."
+                elif raw_out.get("error_code") in ("SEARCH_FAILED", "PLAYBACK_FAILED", "EMPTY_QUERY") or not is_skill_ok:
                     exec_status = ExecutionStatus.FAILED
                     exec_success = False
-                elif raw_out.get("error_code") == "PLAYBACK_FAILED":
-                    exec_status = ExecutionStatus.FAILED
+                    msg_out = raw_out.get("mensaje") or skill_res.error or "No pude reproducir en YouTube."
+                elif verif_status in ("NOT_VERIFIABLE", "UNVERIFIED") or not is_verif:
+                    exec_status = ExecutionStatus.UNKNOWN
                     exec_success = False
-                elif verif_status == "NOT_VERIFIABLE":
-                    exec_status = ExecutionStatus.SUCCEEDED
-                    exec_success = True
+                    msg_out = f"Intenté reproducir {query_val} en YouTube, pero no pude confirmar que la reproducción haya comenzado."
                 else:
                     exec_status = ExecutionStatus.VERIFICATION_FAILED
                     exec_success = False
+                    msg_out = raw_out.get("mensaje") or "Fallo en la verificación de reproducción."
 
-                msg_out = raw_out.get("mensaje") or skill_res.error or "Resultado procesado."
                 evidence_obj = ExecutionEvidence(
                     verification_type="youtube_playback",
                     target=str(query_val),
@@ -1194,9 +1401,9 @@ class JessycaLocalAgent:
                     task_id=req.request_id,
                     correlation_id=req.request_id,
                     success=exec_success,
-                    status="COMPLETED" if exec_success else "FAILED",
+                    status="COMPLETED" if exec_success else ("FAILED" if exec_status == ExecutionStatus.FAILED else "UNKNOWN"),
                     output=raw_out,
-                    error=None if exec_success else msg_out,
+                    error=None if exec_status != ExecutionStatus.FAILED else msg_out,
                 )
 
             # 6.5.1 Búsqueda Dedicada en YouTube (youtube_search)
@@ -1209,22 +1416,42 @@ class JessycaLocalAgent:
                 raw_out = skill_res.output if isinstance(skill_res.output, dict) else {}
                 is_verif = bool(raw_out.get("verified", False))
                 is_skill_ok = bool(skill_res.success and raw_out.get("exito"))
-                exec_success = is_skill_ok
-                msg_out = raw_out.get("mensaje") or f"Listo, busqué '{query_val}' en YouTube."
+                verif_status = str(raw_out.get("verification_status", "UNVERIFIED"))
+
+                if is_skill_ok and is_verif:
+                    exec_status = ExecutionStatus.SUCCEEDED
+                    exec_success = True
+                    msg_out = raw_out.get("mensaje") or f"Listo, busqué '{query_val}' en YouTube."
+                elif not is_skill_ok or raw_out.get("error_code") == "SEARCH_FAILED":
+                    exec_status = ExecutionStatus.FAILED
+                    exec_success = False
+                    msg_out = raw_out.get("mensaje") or (skill_res.error or "Error en búsqueda de YouTube")
+                else:
+                    exec_status = ExecutionStatus.UNKNOWN
+                    exec_success = False
+                    msg_out = f"Intenté buscar '{query_val}' en YouTube, pero no pude confirmar que la búsqueda se haya realizado."
+
+                evidence_obj = ExecutionEvidence(
+                    verification_type="youtube_search",
+                    target=str(query_val),
+                    is_verified=is_verif,
+                    details=raw_out,
+                )
                 execution_result = ExecutionResult(
-                    status=ExecutionStatus.SUCCEEDED if is_skill_ok else ExecutionStatus.FAILED,
+                    status=exec_status,
                     action=intent,
                     target=str(query_val),
                     message=msg_out,
+                    evidence=evidence_obj,
                     output=raw_out,
                 )
                 sys_resp = SystemResponse(
                     task_id=req.request_id,
                     correlation_id=req.request_id,
-                    success=is_skill_ok,
-                    status="COMPLETED" if is_skill_ok else "FAILED",
+                    success=exec_success,
+                    status="COMPLETED" if exec_success else ("FAILED" if exec_status == ExecutionStatus.FAILED else "UNKNOWN"),
                     output=raw_out,
-                    error=None if is_skill_ok else (skill_res.error or "Error en búsqueda de YouTube"),
+                    error=None if exec_status != ExecutionStatus.FAILED else msg_out,
                 )
 
             # 6.6 Flujo Coordinado Multidimensional
@@ -1281,7 +1508,9 @@ class JessycaLocalAgent:
                 request_id=req.request_id,
                 session_id=req.session_id,
                 success=exec_success,
-                status=AgentExecutionState.COMPLETED if exec_success else AgentExecutionState.FAILED,
+                status=AgentExecutionState.COMPLETED if exec_success else (
+                    AgentExecutionState.UNKNOWN if execution_result and execution_result.status == ExecutionStatus.UNKNOWN else AgentExecutionState.FAILED
+                ),
                 response_text=response_text,
                 spoken_text=spoken_text,
                 intent=intent,
@@ -1320,11 +1549,57 @@ class JessycaLocalAgent:
                 is_correction=bool(extracted_params.get("is_correction")),
             )
 
+            self._observe_shadow_turn(
+                req=req,
+                intent=intent,
+                tool=proposed_tool,
+                action=intent,
+                params=extracted_params,
+                exec_success=exec_success,
+                response_text=response_text,
+                is_verified=is_verif,
+                execution_result=execution_result,
+                sec_level=sec_level,
+            )
+
             return resp
 
         finally:
             with self._lock:
                 self._active_tokens.pop(req.request_id, None)
+
+    def _observe_shadow_turn(
+        self,
+        req: JessycaRequest,
+        intent: str,
+        tool: str | None,
+        action: str | None,
+        params: dict[str, Any],
+        exec_success: bool,
+        response_text: str,
+        is_verified: bool = False,
+        execution_result: Any = None,
+        sec_level: Any = None,
+    ) -> None:
+        """Observa pasivamente un turno de ejecución a través del adaptador Shadow de JDE."""
+        try:
+            if hasattr(self, "jde_shadow_adapter") and self.jde_shadow_adapter:
+                ctx = LocalAgentExecutionContext(
+                    request_id=req.request_id,
+                    user_input=req.user_input,
+                    intent=intent,
+                    tool=tool,
+                    action=action,
+                    parameters=params,
+                    exec_success=exec_success,
+                    current_message=response_text,
+                    is_verified=is_verified,
+                    execution_result=execution_result,
+                    security_level=sec_level,
+                )
+                self.jde_shadow_adapter.observe(ctx)
+        except Exception as e:
+            logger.debug(f"[JDE SHADOW OBSERVATION ERROR] Error no crítico en observación Shadow: {e}")
 
     def _log_turn_experience(
         self,
@@ -1682,7 +1957,11 @@ class JessycaLocalAgent:
             else:
                 app_display = f"'{app}'"
 
-            if execution_result.status == ExecutionStatus.SUCCEEDED:
+            st_raw = getattr(execution_result, "status", None)
+            st_val = st_raw.value if hasattr(st_raw, "value") else str(st_raw)
+            st_upper = st_val.upper()
+
+            if st_upper in ("SUCCEEDED", "SUCCESS"):
                 if intent == "open_application":
                     if params.get("text_to_write"):
                         return f"Listo, abrí {app_display} y escribí '{params['text_to_write']}'."
@@ -1697,9 +1976,38 @@ class JessycaLocalAgent:
                 elif intent in ("youtube_play", "search_and_play", "browser_search") and (intent in ("youtube_play", "search_and_play") or params.get("action") == "play"):
                     query_clean = params.get("query") or "la música"
                     return f"Listo, está reproduciendo {query_clean}."
+                elif intent in ("open_browser", "browser_open"):
+                    site_name = params.get("site") or "el navegador"
+                    return f"Listo, abrí {site_name} en el navegador."
+                elif intent == "browser_search":
+                    query_clean = params.get("query") or "la búsqueda"
+                    return f"Listo, busqué '{query_clean}' en el navegador."
                 return str(execution_result.message or "Acción completada con éxito.")
 
-            elif execution_result.status == ExecutionStatus.VERIFICATION_FAILED:
+            elif st_upper in ("UNKNOWN",):
+                if intent in ("open_browser", "browser_open"):
+                    site_name = params.get("site") or params.get("app_name") or "la página"
+                    return f"Intenté abrir {site_name}, pero no pude confirmar que se haya abierto correctamente."
+                elif intent == "open_application":
+                    return f"Intenté abrir {app_display}, pero no pude confirmar que se haya abierto correctamente."
+                elif intent == "close_application":
+                    return f"Intenté cerrar {app_display}, pero no pude confirmar el cierre."
+                elif intent == "type_text":
+                    return f"Intenté escribir en {app_display}, pero no pude confirmar la escritura."
+                elif intent == "browser_search":
+                    query_clean = params.get("query") or "la búsqueda"
+                    return f"Intenté buscar '{query_clean}' en el navegador, pero no pude confirmar que la búsqueda se haya realizado."
+                elif intent in ("youtube_play", "search_and_play") or (intent == "browser_search" and params.get("action") == "play"):
+                    query_clean = params.get("query") or "la música"
+                    return f"Intenté reproducir {query_clean} en YouTube, pero no pude confirmar que la reproducción haya comenzado."
+                elif intent == "youtube_search":
+                    query_clean = params.get("query") or "la búsqueda"
+                    return f"Intenté buscar '{query_clean}' en YouTube, pero no pude confirmar que la búsqueda se haya realizado."
+                elif any(k in intent for k in ("file", "archivo", "delete", "create", "write", "move", "copy")):
+                    return "Intenté realizar la acción sobre los archivos, pero no pude confirmar el resultado en el sistema."
+                return str(execution_result.message or "No pude confirmar el resultado de la acción.")
+
+            elif st_upper in ("VERIFICATION_FAILED",):
                 if intent == "open_application":
                     return f"Intenté abrir {app_display}, pero Windows no confirmó que se haya abierto."
                 elif intent == "type_text":
@@ -1710,11 +2018,13 @@ class JessycaLocalAgent:
                     return "Encontré el vídeo, pero no pude iniciar su reproducción."
                 elif intent in ("youtube_play", "search_and_play", "browser_search"):
                     return "Logré abrir YouTube, pero no pude iniciar la reproducción."
+                elif any(k in intent for k in ("file", "archivo", "delete", "create", "write", "move", "copy")):
+                    return "La acción sobre el archivo no pudo ser verificada en el sistema."
                 return f"La acción sobre {app_display} no pudo ser verificada en Windows."
 
-            elif execution_result.status == ExecutionStatus.DENIED:
+            elif st_upper in ("DENIED", "BLOCKED"):
                 return "No puedo ejecutar esa acción porque la política de seguridad no la autoriza."
-            elif execution_result.status == ExecutionStatus.CANCELLED:
+            elif st_upper in ("CANCELLED",):
                 return "Operación cancelada."
             else:
                 if intent in ("youtube_play", "search_and_play"):
@@ -1734,6 +2044,11 @@ class JessycaLocalAgent:
                         return "Encontré el vídeo, pero no pude iniciar su reproducción."
                     return str(execution_result.message or "No pude iniciar la reproducción del baile.")
                 return f"No pude completar la acción: {execution_result.message or 'Error en la ejecución'}."
+
+        out_data = sys_resp.output if isinstance(sys_resp.output, dict) else {}
+        raw_ev = out_data.get("evidence") if isinstance(out_data, dict) else None
+        if isinstance(raw_ev, dict) and raw_ev.get("is_verified") is False:
+            return "La acción se ejecutó, pero no pude confirmar el resultado en el sistema."
 
         if not sys_resp.success:
             return f"No pude completar la solicitud: {sys_resp.error or 'Error desconocido'}."
@@ -1757,7 +2072,10 @@ class JessycaLocalAgent:
                 context_manager=self.context_manager,
             )
 
-        return "Listo, he procesado tu solicitud."
+        if any(w in intent for w in ("file", "delete", "app", "kill", "process", "window")):
+            return "La acción se procesó, pero no pude confirmar el resultado observable en el sistema."
+
+        return "He procesado tu solicitud."
 
     # ── MÉTODOS DE CONTROL DEL SISTEMA ──
 

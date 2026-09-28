@@ -139,6 +139,18 @@ class AppSettings(BaseSettings):
         description="Indica si el servidor MCP se encuentra habilitado.",
     )
 
+    # Configuración de JDE Runtime Binding (Fase 1)
+    JDE_RUNTIME_MODE: str = Field(
+        default="CONTROLLED",
+        description="Modo de ejecución del JDE Runtime Binding (SHADOW, CONTROLLED, ACTIVE).",
+    )
+
+    # Configuración de ARE (Autonomous Reasoning Engine) Runtime Mode
+    ARE_RUNTIME_MODE: str = Field(
+        default="CONTROLLED",
+        description="Modo de ejecución de ARE (DISABLED, SHADOW, CONTROLLED, ACTIVE).",
+    )
+
     # Configuración de Sistema de Archivos Seguro (Subetapa 06.2)
     FILESYSTEM_SANDBOX_ROOT: Path = Field(
         default=Path("sandbox"),
@@ -1221,3 +1233,33 @@ class AppSettings(BaseSettings):
         if isinstance(value, str) and value.strip():
             return Path(value.strip())
         return Path(r"D:\bailes de ia")
+
+    @field_validator("JDE_RUNTIME_MODE", mode="before")
+    @classmethod
+    def validate_jde_runtime_mode(cls, value: str) -> str:
+        cleaned = str(value).strip().upper()
+        if cleaned == "ACTIVE":
+            raise ValueError(
+                "JDE_RUNTIME_MODE 'ACTIVE' está estrictamente prohibido en Fase 1 "
+                "(protección contra activación accidental)."
+            )
+        if cleaned not in ("SHADOW", "CONTROLLED"):
+            raise ValueError(
+                f"JDE_RUNTIME_MODE inválido: '{value}'. Valores permitidos: SHADOW, CONTROLLED."
+            )
+        return cleaned
+
+    @field_validator("ARE_RUNTIME_MODE", mode="before")
+    @classmethod
+    def validate_are_runtime_mode(cls, value: str) -> str:
+        cleaned = str(value).strip().upper()
+        if cleaned == "ACTIVE":
+            raise ValueError(
+                "ARE_RUNTIME_MODE 'ACTIVE' está estrictamente prohibido en esta fase "
+                "(protección contra activación accidental)."
+            )
+        if cleaned not in ("DISABLED", "SHADOW", "CONTROLLED"):
+            raise ValueError(
+                f"ARE_RUNTIME_MODE inválido: '{value}'. Valores permitidos: DISABLED, SHADOW, CONTROLLED."
+            )
+        return cleaned

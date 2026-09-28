@@ -9,6 +9,7 @@ sea verificada de forma determinista antes de confirmar el éxito al usuario.
 
 from __future__ import annotations
 
+import hashlib
 import os
 import time
 from dataclasses import dataclass, field
@@ -32,6 +33,7 @@ class ExecutionStatus(StrEnum):
     VERIFICATION_FAILED = "verification_failed"
     DENIED = "denied"
     CANCELLED = "cancelled"
+    UNKNOWN = "unknown"
 
 
 @dataclass(frozen=True)
@@ -432,23 +434,37 @@ class ProcessTerminatedVerificationStrategy:
             or (f"{base_key}.exe", base_key, target_clean)
         )
 
+        target_pid = None
+        if parameters and parameters.get("pid"):
+            try:
+                target_pid = int(parameters["pid"])
+            except (ValueError, TypeError):
+                pass
+        elif target and target.isdigit():
+            target_pid = int(target)
+
         deadline = time.monotonic() + timeout_seconds
         still_running = True
 
         while time.monotonic() < deadline:
-            found = False
-            for proc in psutil.process_iter(["pid", "name"]):
-                try:
-                    pname = (proc.info.get("name") or "").lower()
-                    if any(cand == pname for cand in possible_names):
-                        found = True
-                        break
-                except (psutil.NoSuchProcess, psutil.AccessDenied):
-                    continue
+            if target_pid is not None:
+                still_running = psutil.pid_exists(target_pid)
+                if not still_running:
+                    break
+            else:
+                found = False
+                for proc in psutil.process_iter(["pid", "name"]):
+                    try:
+                        pname = (proc.info.get("name") or "").lower()
+                        if any(cand == pname for cand in possible_names):
+                            found = True
+                            break
+                    except (psutil.NoSuchProcess, psutil.AccessDenied):
+                        continue
 
-            if not found:
-                still_running = False
-                break
+                if not found:
+                    still_running = False
+                    break
             time.sleep(0.15)
 
         is_terminated = not still_running
@@ -471,7 +487,7 @@ class FileExistsVerificationStrategy:
         parameters: dict[str, Any] | None = None,
         timeout_seconds: float = 1.0,
     ) -> ExecutionEvidence:
-        path = target or (parameters.get("path") if parameters else None) or (parameters.get("filename") if parameters else None)
+        path = target or (parameters.get("path") if parameters else None) or (parameters.get("ruta") if parameters else None) or (parameters.get("filename") if parameters else None)
         if not path:
             return ExecutionEvidence(
                 verification_type="file_exists",
@@ -483,16 +499,311 @@ class FileExistsVerificationStrategy:
         exists = os.path.exists(path)
         size_bytes = os.path.getsize(path) if exists and os.path.isfile(path) else 0
 
+        # Verificación opcional de contenido esperado (sin re-ejecución)
+        content_matches = True
+        if exists and parameters and "expected_content" in parameters and os.path.isfile(path):
+            try:
+                with open(path, "r", encoding="utf-8", errors="replace") as f:
+                    actual = f.read(len(parameters["expected_content"]) + 10)
+                content_matches = (actual == parameters["expected_content"])
+            except Exception:
+                content_matches = False
+
+        is_verified = exists and content_matches
         return ExecutionEvidence(
             verification_type="file_exists",
             target=str(path),
-            is_verified=exists,
-            details={"path": str(path), "size_bytes": size_bytes},
+            is_verified=is_verified,
+            details={"path": str(path), "size_bytes": size_bytes, "content_verified": content_matches},
         )
 
 
+class FileDeletedVerificationStrategy:
+    """Verifica que un archivo o carpeta haya sido efectivamente eliminado del sistema de archivos."""
+
+    def verify(
+        self,
+        action: str,
+        target: str,
+        parameters: dict[str, Any] | None = None,
+        timeout_seconds: float = 1.0,
+    ) -> ExecutionEvidence:
+        path = target or (parameters.get("path") if parameters else None) or (parameters.get("ruta") if parameters else None) or (parameters.get("filename") if parameters else None)
+        if not path:
+            return ExecutionEvidence(
+                verification_type="file_deleted",
+                target=target,
+                is_verified=False,
+                details={"error": "Ruta de archivo no especificada para eliminación"},
+            )
+
+        exists = os.path.exists(path)
+        is_deleted = not exists
+        return ExecutionEvidence(
+            verification_type="file_deleted",
+            target=str(path),
+            is_verified=is_deleted,
+            details={"path": str(path), "deleted": is_deleted, "still_exists": exists},
+        )
+
+
+class FileMovedVerificationStrategy:
+    """Verifica que un archivo o carpeta haya sido efectivamente movido o renombrado."""
+
+    def verify(
+        self,
+        action: str,
+        target: str,
+        parameters: dict[str, Any] | None = None,
+        timeout_seconds: float = 1.0,
+    ) -> ExecutionEvidence:
+        params = parameters or {}
+        source = params.get("source") or params.get("origen") or params.get("ruta") or ""
+        dest = target or params.get("dest") or params.get("destino") or params.get("new_name") or params.get("nuevo_nombre") or ""
+
+        if not dest:
+            return ExecutionEvidence(
+                verification_type="file_moved",
+                target=target,
+                is_verified=False,
+                details={"error": "Ruta de destino no especificada"},
+            )
+
+        dest_exists = os.path.exists(dest)
+        source_gone = not os.path.exists(source) if source else True
+        is_verified = dest_exists and source_gone
+
+        return ExecutionEvidence(
+            verification_type="file_moved",
+            target=str(dest),
+            is_verified=is_verified,
+            details={
+                "source": str(source),
+                "dest": str(dest),
+                "source_gone": source_gone,
+                "dest_exists": dest_exists,
+            },
+        )
+
+
+class FileCopiedVerificationStrategy:
+    """Verifica que un archivo haya sido efectivamente copiado al destino."""
+
+    def verify(
+        self,
+        action: str,
+        target: str,
+        parameters: dict[str, Any] | None = None,
+        timeout_seconds: float = 1.0,
+    ) -> ExecutionEvidence:
+        params = parameters or {}
+        dest = target or params.get("dest") or params.get("destino") or ""
+        source = params.get("source") or params.get("origen") or ""
+
+        if not dest:
+            return ExecutionEvidence(
+                verification_type="file_copied",
+                target=target,
+                is_verified=False,
+                details={"error": "Ruta de destino no especificada"},
+            )
+
+        dest_exists = os.path.exists(dest)
+        size_match = True
+        dest_size = os.path.getsize(dest) if dest_exists and os.path.isfile(dest) else 0
+
+        if source and os.path.exists(source) and os.path.isfile(source) and dest_exists and os.path.isfile(dest):
+            size_match = (dest_size == os.path.getsize(source))
+
+        is_verified = dest_exists and size_match
+
+        return ExecutionEvidence(
+            verification_type="file_copied",
+            target=str(dest),
+            is_verified=is_verified,
+            details={
+                "source": str(source),
+                "dest": str(dest),
+                "dest_exists": dest_exists,
+                "dest_size": dest_size,
+                "size_match": size_match,
+            },
+        )
+
+
+class ArchifyDiagramVerificationStrategy:
+    """Verifica de forma determinista la validez y seguridad del artefacto de diagrama Archify generado."""
+
+    def verify(
+        self,
+        action: str,
+        target: str,
+        parameters: dict[str, Any] | None = None,
+        timeout_seconds: float = 1.0,
+    ) -> ExecutionEvidence:
+        path = target or (parameters.get("path") if parameters else None) or (parameters.get("artifact_path") if parameters else None)
+        if not path:
+            return ExecutionEvidence(
+                verification_type="archify_diagram",
+                target=target,
+                is_verified=False,
+                details={"error": "Ruta del artefacto de diagrama no especificada", "status": "VERIFICATION_FAILED"},
+            )
+
+        if not os.path.exists(path) or not os.path.isfile(path):
+            return ExecutionEvidence(
+                verification_type="archify_diagram",
+                target=str(path),
+                is_verified=False,
+                details={"error": f"El archivo de diagrama no existe en disco: '{path}'", "status": "VERIFICATION_FAILED"},
+            )
+
+        size_bytes = os.path.getsize(path)
+        if size_bytes == 0:
+            return ExecutionEvidence(
+                verification_type="archify_diagram",
+                target=str(path),
+                is_verified=False,
+                details={"error": "El archivo de diagrama está vacío (0 bytes)", "status": "VERIFICATION_FAILED"},
+            )
+
+        if size_bytes > 5 * 1024 * 1024:
+            return ExecutionEvidence(
+                verification_type="archify_diagram",
+                target=str(path),
+                is_verified=False,
+                details={"error": f"El tamaño del archivo ({size_bytes} bytes) excede el límite razonable de 5MB", "status": "VERIFICATION_FAILED"},
+            )
+
+        if not str(path).lower().endswith(".html"):
+            return ExecutionEvidence(
+                verification_type="archify_diagram",
+                target=str(path),
+                is_verified=False,
+                details={"error": f"Extensión de archivo inválida. Se esperaba .html, obtenido: '{path}'", "status": "VERIFICATION_FAILED"},
+            )
+
+        # Confinamiento canónico en directorio permitido (data/archify o workspace temporal)
+        import tempfile
+        real_path = os.path.realpath(os.path.abspath(str(path)))
+        norm_path = real_path.lower()
+        temp_root = os.path.realpath(tempfile.gettempdir()).lower()
+
+        forbidden_system_locations = ("\\windows\\", "\\system32\\", "program files", "/etc/", "/usr/")
+        if any(fl in norm_path for fl in forbidden_system_locations):
+            return ExecutionEvidence(
+                verification_type="archify_diagram",
+                target=str(path),
+                is_verified=False,
+                details={"error": f"Ruta no permitida (violación de confinamiento en sistema): '{path}'", "status": "VERIFICATION_FAILED"},
+            )
+
+        is_in_temp = norm_path.startswith(temp_root) or "\\temp\\" in norm_path or "/tmp/" in norm_path
+        is_in_archify = "archify" in norm_path
+
+        if not (is_in_temp or is_in_archify) or ".." in str(path):
+            return ExecutionEvidence(
+                verification_type="archify_diagram",
+                target=str(path),
+                is_verified=False,
+                details={"error": f"Ruta no permitida (violación de confinamiento): '{path}'", "status": "VERIFICATION_FAILED"},
+            )
+
+        try:
+            with open(path, "r", encoding="utf-8", errors="replace") as f:
+                content = f.read()
+
+            content_lower = content.lower()
+            has_doctype = "<!doctype html>" in content_lower
+            has_html_tags = "<html" in content_lower and "</html>" in content_lower
+            has_svg = "<svg" in content_lower and "</svg>" in content_lower
+
+            if not (has_doctype and has_html_tags and has_svg):
+                return ExecutionEvidence(
+                    verification_type="archify_diagram",
+                    target=str(path),
+                    is_verified=False,
+                    details={
+                        "error": "El archivo no contiene una estructura HTML y SVG válida",
+                        "status": "VERIFICATION_FAILED",
+                        "has_doctype": has_doctype,
+                        "has_html_tags": has_html_tags,
+                        "has_svg": has_svg,
+                    },
+                )
+
+            # Verificar integridad de checksum (Caso 5: archivo modificado tras generación)
+            params = parameters or {}
+            expected_checksum = params.get("expected_checksum") or params.get("checksum")
+            if expected_checksum:
+                actual_checksum = hashlib.sha256(content.encode("utf-8")).hexdigest()
+                if actual_checksum.lower() != str(expected_checksum).strip().lower():
+                    return ExecutionEvidence(
+                        verification_type="archify_diagram",
+                        target=str(path),
+                        is_verified=False,
+                        details={
+                            "error": "Checksum mismatch: el archivo fue modificado después de su generación",
+                            "status": "VERIFICATION_FAILED",
+                            "expected_checksum": str(expected_checksum),
+                            "actual_checksum": actual_checksum,
+                        },
+                    )
+
+            # Verificar identidad de artefacto
+            expected_artifact_id = params.get("expected_artifact_id") or params.get("diagram_id")
+            if expected_artifact_id:
+                clean_id = str(expected_artifact_id).strip()
+                if clean_id not in content and clean_id not in os.path.basename(str(path)):
+                    return ExecutionEvidence(
+                        verification_type="archify_diagram",
+                        target=str(path),
+                        is_verified=False,
+                        details={
+                            "error": f"Artifact identity mismatch: no se encontró '{clean_id}' en el artefacto",
+                            "status": "VERIFICATION_FAILED",
+                        },
+                    )
+
+            # Verificar que no contenga credenciales o tokens sin redactar que hayan escapado
+            suspicious_patterns = ["SUPER_SECRET_TOKEN", "api_key=SECRET", "db_password=mypassword", "Bearer eyJ"]
+            for pat in suspicious_patterns:
+                if pat in content:
+                    return ExecutionEvidence(
+                        verification_type="archify_diagram",
+                        target=str(path),
+                        is_verified=False,
+                        details={"error": f"Fuga de datos sensibles detectada ('{pat}')", "status": "VERIFICATION_FAILED"},
+                    )
+
+            return ExecutionEvidence(
+                verification_type="archify_diagram",
+                target=str(path),
+                is_verified=True,
+                details={
+                    "status": "VERIFIED",
+                    "path": str(path),
+                    "size_bytes": size_bytes,
+                    "checksum": hashlib.sha256(content.encode("utf-8")).hexdigest(),
+                    "has_doctype": has_doctype,
+                    "has_svg": has_svg,
+                    "sanitized": True,
+                },
+            )
+        except Exception as ex:
+            return ExecutionEvidence(
+                verification_type="archify_diagram",
+                target=str(path),
+                is_verified=False,
+                details={"error": f"Error al verificar artefacto HTML: {ex}", "status": "VERIFICATION_FAILED"},
+            )
+
+
 class StateChangedVerificationStrategy:
-    """Verificador genérico de cambio de estado para operaciones abstractas."""
+    """Verificador genérico de cambio de estado para operaciones abstractas.
+
+    ANTI-FALSE SUCCESS: No asume éxito ni verificación si no se provee evidencia observable.
+    """
 
     def verify(
         self,
@@ -501,7 +812,7 @@ class StateChangedVerificationStrategy:
         parameters: dict[str, Any] | None = None,
         timeout_seconds: float = 0.5,
     ) -> ExecutionEvidence:
-        is_verified = bool(parameters and parameters.get("verified", True))
+        is_verified = bool(parameters and parameters.get("verified", False))
         return ExecutionEvidence(
             verification_type="state_changed",
             target=target or action,
@@ -517,16 +828,28 @@ class ExecutionVerifier:
         self._process_exists_strat = ProcessExistsVerificationStrategy()
         self._process_term_strat = ProcessTerminatedVerificationStrategy()
         self._file_exists_strat = FileExistsVerificationStrategy()
+        self._file_deleted_strat = FileDeletedVerificationStrategy()
+        self._file_moved_strat = FileMovedVerificationStrategy()
+        self._file_copied_strat = FileCopiedVerificationStrategy()
+        self._archify_strat = ArchifyDiagramVerificationStrategy()
         self._state_changed_strat = StateChangedVerificationStrategy()
 
     def get_strategy(self, action: str) -> IVerificationStrategy:
         """Determina la estrategia adecuada en función del tipo de acción."""
         act = (action or "").lower()
+        if any(k in act for k in ("archify", "diagram", "diagrama")):
+            return self._archify_strat
+        if any(k in act for k in ("close", "cerrar", "kill", "terminate", "stop", "detener", "finalizar")):
+            return self._process_term_strat
+        if any(k in act for k in ("delete", "eliminar", "borrar", "remove", "unlink", "destruir")) or act == "rm" or act.startswith("rm_") or act.endswith("_rm"):
+            return self._file_deleted_strat
+        if any(k in act for k in ("move", "mover", "rename", "renombrar", "trasladar")):
+            return self._file_moved_strat
+        if any(k in act for k in ("copy", "copiar", "duplicar")):
+            return self._file_copied_strat
         if any(k in act for k in ("open", "abrir", "launch", "start", "ejecutar")):
             return self._process_exists_strat
-        if any(k in act for k in ("close", "cerrar", "kill", "terminate", "stop")):
-            return self._process_term_strat
-        if any(k in act for k in ("file", "archivo", "create", "crear", "write", "guardar")):
+        if any(k in act for k in ("file", "archivo", "create", "crear", "write", "guardar", "read", "leer")):
             return self._file_exists_strat
         return self._state_changed_strat
 
@@ -540,6 +863,10 @@ class ExecutionVerifier:
         """Ejecuta la verificación activa y recopila la evidencia del sistema."""
         strategy = self.get_strategy(action)
         return strategy.verify(action=action, target=target, parameters=parameters, timeout_seconds=timeout_seconds)
+
+    # Alias para compatibilidad de interfaz
+    verify = verify_execution
+
 
 
 # Singleton

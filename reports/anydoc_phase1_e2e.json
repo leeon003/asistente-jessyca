@@ -1,0 +1,158 @@
+{
+  "phase": "Fase 1 \u2014 Discovery, Audit y Lab",
+  "total_scenarios": 15,
+  "passed": 15,
+  "all_pass": true,
+  "results": [
+    {
+      "scenario_id": "E01",
+      "name": "CSV standard conversion",
+      "input_path": "lab/anydoc/fixtures/simple.csv",
+      "expected_status": "SUCCESS",
+      "actual_status": "SUCCESS",
+      "latency_ms": 1.1088999453932047,
+      "side_effects": 0,
+      "passed": true
+    },
+    {
+      "scenario_id": "E02",
+      "name": "DOCX standard conversion",
+      "input_path": "lab/anydoc/fixtures/simple.docx",
+      "expected_status": "SUCCESS",
+      "actual_status": "SUCCESS",
+      "latency_ms": 3.0305000254884362,
+      "side_effects": 0,
+      "passed": true
+    },
+    {
+      "scenario_id": "E03",
+      "name": "XLSX standard conversion",
+      "input_path": "lab/anydoc/fixtures/simple.xlsx",
+      "expected_status": "SUCCESS",
+      "actual_status": "SUCCESS",
+      "latency_ms": 1.8220000201836228,
+      "side_effects": 0,
+      "passed": true
+    },
+    {
+      "scenario_id": "E04",
+      "name": "PPTX standard conversion",
+      "input_path": "lab/anydoc/fixtures/simple.pptx",
+      "expected_status": "SUCCESS",
+      "actual_status": "SUCCESS",
+      "latency_ms": 2.3731000255793333,
+      "side_effects": 0,
+      "passed": true
+    },
+    {
+      "scenario_id": "E05",
+      "name": "PDF standard conversion",
+      "input_path": "lab/anydoc/fixtures/simple.pdf",
+      "expected_status": "SUCCESS",
+      "actual_status": "SUCCESS",
+      "latency_ms": 7.670899969525635,
+      "side_effects": 0,
+      "passed": true
+    },
+    {
+      "scenario_id": "E06",
+      "name": "RTF standard conversion",
+      "input_path": "lab/anydoc/fixtures/simple.rtf",
+      "expected_status": "SUCCESS",
+      "actual_status": "SUCCESS",
+      "latency_ms": 2.3784999502822757,
+      "side_effects": 0,
+      "passed": true
+    },
+    {
+      "scenario_id": "E07",
+      "name": "ODT standard conversion",
+      "input_path": "lab/anydoc/fixtures/simple.odt",
+      "expected_status": "SUCCESS",
+      "actual_status": "SUCCESS",
+      "latency_ms": 2.275399980135262,
+      "side_effects": 0,
+      "passed": true
+    },
+    {
+      "scenario_id": "E08",
+      "name": "EPUB standard conversion",
+      "input_path": "lab/anydoc/fixtures/simple.epub",
+      "expected_status": "SUCCESS",
+      "actual_status": "SUCCESS",
+      "latency_ms": 1.4602000592276454,
+      "side_effects": 0,
+      "passed": true
+    },
+    {
+      "scenario_id": "E09",
+      "name": "Content format detection (DOCX as PDF)",
+      "input_path": "lab/anydoc/fixtures/disguised_docx.pdf",
+      "expected_status": "SUCCESS",
+      "actual_status": "SUCCESS",
+      "latency_ms": 2.7504999889060855,
+      "side_effects": 0,
+      "passed": true
+    },
+    {
+      "scenario_id": "E10",
+      "name": "Zip bomb containment",
+      "input_path": "lab/anydoc/fixtures/zipbomb.docx",
+      "expected_status": "RESOURCE_LIMIT",
+      "actual_status": "RESOURCE_LIMIT",
+      "latency_ms": 0.8076999802142382,
+      "side_effects": 0,
+      "passed": true
+    },
+    {
+      "scenario_id": "E11",
+      "name": "Deep XML containment",
+      "input_path": "lab/anydoc/fixtures/deepxml.docx",
+      "expected_status": "RESOURCE_LIMIT",
+      "actual_status": "RESOURCE_LIMIT",
+      "latency_ms": 1.043400028720498,
+      "side_effects": 0,
+      "passed": true
+    },
+    {
+      "scenario_id": "E12",
+      "name": "Empty malformed document",
+      "input_path": "lab/anydoc/fixtures/empty.docx",
+      "expected_status": "MALFORMED",
+      "actual_status": "MALFORMED",
+      "latency_ms": 0.6313000340014696,
+      "side_effects": 0,
+      "passed": true
+    },
+    {
+      "scenario_id": "E13",
+      "name": "Encrypted document rejection",
+      "input_path": "lab/anydoc/fixtures/encrypted.odt",
+      "expected_status": "ENCRYPTED",
+      "actual_status": "ENCRYPTED",
+      "latency_ms": 0.6874999962747097,
+      "side_effects": 0,
+      "passed": true
+    },
+    {
+      "scenario_id": "E14",
+      "name": "Scanned PDF rejection",
+      "input_path": "lab/anydoc/fixtures/scanned.pdf",
+      "expected_status": "NEEDS_OCR",
+      "actual_status": "NEEDS_OCR",
+      "latency_ms": 1.2558000162243843,
+      "side_effects": 0,
+      "passed": true
+    },
+    {
+      "scenario_id": "E15",
+      "name": "Path traversal containment",
+      "input_path": "../../etc/passwd",
+      "expected_status": "SECURITY_BLOCKED",
+      "actual_status": "SECURITY_BLOCKED",
+      "latency_ms": 0.008999952115118504,
+      "side_effects": 0,
+      "passed": true
+    }
+  ]
+}

@@ -31,11 +31,13 @@ if TYPE_CHECKING:
     from core.system.system_coordinator import SystemResponse
 
 
-def _evidence_to_dict(evidence: ExecutionEvidence | None) -> dict[str, Any]:
+def _evidence_to_dict(evidence: ExecutionEvidence | dict[str, Any] | None) -> dict[str, Any]:
     if evidence is None:
         return {}
-    res = evidence.to_dict()
-    if isinstance(evidence.details, dict):
+    if isinstance(evidence, dict):
+        return dict(evidence)
+    res = evidence.to_dict() if hasattr(evidence, "to_dict") else {}
+    if hasattr(evidence, "details") and isinstance(evidence.details, dict):
         for k, v in evidence.details.items():
             if k not in res:
                 res[k] = v
@@ -62,12 +64,26 @@ def build_execution_report(
     err = error_code
 
     if execution_result is not None:
-        tool = tool or execution_result.action
-        evidence_dict = _evidence_to_dict(execution_result.evidence)
-        is_verif = bool(execution_result.evidence and execution_result.evidence.is_verified)
-        err = err or execution_result.error_code
+        tool = tool or getattr(execution_result, "action", None) or getattr(execution_result, "tool_name", None)
+        evidence_dict = _evidence_to_dict(getattr(execution_result, "evidence", None))
 
-        if execution_result.status == ExecutionStatus.SUCCEEDED:
+        direct_verified = getattr(execution_result, "is_verified", None)
+        ev_verified = False
+        ev_obj = getattr(execution_result, "evidence", None)
+        if ev_obj is not None:
+            if hasattr(ev_obj, "is_verified"):
+                ev_verified = bool(ev_obj.is_verified)
+            elif isinstance(ev_obj, dict):
+                ev_verified = bool(ev_obj.get("is_verified", False) or ev_obj.get("verified", False))
+
+        is_verif = bool(direct_verified if direct_verified is not None else ev_verified)
+        err = err or getattr(execution_result, "error_code", None) or getattr(execution_result, "error", None)
+
+        st_obj = getattr(execution_result, "status", None)
+        st_val = st_obj.value if hasattr(st_obj, "value") else str(st_obj)
+        st_upper = st_val.upper()
+
+        if st_upper in ("SUCCEEDED", "SUCCESS"):
             if is_verif:
                 status_str = "success"
                 claims_succ = True
@@ -76,26 +92,27 @@ def build_execution_report(
                 status_str = "unknown"
                 is_verif = False
                 claims_succ = False
-        elif execution_result.status == ExecutionStatus.VERIFICATION_FAILED:
+        elif st_upper in ("UNKNOWN",):
+            status_str = "unknown"
+            is_verif = False
+            claims_succ = False
+        elif st_upper in ("VERIFICATION_FAILED",):
             status_str = "failed"
-            is_verif = bool(execution_result.evidence and execution_result.evidence.is_verified)
+            is_verif = False
             claims_succ = False
             err = err or "VERIFICATION_FAILED"
-        elif execution_result.status in (
-            ExecutionStatus.FAILED,
-            ExecutionStatus.DENIED,
-            ExecutionStatus.CANCELLED,
-        ):
-            status_str = "failed" if execution_result.status == ExecutionStatus.FAILED else execution_result.status.value
-            is_verif = bool(execution_result.evidence and execution_result.evidence.is_verified)
+        elif st_upper in ("FAILED",):
+            status_str = "failed"
+            claims_succ = False
+        elif st_upper in ("NOT_EXECUTED", "BLOCKED", "DENIED", "CANCELLED"):
+            status_str = st_val.lower()
             claims_succ = False
         else:
-            status_str = execution_result.status.value
-            is_verif = bool(execution_result.evidence and execution_result.evidence.is_verified)
+            status_str = st_val.lower()
             claims_succ = False
 
-        # Invariante absoluta Anti-False Success
-        if not is_verif:
+        # Invariante transversal canónica
+        if not is_verif or status_str not in ("success", "succeeded"):
             claims_succ = False
 
         return ActionExecutionReport(
@@ -117,7 +134,10 @@ def build_execution_report(
         evidence_dict = {}
         if isinstance(raw_evidence, dict):
             evidence_dict = raw_evidence
-            is_verif = bool(raw_evidence.get("is_verified", False))
+            is_verif = bool(raw_evidence.get("is_verified", False) or raw_evidence.get("verified", False))
+        elif isinstance(out, dict) and ("verified" in out or "is_verified" in out):
+            is_verif = bool(out.get("is_verified", False) or out.get("verified", False))
+            evidence_dict = out
 
         if sys_resp.success:
             if is_verif:

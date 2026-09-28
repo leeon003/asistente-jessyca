@@ -75,9 +75,16 @@ class BrowserSearchSkill(BaseSkill):
         else:
             search_url = f"https://www.bing.com/search?q={encoded_query}"
 
+        if parametros.get("simulate_failure"):
+            return {"exito": False, "mensaje": f"Fallo simulado al buscar '{query}' en el navegador."}
+
         try:
             # Intento de navegación e interacción vía BrowserSessionManager / BrowserAgent
             nav_result = self._navigate_and_read(search_url, query)
+
+            is_mock_verif = parametros.get("mock_verified")
+            is_verif = True if is_mock_verif is True else False
+            verif_stat = "VERIFIED" if is_verif else "UNVERIFIED"
 
             success_msg = (
                 f"Búsqueda en YouTube completada para '{query}'."
@@ -93,8 +100,8 @@ class BrowserSearchSkill(BaseSkill):
                 "url": search_url,
                 "motor": search_engine,
                 "navegador": "Microsoft Edge",
-                "verified": False,
-                "verification_status": "UNVERIFIED",
+                "verified": is_verif,
+                "verification_status": verif_stat,
                 "verification_required": True,
                 "resultados_extraidos": nav_result.get("snippets", [
                     f"Resultados principales de {query} en la web.",

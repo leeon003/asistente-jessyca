@@ -151,14 +151,18 @@ class FilesCreateSkill(BaseSkill):
                 os.makedirs(dir_name, exist_ok=True)
             with open(ruta, "w", encoding="utf-8") as f:
                 f.write(contenido)
+            is_verif = os.path.exists(ruta) and os.path.isfile(ruta)
+            if parametros.get("mock_unverified"):
+                is_verif = False
             return {
-                "exito": True,
-                "mensaje": f"Archivo '{os.path.basename(ruta)}' creado con éxito.",
+                "exito": is_verif,
+                "verified": is_verif,
+                "mensaje": f"Archivo '{os.path.basename(ruta)}' creado con éxito." if is_verif else f"No se pudo confirmar la creación de '{os.path.basename(ruta)}'.",
                 "ruta": os.path.abspath(ruta),
                 "bytes_escritos": len(contenido.encode("utf-8")),
             }
         except Exception as exc:
-            return {"exito": False, "mensaje": f"Error al crear archivo '{ruta}': {exc}"}
+            return {"exito": False, "verified": False, "mensaje": f"Error al crear archivo '{ruta}': {exc}"}
 
 
 class FilesCopySkill(BaseSkill):
@@ -197,19 +201,26 @@ class FilesCopySkill(BaseSkill):
         destino = str(parametros.get("destino") or parametros.get("target") or "").strip()
 
         if not origen or not destino:
-            return {"exito": False, "mensaje": "Debe especificar origen y destino."}
+            return {"exito": False, "verified": False, "mensaje": "Debe especificar origen y destino."}
 
         if _is_path_critical(origen) or _is_path_critical(destino):
-            return {"exito": False, "mensaje": "Acceso denegado: Operación bloqueada en ruta crítica."}
+            return {"exito": False, "verified": False, "mensaje": "Acceso denegado: Operación bloqueada en ruta crítica."}
 
         if not os.path.exists(origen):
-            return {"exito": False, "mensaje": f"El archivo origen '{origen}' no existe."}
+            return {"exito": False, "verified": False, "mensaje": f"El archivo origen '{origen}' no existe."}
 
         try:
             shutil.copy2(origen, destino)
-            return {"exito": True, "mensaje": f"Archivo copiado de '{origen}' a '{destino}'."}
+            is_verif = os.path.exists(destino)
+            if parametros.get("mock_unverified"):
+                is_verif = False
+            return {
+                "exito": is_verif,
+                "verified": is_verif,
+                "mensaje": f"Archivo copiado de '{origen}' a '{destino}'." if is_verif else "No se pudo confirmar la copia del archivo.",
+            }
         except Exception as exc:
-            return {"exito": False, "mensaje": f"Error al copiar archivo: {exc}"}
+            return {"exito": False, "verified": False, "mensaje": f"Error al copiar archivo: {exc}"}
 
 
 class FilesMoveSkill(BaseSkill):
@@ -248,19 +259,26 @@ class FilesMoveSkill(BaseSkill):
         destino = str(parametros.get("destino") or parametros.get("target") or "").strip()
 
         if not origen or not destino:
-            return {"exito": False, "mensaje": "Debe especificar origen y destino."}
+            return {"exito": False, "verified": False, "mensaje": "Debe especificar origen y destino."}
 
         if _is_path_critical(origen) or _is_path_critical(destino):
-            return {"exito": False, "mensaje": "Acceso denegado: Operación bloqueada en ruta crítica."}
+            return {"exito": False, "verified": False, "mensaje": "Acceso denegado: Operación bloqueada en ruta crítica."}
 
         if not os.path.exists(origen):
-            return {"exito": False, "mensaje": f"El archivo origen '{origen}' no existe."}
+            return {"exito": False, "verified": False, "mensaje": f"El archivo origen '{origen}' no existe."}
 
         try:
             shutil.move(origen, destino)
-            return {"exito": True, "mensaje": f"Archivo movido a '{destino}'."}
+            is_verif = os.path.exists(destino) and not os.path.exists(origen)
+            if parametros.get("mock_unverified"):
+                is_verif = False
+            return {
+                "exito": is_verif,
+                "verified": is_verif,
+                "mensaje": f"Archivo movido a '{destino}'." if is_verif else "No se pudo confirmar el traslado del archivo.",
+            }
         except Exception as exc:
-            return {"exito": False, "mensaje": f"Error al mover archivo: {exc}"}
+            return {"exito": False, "verified": False, "mensaje": f"Error al mover archivo: {exc}"}
 
 
 class FilesRenameSkill(BaseSkill):
@@ -299,22 +317,29 @@ class FilesRenameSkill(BaseSkill):
         nuevo_nombre = str(parametros.get("nuevo_nombre") or parametros.get("new_name") or "").strip()
 
         if not ruta_actual or not nuevo_nombre:
-            return {"exito": False, "mensaje": "Debe especificar la ruta actual y el nuevo nombre."}
+            return {"exito": False, "verified": False, "mensaje": "Debe especificar la ruta actual y el nuevo nombre."}
 
         if _is_path_critical(ruta_actual):
-            return {"exito": False, "mensaje": "Acceso denegado: Operación bloqueada en ruta crítica."}
+            return {"exito": False, "verified": False, "mensaje": "Acceso denegado: Operación bloqueada en ruta crítica."}
 
         if not os.path.exists(ruta_actual):
-            return {"exito": False, "mensaje": f"El archivo '{ruta_actual}' no existe."}
+            return {"exito": False, "verified": False, "mensaje": f"El archivo '{ruta_actual}' no existe."}
 
         dir_name = os.path.dirname(ruta_actual)
         nueva_ruta = os.path.join(dir_name, nuevo_nombre)
 
         try:
             os.rename(ruta_actual, nueva_ruta)
-            return {"exito": True, "mensaje": f"Archivo renombrado a '{nuevo_nombre}'."}
+            is_verif = os.path.exists(nueva_ruta) and not os.path.exists(ruta_actual)
+            if parametros.get("mock_unverified"):
+                is_verif = False
+            return {
+                "exito": is_verif,
+                "verified": is_verif,
+                "mensaje": f"Archivo renombrado a '{nuevo_nombre}'." if is_verif else "No se pudo confirmar el renombrado del archivo.",
+            }
         except Exception as exc:
-            return {"exito": False, "mensaje": f"Error al renombrar archivo: {exc}"}
+            return {"exito": False, "verified": False, "mensaje": f"Error al renombrar archivo: {exc}"}
 
 
 class FilesOrganizeSkill(BaseSkill):

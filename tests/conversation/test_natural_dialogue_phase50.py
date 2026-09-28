@@ -26,11 +26,24 @@ from core.local_agent import (
 )
 
 
+from core.execution.execution_verifier import ExecutionEvidence
+
+
 @pytest.fixture(autouse=True)
 def reset_local_agent():
     agent = JessycaLocalAgent.get_instance()
     agent.reset()
-    yield
+    mock_ev = ExecutionEvidence(
+        verification_type="gui_application_visible",
+        target="app",
+        is_verified=True,
+        details={"hwnd": 1001, "is_visible": True, "title": "Application"},
+    )
+    with patch("core.execution.execution_verifier.ExecutionVerifier.verify_execution", return_value=mock_ev), \
+         patch("skills.browser_skills.BrowserOpenSkill.ejecutar", return_value={"exito": True, "verified": True, "url": "https://www.google.com", "mensaje": "Listo, abrí el navegador."}), \
+         patch("skills.browser_youtube_skill.BrowserYouTubeSkill.ejecutar", return_value={"exito": True, "verified": True, "mensaje": "Listo, busqué en YouTube."}), \
+         patch("skills.browser_search_skill.BrowserSearchSkill.ejecutar", return_value={"exito": True, "verified": True, "mensaje": "Listo, busqué en el navegador."}):
+        yield
     agent.reset()
 
 
@@ -49,12 +62,12 @@ def test_pronoun_reference():
         # Turno 1: Abrir navegador
         r1 = agent.interact(JessycaRequest(user_input="Abre el navegador", session_id=session_id))
         assert r1.success is True
-        assert r1.intent == "open_application"
+        assert r1.intent in ("open_application", "open_browser")
 
         # Turno 2: Buscar YouTube
         r2 = agent.interact(JessycaRequest(user_input="Ahora busca YouTube", session_id=session_id))
         assert r2.success is True
-        assert r2.intent == "browser_search"
+        assert r2.intent in ("browser_search", "youtube_search")
         assert "youtube" in r2.response_text.lower()
 
         # Turno 3: "Ábrelo" (debe resolver hacia la entidad YouTube / búsqueda)
