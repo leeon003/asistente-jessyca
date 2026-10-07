@@ -8,10 +8,13 @@ confirmación/elevación con reglas deterministas, prioridades y protección DEN
 from __future__ import annotations
 
 import fnmatch
+import json
 import uuid
-from dataclasses import dataclass, field
+from collections.abc import Mapping
+from dataclasses import FrozenInstanceError, dataclass, field
 from datetime import UTC, datetime
 from enum import StrEnum
+from types import MappingProxyType
 from typing import Any
 
 from core.logger import get_logger
@@ -26,7 +29,6 @@ from core.security_architecture import (
     SecurityLevel,
     ToolSecurityMetadata,
 )
-from core.types import JSONDict
 
 logger = get_logger("jessyca.security.policy")
 
@@ -45,25 +47,87 @@ class PolicySource(StrEnum):
     CONFIGURATION = "CONFIGURATION"
 
 
-class InvalidPolicyError(ValueError):
-    """Excepción lanzada cuando una política no cumple con los criterios de validación de estructura o seguridad."""
+class InvalidPolicyError(FrozenInstanceError, ValueError):
+    """Excepción lanzada cuando una política no cumple con los criterios de validación de estructura o inmutabilidad."""
 
     pass
 
 
+def _deep_freeze_value(val: Any) -> Any:
+    """Congela recursivamente cualquier estructura de datos (dict, list, set, frozenset) a inmutable."""
+    if isinstance(val, (Mapping, MappingProxyType)):
+        return MappingProxyType({k: _deep_freeze_value(v) for k, v in val.items()})
+    elif isinstance(val, (list, tuple, set, frozenset)):
+        return tuple(_deep_freeze_value(x) for x in val)
+    return val
+
+
+def _deep_freeze_mapping(data: Any) -> MappingProxyType[Any, Any]:
+    """Congela recursivamente un mapping a MappingProxyType inmutable."""
+    if isinstance(data, (Mapping, MappingProxyType)):
+        return MappingProxyType({k: _deep_freeze_value(v) for k, v in data.items()})
+    return MappingProxyType({})
+
+
+def _deep_unfreeze_value(val: Any) -> Any:
+    """Descongela recursivamente valores inmutables para serialización estándar."""
+    if isinstance(val, (Mapping, MappingProxyType)):
+        return {k: _deep_unfreeze_value(v) for k, v in val.items()}
+    elif isinstance(val, (list, tuple, set, frozenset)):
+        return [_deep_unfreeze_value(x) for x in val]
+    return val
+
+
 @dataclass(frozen=True)
 class PolicyRuleCondition:
-    """Condiciones adicionales de coincidencia declarativas para una regla de política."""
+    """Condiciones adicionales de coincidencia declarativas e inmutables para una regla de política."""
 
-    path_patterns: list[str] = field(default_factory=list)
-    users: list[str] = field(default_factory=lambda: ["*"])
-    environments: list[str] = field(default_factory=lambda: ["*"])
-    parameters: JSONDict = field(default_factory=dict)
+    path_patterns: tuple[str, ...] = field(default_factory=tuple)
+    users: tuple[str, ...] = field(default_factory=lambda: ("*",))
+    environments: tuple[str, ...] = field(default_factory=lambda: ("*",))
+    parameters: Mapping[str, Any] = field(default_factory=lambda: MappingProxyType({}))
+
+    def __post_init__(self) -> None:
+        raw_patterns = self.path_patterns
+        if not isinstance(raw_patterns, (list, tuple, set, frozenset)):
+            raw_patterns = [raw_patterns] if raw_patterns else []
+        object.__setattr__(self, "path_patterns", tuple(str(p) for p in raw_patterns))
+
+        raw_users = self.users
+        if not isinstance(raw_users, (list, tuple, set, frozenset)):
+            raw_users = [raw_users] if raw_users else ["*"]
+        object.__setattr__(self, "users", tuple(str(u) for u in raw_users))
+
+        raw_env = self.environments
+        if not isinstance(raw_env, (list, tuple, set, frozenset)):
+            raw_env = [raw_env] if raw_env else ["*"]
+        object.__setattr__(self, "environments", tuple(str(e) for e in raw_env))
+
+        object.__setattr__(self, "parameters", _deep_freeze_mapping(self.parameters))
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serializa la condición a un diccionario estándar."""
+        return {
+            "path_patterns": list(self.path_patterns),
+            "users": list(self.users),
+            "environments": list(self.environments),
+            "parameters": _deep_unfreeze_value(self.parameters),
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> PolicyRuleCondition:
+        """Construye una condición inmutable desde un diccionario."""
+        return cls(
+            path_patterns=data.get("path_patterns", ()),
+            users=data.get("users", ("*",)),
+            environments=data.get("environments", ("*",)),
+            parameters=data.get("parameters", {}),
+        )
 
 
-@dataclass
+@dataclass(frozen=True)
 class PolicyRule:
-    """Regla declarativa individual de política de seguridad."""
+    """Regla declarativa individual e inmutable de política de seguridad."""
 
     name: str
     decision: SecurityDecisionType
@@ -83,11 +147,59 @@ class PolicyRule:
             raise InvalidPolicyError("El nombre de la regla 'name' no puede estar vacío.")
         if self.priority < 0:
             raise InvalidPolicyError(f"La prioridad de la regla '{self.name}' debe ser no negativa.")
+        if isinstance(self.conditions, dict):
+            object.__setattr__(self, "conditions", PolicyRuleCondition.from_dict(self.conditions))
+        elif not isinstance(self.conditions, PolicyRuleCondition):
+            raise InvalidPolicyError(f"Condición inválida para regla '{self.name}': {type(self.conditions)}")
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serializa la regla a un diccionario estándar."""
+        return {
+            "name": self.name,
+            "decision": self.decision.value if isinstance(self.decision, SecurityDecisionType) else str(self.decision),
+            "rule_id": self.rule_id,
+            "description": self.description,
+            "enabled": self.enabled,
+            "priority": self.priority,
+            "tool_name": self.tool_name,
+            "operation": self.operation,
+            "risk_level": self.risk_level.value if isinstance(self.risk_level, SecurityLevel) else (self.risk_level if self.risk_level is not None else None),
+            "requires_confirmation": self.requires_confirmation,
+            "requires_elevation": self.requires_elevation,
+            "conditions": self.conditions.to_dict(),
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> PolicyRule:
+        """Construye una regla inmutable desde un diccionario."""
+        decision = data["decision"]
+        if isinstance(decision, str):
+            decision = SecurityDecisionType(decision)
+        risk_level = data.get("risk_level")
+        if isinstance(risk_level, str):
+            risk_level = SecurityLevel(risk_level)
+        cond = data.get("conditions", {})
+        if isinstance(cond, dict):
+            cond = PolicyRuleCondition.from_dict(cond)
+        return cls(
+            name=data["name"],
+            decision=decision,
+            rule_id=data.get("rule_id", str(uuid.uuid4())),
+            description=data.get("description", ""),
+            enabled=data.get("enabled", True),
+            priority=data.get("priority", 100),
+            tool_name=data.get("tool_name", "*"),
+            operation=data.get("operation", "*"),
+            risk_level=risk_level,
+            requires_confirmation=data.get("requires_confirmation"),
+            requires_elevation=data.get("requires_elevation"),
+            conditions=cond,
+        )
 
 
 @dataclass
 class SecurityPolicy:
-    """Contenedor principal e inmutable de una política de seguridad declarativa."""
+    """Contenedor principal profundamente inmutable de una política de seguridad declarativa."""
 
     policy_id: str = "default-system-policy"
     name: str = "Jessyca Default Security Policy"
@@ -95,7 +207,7 @@ class SecurityPolicy:
     version: str = "1.0.0"
     source: PolicySource = PolicySource.SYSTEM
     max_allowed_risk: SecurityLevel = SecurityLevel.DANGEROUS
-    rules: list[PolicyRule] = field(default_factory=list)
+    rules: tuple[PolicyRule, ...] = field(default_factory=tuple)
     default_decision: SecurityDecisionType = SecurityDecisionType.DENY
     is_immutable: bool = True
 
@@ -104,14 +216,242 @@ class SecurityPolicy:
             raise InvalidPolicyError("El campo 'policy_id' no puede estar vacío.")
         if not self.version or not self.version.strip():
             raise InvalidPolicyError("El campo 'version' no puede estar vacío.")
-        # Ordenar reglas deterministamente por prioridad descendente
-        object.__setattr__(self, "rules", sorted(self.rules, key=lambda r: r.priority, reverse=True))
+
+        # Defensive copying y congelación profunda de todas las reglas
+        frozen_rules: list[PolicyRule] = []
+        raw_rules = self.rules if isinstance(self.rules, (list, tuple, set, frozenset)) else [self.rules]
+        for r in raw_rules:
+            if isinstance(r, PolicyRule):
+                frozen_rules.append(r)
+            elif isinstance(r, dict):
+                frozen_rules.append(PolicyRule.from_dict(r))
+            else:
+                raise InvalidPolicyError(f"Elemento inválido en lista de reglas de política: {type(r)}")
+
+        # Ordenar reglas deterministamente por prioridad descendente en tupla inmutable
+        object.__setattr__(
+            self,
+            "rules",
+            tuple(sorted(frozen_rules, key=lambda r: r.priority, reverse=True)),
+        )
         object.__setattr__(self, "_initialized", True)
 
     def __setattr__(self, name: str, value: Any) -> None:
-        if getattr(self, "_initialized", False) and getattr(self, "is_immutable", False):
-            raise InvalidPolicyError(f"SecurityPolicy '{self.policy_id}' es inmutable y no permite modificación.")
+        if getattr(self, "_initialized", False):
+            raise InvalidPolicyError(f"SecurityPolicy '{self.policy_id}' es inmutable y no permite modificación de atributos.")
         super().__setattr__(name, value)
+
+    def __delattr__(self, name: str) -> None:
+        if getattr(self, "_initialized", False):
+            raise InvalidPolicyError(f"SecurityPolicy '{self.policy_id}' es inmutable y no permite eliminación de atributos.")
+        super().__delattr__(name)
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serializa la política completa a un diccionario estándar."""
+        return {
+            "policy_id": self.policy_id,
+            "name": self.name,
+            "description": self.description,
+            "version": self.version,
+            "source": self.source.value if isinstance(self.source, PolicySource) else str(self.source),
+            "max_allowed_risk": self.max_allowed_risk.value if isinstance(self.max_allowed_risk, SecurityLevel) else str(self.max_allowed_risk),
+            "rules": [r.to_dict() for r in self.rules],
+            "default_decision": self.default_decision.value if isinstance(self.default_decision, SecurityDecisionType) else str(self.default_decision),
+            "is_immutable": self.is_immutable,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> SecurityPolicy:
+        """Construye un snapshot inmutable de SecurityPolicy desde un diccionario."""
+        source = data.get("source", PolicySource.SYSTEM)
+        if isinstance(source, str):
+            source = PolicySource(source)
+        max_risk = data.get("max_allowed_risk", SecurityLevel.DANGEROUS)
+        if isinstance(max_risk, str):
+            max_risk = SecurityLevel(max_risk)
+        default_dec = data.get("default_decision", SecurityDecisionType.DENY)
+        if isinstance(default_dec, str):
+            default_dec = SecurityDecisionType(default_dec)
+        rules_data = data.get("rules", [])
+        rules = [PolicyRule.from_dict(r) if isinstance(r, dict) else r for r in rules_data]
+        return cls(
+            policy_id=data["policy_id"],
+            name=data.get("name", "Jessyca Security Policy"),
+            description=data.get("description", ""),
+            version=data.get("version", "1.0.0"),
+            source=source,
+            max_allowed_risk=max_risk,
+            rules=rules,
+            default_decision=default_dec,
+            is_immutable=data.get("is_immutable", True),
+        )
+
+    def to_json(self, indent: int = 2) -> str:
+        """Serializa la política a JSON."""
+        return json.dumps(self.to_dict(), indent=indent, ensure_ascii=False)
+
+    @classmethod
+    def from_json(cls, json_str: str) -> SecurityPolicy:
+        """Construye una SecurityPolicy desde JSON."""
+        return cls.from_dict(json.loads(json_str))
+
+
+class PolicyRuleBuilder:
+    """Builder administrativo mutable para configurar y publicar PolicyRule inmutables."""
+
+    def __init__(
+        self,
+        name: str = "",
+        decision: SecurityDecisionType = SecurityDecisionType.DENY,
+        rule_id: str | None = None,
+        description: str = "",
+        enabled: bool = True,
+        priority: int = 100,
+        tool_name: str = "*",
+        operation: str = "*",
+        risk_level: SecurityLevel | None = None,
+        requires_confirmation: bool | None = None,
+        requires_elevation: bool | None = None,
+        path_patterns: list[str] | None = None,
+        users: list[str] | None = None,
+        environments: list[str] | None = None,
+        parameters: dict[str, Any] | None = None,
+    ) -> None:
+        self.name = name
+        self.decision = decision
+        self.rule_id = rule_id or str(uuid.uuid4())
+        self.description = description
+        self.enabled = enabled
+        self.priority = priority
+        self.tool_name = tool_name
+        self.operation = operation
+        self.risk_level = risk_level
+        self.requires_confirmation = requires_confirmation
+        self.requires_elevation = requires_elevation
+        self.path_patterns: list[str] = list(path_patterns or [])
+        self.users: list[str] = list(users or ["*"])
+        self.environments: list[str] = list(environments or ["*"])
+        self.parameters: dict[str, Any] = dict(parameters or {})
+
+    @classmethod
+    def from_rule(cls, rule: PolicyRule) -> PolicyRuleBuilder:
+        return cls(
+            name=rule.name,
+            decision=rule.decision,
+            rule_id=rule.rule_id,
+            description=rule.description,
+            enabled=rule.enabled,
+            priority=rule.priority,
+            tool_name=rule.tool_name,
+            operation=rule.operation,
+            risk_level=rule.risk_level,
+            requires_confirmation=rule.requires_confirmation,
+            requires_elevation=rule.requires_elevation,
+            path_patterns=list(rule.conditions.path_patterns),
+            users=list(rule.conditions.users),
+            environments=list(rule.conditions.environments),
+            parameters=_deep_unfreeze_value(rule.conditions.parameters),
+        )
+
+    def build(self) -> PolicyRule:
+        """Construye y publica una regla inmutable PolicyRule."""
+        cond = PolicyRuleCondition(
+            path_patterns=self.path_patterns,
+            users=self.users,
+            environments=self.environments,
+            parameters=self.parameters,
+        )
+        return PolicyRule(
+            name=self.name,
+            decision=self.decision,
+            rule_id=self.rule_id,
+            description=self.description,
+            enabled=self.enabled,
+            priority=self.priority,
+            tool_name=self.tool_name,
+            operation=self.operation,
+            risk_level=self.risk_level,
+            requires_confirmation=self.requires_confirmation,
+            requires_elevation=self.requires_elevation,
+            conditions=cond,
+        )
+
+
+class SecurityPolicyBuilder:
+    """Builder administrativo mutable para configurar y publicar snapshots inmutables de SecurityPolicy."""
+
+    def __init__(
+        self,
+        policy_id: str = "custom-policy",
+        name: str = "Custom Security Policy",
+        description: str = "",
+        version: str = "1.0.0",
+        source: PolicySource = PolicySource.ADMINISTRATOR,
+        max_allowed_risk: SecurityLevel = SecurityLevel.DANGEROUS,
+        default_decision: SecurityDecisionType = SecurityDecisionType.DENY,
+    ) -> None:
+        self.policy_id = policy_id
+        self.name = name
+        self.description = description
+        self.version = version
+        self.source = source
+        self.max_allowed_risk = max_allowed_risk
+        self.default_decision = default_decision
+        self._rules: list[PolicyRule | PolicyRuleBuilder] = []
+
+    @classmethod
+    def from_policy(cls, policy: SecurityPolicy) -> SecurityPolicyBuilder:
+        """Crea un builder mutable a partir de una política inmutable existente."""
+        builder = cls(
+            policy_id=policy.policy_id,
+            name=policy.name,
+            description=policy.description,
+            version=policy.version,
+            source=policy.source,
+            max_allowed_risk=policy.max_allowed_risk,
+            default_decision=policy.default_decision,
+        )
+        builder._rules = [PolicyRuleBuilder.from_rule(r) for r in policy.rules]
+        return builder
+
+    def add_rule(self, rule: PolicyRule | PolicyRuleBuilder) -> SecurityPolicyBuilder:
+        self._rules.append(rule)
+        return self
+
+    def remove_rule(self, rule_id: str) -> bool:
+        init_len = len(self._rules)
+        self._rules = [r for r in self._rules if (r.rule_id if hasattr(r, "rule_id") else r.get("rule_id")) != rule_id]
+        return len(self._rules) < init_len
+
+    def clear_rules(self) -> None:
+        self._rules.clear()
+
+    def build(self) -> SecurityPolicy:
+        """Construye, valida y retorna un snapshot profundamente inmutable de SecurityPolicy."""
+        built_rules: list[PolicyRule] = []
+        for r in self._rules:
+            if isinstance(r, PolicyRuleBuilder):
+                built_rules.append(r.build())
+            elif isinstance(r, PolicyRule):
+                built_rules.append(r)
+            elif isinstance(r, dict):
+                built_rules.append(PolicyRule.from_dict(r))
+            else:
+                raise InvalidPolicyError(f"Tipo de regla inválido en builder: {type(r)}")
+
+        policy = SecurityPolicy(
+            policy_id=self.policy_id,
+            name=self.name,
+            description=self.description,
+            version=self.version,
+            source=self.source,
+            max_allowed_risk=self.max_allowed_risk,
+            rules=built_rules,
+            default_decision=self.default_decision,
+            is_immutable=True,
+        )
+        validate_security_policy(policy)
+        return policy
 
 
 @dataclass
@@ -517,8 +857,18 @@ class DefaultPolicyProvider:
     """Proveedor por defecto desacoplado para obtener la Security Policy activa (IPolicyProvider)."""
 
     def __init__(self, policy: SecurityPolicy | None = None) -> None:
-        self._policy = policy or create_default_security_policy()
+        self._policy: SecurityPolicy = policy or create_default_security_policy()
 
     def get_policy(self) -> SecurityPolicy:
-        """Obtiene la Security Policy declarada."""
+        """Obtiene el snapshot de la Security Policy activa inmutable."""
         return self._policy
+
+    def update_policy(self, new_policy: SecurityPolicy) -> None:
+        """Ruta administrativa para sustituir la política activa por una nueva versión completa validada."""
+        validate_security_policy(new_policy)
+        logger.info(
+            f"Política activa actualizada administrativamente: [{new_policy.policy_id} v{new_policy.version}] "
+            f"(reglas: {len(new_policy.rules)}, fuente: {new_policy.source.value})"
+        )
+        self._policy = new_policy
+

@@ -422,6 +422,17 @@ def register_default_adapters(hub: IntegrationHub) -> None:
             wcu_adapter = ComputerUseAdapter()
             hub.registry.register(wcu_adapter, enabled=wcu_enabled)
             logger.info(f"[INTEGRATION_HUB] Auto-registrado ComputerUseAdapter [enabled={wcu_enabled}].")
+
+        # 4. Mobile Control Adapter
+        mob_cfg = adapters_cfg.get("mobile", {})
+        mob_enabled = bool(mob_cfg.get("enabled", False))
+
+        if hub.registry.get("mobile_control") is None:
+            from core.integration.adapters.mobile_adapter import MobileControlAdapter
+
+            mob_adapter = MobileControlAdapter()
+            hub.registry.register(mob_adapter, enabled=mob_enabled)
+            logger.info(f"[INTEGRATION_HUB] Auto-registrado MobileControlAdapter [enabled={mob_enabled}].")
     except Exception as exc:
         logger.warning(f"[INTEGRATION_HUB] Error al auto-registrar adaptadores predeterminados: {exc}")
 

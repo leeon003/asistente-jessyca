@@ -60,31 +60,61 @@ class LocalAgentMetrics:
 
     task_id: str = ""
     correlation_id: str = ""
-    stt_accuracy: float = 1.0               # Nivel de confianza / precisión transcripción (0.0 a 1.0)
-    stt_latency_ms: float = 0.0             # Tiempo de procesamiento de Speech-to-Text
-    intent_latency_ms: float = 0.0          # Tiempo de resolución de intención
-    planning_latency_ms: float = 0.0        # Tiempo de generación del SkillGraph o plan
-    agent_routing_latency_ms: float = 0.0   # Tiempo de enrutamiento de agentes / skills
-    model_inference_latency_ms: float = 0.0 # Tiempo de inferencia LLM
-    execution_latency_ms: float = 0.0       # Tiempo de ejecución de herramientas
-    tts_latency_ms: float = 0.0             # Tiempo de síntesis de voz Text-to-Speech
-    total_latency_ms: float = 0.0           # Latencia total end-to-end
-    wake_word_detected: bool = False        # Si se activó vía Wake Word
-    wake_word_confidence: float = 1.0       # Confianza del detector de Wake Word
-    wake_word_latency_ms: float = 0.0       # Latencia de detección de Wake Word
-    interruption_handled: bool = False      # Si el usuario interrumpió / canceló durante el turno
+    request_id: str = ""
+    capture_latency_ms: float = 0.0          # Tiempo de captura de entrada (audio/texto/pantalla)
+    speech_end_ms: float = 0.0               # Timestamp/duración de detección de fin de habla
+    stt_accuracy: float = 1.0                # Nivel de confianza / precisión transcripción (0.0 a 1.0)
+    stt_latency_ms: float = 0.0              # Tiempo de procesamiento de Speech-to-Text
+    classification_latency_ms: float = 0.0   # Tiempo de clasificación semántica de intención
+    intent_latency_ms: float = 0.0           # Alias compatible de clasificación
+    routing_latency_ms: float = 0.0          # Tiempo de enrutamiento de modelo/agente
+    agent_routing_latency_ms: float = 0.0    # Alias compatible de enrutamiento
+    model_load_latency_ms: float = 0.0       # Tiempo de carga/conmutación de modelo en VRAM
+    inference_latency_ms: float = 0.0        # Tiempo de inferencia LLM
+    model_inference_latency_ms: float = 0.0  # Alias compatible de inferencia
+    authorization_latency_ms: float = 0.0    # Tiempo de autorización / evaluación de seguridad / JDE
+    tool_execution_latency_ms: float = 0.0   # Tiempo de ejecución de herramienta
+    execution_latency_ms: float = 0.0        # Alias compatible de ejecución
+    verification_latency_ms: float = 0.0     # Tiempo de verificación post-ejecución en el SO
+    first_audio_tts_latency_ms: float = 0.0  # Tiempo hasta emitir primer fragmento de audio (TTFT)
+    planning_latency_ms: float = 0.0         # Tiempo de generación del SkillGraph o plan
+    tts_latency_ms: float = 0.0              # Tiempo total de síntesis de voz Text-to-Speech
+    total_latency_ms: float = 0.0            # Latencia total end-to-end
+    wake_word_detected: bool = False         # Si se activó vía Wake Word
+    wake_word_confidence: float = 1.0        # Confianza del detector de Wake Word
+    wake_word_latency_ms: float = 0.0        # Latencia de detección de Wake Word
+    interruption_handled: bool = False       # Si el usuario interrumpió / canceló durante el turno
+
+    def __post_init__(self) -> None:
+        if not self.request_id:
+            self.request_id = self.correlation_id or self.task_id
+        if not self.task_id:
+            self.task_id = self.request_id
+        if not self.correlation_id:
+            self.correlation_id = self.request_id
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "task_id": self.task_id,
-            "correlation_id": self.correlation_id,
+            "task_id": self.task_id or self.request_id,
+            "correlation_id": self.correlation_id or self.request_id,
+            "request_id": self.request_id or self.correlation_id or self.task_id,
+            "capture_latency_ms": round(self.capture_latency_ms, 2),
+            "speech_end_ms": round(self.speech_end_ms, 2),
             "stt_accuracy": round(self.stt_accuracy, 3),
             "stt_latency_ms": round(self.stt_latency_ms, 2),
-            "intent_latency_ms": round(self.intent_latency_ms, 2),
+            "classification_latency_ms": round(self.classification_latency_ms or self.intent_latency_ms, 2),
+            "intent_latency_ms": round(self.intent_latency_ms or self.classification_latency_ms, 2),
+            "routing_latency_ms": round(self.routing_latency_ms or self.agent_routing_latency_ms, 2),
+            "agent_routing_latency_ms": round(self.agent_routing_latency_ms or self.routing_latency_ms, 2),
+            "model_load_latency_ms": round(self.model_load_latency_ms, 2),
+            "inference_latency_ms": round(self.inference_latency_ms or self.model_inference_latency_ms, 2),
+            "model_inference_latency_ms": round(self.model_inference_latency_ms or self.inference_latency_ms, 2),
+            "authorization_latency_ms": round(self.authorization_latency_ms, 2),
+            "tool_execution_latency_ms": round(self.tool_execution_latency_ms or self.execution_latency_ms, 2),
+            "execution_latency_ms": round(self.execution_latency_ms or self.tool_execution_latency_ms, 2),
+            "verification_latency_ms": round(self.verification_latency_ms, 2),
+            "first_audio_tts_latency_ms": round(self.first_audio_tts_latency_ms, 2),
             "planning_latency_ms": round(self.planning_latency_ms, 2),
-            "agent_routing_latency_ms": round(self.agent_routing_latency_ms, 2),
-            "model_inference_latency_ms": round(self.model_inference_latency_ms, 2),
-            "execution_latency_ms": round(self.execution_latency_ms, 2),
             "tts_latency_ms": round(self.tts_latency_ms, 2),
             "total_latency_ms": round(self.total_latency_ms, 2),
             "wake_word_detected": self.wake_word_detected,
@@ -110,6 +140,7 @@ class JessycaRequest:
     conversation_context: list[dict[str, str]] = field(default_factory=list)
     metadata: dict[str, Any] = field(default_factory=dict)
     timestamp: float = field(default_factory=time.time)
+    monotonic_deadline: float | None = None
 
 
 @dataclass(frozen=True)

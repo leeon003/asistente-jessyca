@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from core.ui_inspection_models import UIElementRequest
+from core.ui_inspection_models import ObservationStatus, UIElementRequest
 from tools.desktop.ui_backend import FakeUIInspectionBackend, WindowsUIAutomationBackend
 
 
@@ -15,6 +15,7 @@ def test_fake_ui_backend_returns_mock_tree() -> None:
     assert res.tree.root.name == "Test Window"
     assert len(res.elements_flat) >= 4
     assert res.metadata.backend_name == "FakeUIInspectionBackend"
+    assert res.is_synthetic is True
 
 
 def test_windows_ui_backend_graceful_fallback() -> None:
@@ -24,4 +25,10 @@ def test_windows_ui_backend_graceful_fallback() -> None:
     res = backend.inspect_ui(req)
 
     assert res.tree.root is not None
-    assert len(res.elements_flat) >= 1
+    # No inventa elementos falsos ni DOM ficticio
+    assert res.is_synthetic is False
+    assert res.metadata.status in (
+        ObservationStatus.BACKEND_UNAVAILABLE,
+        ObservationStatus.NO_ELEMENTS_FOUND,
+    )
+    assert len(res.elements_flat) == 0

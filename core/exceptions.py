@@ -50,6 +50,18 @@ class WindowsPlatformError(JessycaError):
     pass
 
 
+class UIInspectionError(WindowsPlatformError):
+    """Excepción base para fallos durante la inspección UI nativa."""
+
+    pass
+
+
+class UIBackendUnavailableError(UIInspectionError):
+    """Excepción emitida cuando el backend de inspección UI o su dependencia (uiautomation) no está disponible."""
+
+    pass
+
+
 class MCPError(JessycaError):
     """Excepción base para errores relacionados con el Model Context Protocol (MCP)."""
 

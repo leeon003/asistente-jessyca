@@ -30,7 +30,10 @@ from skills.documents_skills import (
 from skills.file_search_skill import FilesSearchSkill
 from skills.files_skills import (
     FilesCopySkill,
+    FilesCreateFolderSkill,
     FilesCreateSkill,
+    FilesListSkill,
+    FilesMetadataSkill,
     FilesMoveSkill,
     FilesOrganizeSkill,
     FilesReadSkill,
@@ -234,6 +237,9 @@ SKILLS_DISPONIBLES: dict[str, BaseSkill] = {
     "files.move": FilesMoveSkill(),
     "files.rename": FilesRenameSkill(),
     "files.organize": FilesOrganizeSkill(),
+    "files.create_folder": FilesCreateFolderSkill(),
+    "files.list": FilesListSkill(),
+    "files.metadata": FilesMetadataSkill(),
     # ── 3. GRUPO BROWSER ──
     "browser.open": BrowserOpenSkill(),
     "browser.search": BrowserSearchSkill(),
@@ -275,8 +281,11 @@ __all__ = [
     # Grupo Files
     "FilesSearchSkill",
     "FilesReadSkill",
-    "FilesCreateSkill",
     "FilesCopySkill",
+    "FilesCreateFolderSkill",
+    "FilesCreateSkill",
+    "FilesListSkill",
+    "FilesMetadataSkill",
     "FilesMoveSkill",
     "FilesRenameSkill",
     "FilesOrganizeSkill",

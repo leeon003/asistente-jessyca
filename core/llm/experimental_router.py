@@ -111,7 +111,16 @@ class ShadowLogger:
     _lock = threading.Lock()
 
     def __init__(self, log_path: Path | str | None = None) -> None:
-        raw_path = log_path or os.getenv("ROUTER_SHADOW_LOG_FILE", "logs/router_shadow.jsonl")
+        if log_path is not None:
+            raw_path = log_path
+        elif "ROUTER_SHADOW_LOG_FILE" in os.environ:
+            raw_path = os.environ["ROUTER_SHADOW_LOG_FILE"]
+        else:
+            try:
+                from config.manager import get_settings
+                raw_path = get_settings().ROUTER_SHADOW_LOG_FILE
+            except Exception:
+                raw_path = "logs/router_shadow.jsonl"
         self.log_path = Path(raw_path)
         try:
             self.log_path.parent.mkdir(parents=True, exist_ok=True)
@@ -490,20 +499,50 @@ class ExperimentalRouter:
         vram_governor: VRAMGovernor | None = None,
         enabled: bool | None = None,
     ) -> None:
-        raw_mode = mode or os.getenv("MODEL_ROUTER_MODE", "shadow")
+        # Resolución de modo (argumento > os.environ > AppSettings > fallback)
+        if mode is not None:
+            raw_mode = mode
+        elif "MODEL_ROUTER_MODE" in os.environ:
+            raw_mode = os.environ["MODEL_ROUTER_MODE"]
+        else:
+            try:
+                from config.manager import get_settings
+                raw_mode = get_settings().MODEL_ROUTER_MODE
+            except Exception:
+                raw_mode = "shadow"
+
         try:
-            self.mode = RouterMode(str(raw_mode).lower().strip())
+            self.mode = raw_mode if isinstance(raw_mode, RouterMode) else RouterMode(str(raw_mode).lower().strip())
         except ValueError:
             self.mode = RouterMode.SHADOW
 
+        # Resolución de flag de habilitación (argumento > os.environ > AppSettings > fallback)
         if enabled is not None:
             self.enabled = bool(enabled)
         elif "MODEL_ROUTER_ENABLED" in os.environ:
             self.enabled = os.environ["MODEL_ROUTER_ENABLED"].strip().lower() in ("true", "1", "yes", "on")
         else:
-            self.enabled = (self.mode == RouterMode.EXPERIMENTAL)
+            try:
+                from config.manager import get_settings
+                self.enabled = bool(get_settings().MODEL_ROUTER_ENABLED)
+            except Exception:
+                self.enabled = False
+            # Compatibilidad con modo experimental si no se configuró flag explícito
+            if not self.enabled and self.mode == RouterMode.EXPERIMENTAL:
+                self.enabled = True
 
-        raw_thresh = confidence_threshold or os.getenv("ROUTER_CONFIDENCE_THRESHOLD", "0.80")
+        # Resolución de umbral de confianza (argumento > os.environ > AppSettings > fallback)
+        if confidence_threshold is not None:
+            raw_thresh = confidence_threshold
+        elif "ROUTER_CONFIDENCE_THRESHOLD" in os.environ:
+            raw_thresh = os.environ["ROUTER_CONFIDENCE_THRESHOLD"]
+        else:
+            try:
+                from config.manager import get_settings
+                raw_thresh = get_settings().ROUTER_CONFIDENCE_THRESHOLD
+            except Exception:
+                raw_thresh = 0.80
+
         try:
             self.confidence_threshold = float(raw_thresh)
         except ValueError:
@@ -564,7 +603,15 @@ class ExperimentalRouter:
 
     def is_nemotron_enabled(self) -> bool:
         """Determina si Nemotron está habilitado tanto por feature flag como en el catálogo."""
-        env_flag = os.getenv("NEMOTRON_ENABLED", "false").strip().lower() in ("true", "1", "yes", "on")
+        if "NEMOTRON_ENABLED" in os.environ:
+            env_flag = os.environ["NEMOTRON_ENABLED"].strip().lower() in ("true", "1", "yes", "on")
+        else:
+            try:
+                from config.manager import get_settings
+                env_flag = bool(get_settings().NEMOTRON_ENABLED)
+            except Exception:
+                env_flag = False
+
         if not env_flag:
             return False
         try:

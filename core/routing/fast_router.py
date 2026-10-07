@@ -213,14 +213,24 @@ class FastRouter:
                 suggested_response=resp,
             )
 
-        if any(norm_no_accents.startswith(p) for p in ("cuentame algo", "dime algo", "hablame de ti", "quien eres")):
+        if any(norm_no_accents.startswith(p) for p in ("quien eres", "hablame de ti", "como te llamas")):
+            return RouteDecision(
+                category=RouteCategory.CONVERSATION,
+                intent="identity",
+                confidence=0.95,
+                reason="Consulta directa sobre la identidad del asistente",
+                raw_text=raw,
+                suggested_response="Soy JESSYCA, tu asistente local para Windows.",
+            )
+
+        if any(norm_no_accents.startswith(p) for p in ("cuentame algo", "dime algo")):
             return RouteDecision(
                 category=RouteCategory.CONVERSATION,
                 intent="chit_chat",
                 confidence=0.92,
                 reason="Petición conversacional de chitchat",
                 raw_text=raw,
-                suggested_response="Soy JESSYCA, tu asistente de voz e inteligencia para Windows. Puedo abrir aplicaciones, controlar audio, tomar capturas y resolver tus dudas.",
+                suggested_response="Un dato interesante: la luz del Sol tarda aproximadamente 8 minutos y 20 segundos en llegar a la Tierra.",
             )
 
         if norm_no_accents in ("gracias", "muchas gracias", "te lo agradezco", "mil gracias"):
@@ -396,6 +406,69 @@ class FastRouter:
                         reason=f"Comando de reproducción de '{clean_song}' en YouTube",
                         raw_text=raw,
                     )
+
+        # Control multimedia de navegador (pausar / reanudar)
+        if any(w in norm_no_accents for w in ("pausa el video", "pausar el video", "pausa la musica", "pausa la reproduccion", "deten el video", "pausa video")):
+            return RouteDecision(
+                category=RouteCategory.COMMAND,
+                intent="media_control",
+                confidence=0.96,
+                target_skill="browser.youtube",
+                parameters={"action": "pause", "operation": "pause"},
+                reason="Comando de pausa de reproducción multimedia",
+                raw_text=raw,
+            )
+        if any(w in norm_no_accents for w in ("reanuda el video", "reanudar el video", "reanuda la musica", "reanuda la reproduccion", "continua el video", "reanudar video")):
+            return RouteDecision(
+                category=RouteCategory.COMMAND,
+                intent="media_control",
+                confidence=0.96,
+                target_skill="browser.youtube",
+                parameters={"action": "resume", "operation": "resume"},
+                reason="Comando de reanudación de reproducción multimedia",
+                raw_text=raw,
+            )
+
+        # Seguimiento de enlaces
+        follow_m = re.match(r"^(?:puedes\s+|podrias\s+)?(?:sigue|seguir|haz clic en|click en|abre|abrir)\s+el\s+(?:enlace|link)\s+(.*)$", norm_no_accents)
+        if follow_m:
+            raw_match = re.match(r"^(?:puedes\s+|podr[ií]as\s+)?(?:sigue|seguir|haz\s+clic\s+en|click\s+en|abre|abrir)\s+el\s+(?:enlace|link)\s+(.*)$", raw, flags=re.IGNORECASE)
+            l_target = raw_match.group(1).strip() if raw_match else follow_m.group(1).strip()
+            return RouteDecision(
+                category=RouteCategory.COMMAND,
+                intent="follow_link",
+                confidence=0.95,
+                target_skill="browser.navigate",
+                parameters={"link": l_target},
+                reason=f"Comando de seguir enlace '{l_target}'",
+                raw_text=raw,
+            )
+
+        # Extracción de contenido web
+        if any(w in norm_no_accents for w in ("extrae el contenido de la pagina", "extraer el contenido de la pagina", "extrae el contenido", "extrae el texto de la pagina", "lee la pagina", "leer la pagina")):
+            return RouteDecision(
+                category=RouteCategory.COMMAND,
+                intent="browser_read",
+                confidence=0.95,
+                target_skill="browser.read",
+                parameters={},
+                reason="Comando de extracción de contenido web",
+                raw_text=raw,
+            )
+
+        # Descarga de archivos
+        download_m = re.match(r"^(?:puedes\s+|podrias\s+)?(?:descarga|descargar|baja|bajar)\s+(?:el\s+archivo\s+|desde\s+)?(https?://\S+)", raw, flags=re.IGNORECASE)
+        if download_m:
+            dl_url = download_m.group(1).strip()
+            return RouteDecision(
+                category=RouteCategory.COMMAND,
+                intent="browser_download",
+                confidence=0.95,
+                target_skill="browser.download",
+                parameters={"url": dl_url},
+                reason=f"Comando de descarga de archivo '{dl_url}'",
+                raw_text=raw,
+            )
 
         # ── 7. COMANDOS DIRECTOS: ABRIR APLICACIONES (windows.apps / browser.open) ────────────
         open_prefix_match = re.match(

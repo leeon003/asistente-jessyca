@@ -25,12 +25,18 @@ logs/*.jsonl
 logs/audit/*.jsonl
 logs/audit/audit.jsonl.*
 logs/jde/
+@AutomationLog.txt
+**/@AutomationLog.txt
 
 # Datos locales y bases de datos runtime
 data/*.db
 data/*.json
 data/anydoc/
 data/archify/
+data/orca_worktrees/
+data/pruebas_documentales/
+data/pruebas_programacion/
+Downloads/
 
 # Scripts temporales
 scratch/

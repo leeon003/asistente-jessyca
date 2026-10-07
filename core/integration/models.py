@@ -95,6 +95,16 @@ class IntegrationExecutionResult:
         """
         return self.executed and self.verified and self.status == ExecutionStatus.SUCCEEDED
 
+    @property
+    def success(self) -> bool:
+        """Indica si el estado de ejecución fue exitoso."""
+        return self.status == ExecutionStatus.SUCCEEDED and self.executed
+
+    @property
+    def data(self) -> Any:
+        """Alias ergonómico para acceder al resultado/output."""
+        return self.output
+
     def to_dict(self) -> dict[str, Any]:
         return {
             "executed": self.executed,

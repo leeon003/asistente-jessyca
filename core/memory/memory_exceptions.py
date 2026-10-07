@@ -55,3 +55,10 @@ class MemoryNotFoundError(MemoryError):
     """Emitida cuando no se encuentra una entrada de memoria solicitada."""
 
     pass
+
+
+class MemoryPersistenceError(MemoryError):
+    """Emitida cuando falla la serialización, escritura o reemplazo atómico en disco."""
+
+    pass
+

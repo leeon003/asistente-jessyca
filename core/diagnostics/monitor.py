@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import collections
 import threading
+import time
 from collections.abc import Callable
 from datetime import UTC, datetime
 
@@ -67,6 +68,8 @@ class HealthMonitor:
         self._custom_probes: dict[str, Callable[[], HealthCheck]] = {}
         self._last_report: HealthReport | None = None
         self._last_checked_at: datetime | None = None
+        self._last_report_monotonic: float = 0.0
+        self.cache_ttl_seconds: float = 2.0
 
         # Seguimiento de fallos repetidos por acción
         self._consecutive_failures: dict[str, int] = collections.defaultdict(int)
@@ -107,6 +110,7 @@ class HealthMonitor:
         """Registra o sobreescribe un sondeo para un componente."""
         with self._lock:
             self._custom_probes[name.lower()] = probe_fn
+            self._last_report = None
 
     def record_action_result(self, action_name: str, success: bool) -> None:
         """Registra el resultado de una acción para detectar fallos repetidos y tasa de error."""
@@ -124,6 +128,7 @@ class HealthMonitor:
                     )
 
             self._event_window.append(success)
+            self._last_report = None
 
     def get_error_rate(self) -> float:
         """Calcula la tasa de error en la ventana móvil actual."""
@@ -133,9 +138,13 @@ class HealthMonitor:
             failures = sum(1 for success in self._event_window if not success)
             return failures / len(self._event_window)
 
-    def run_all_checks(self) -> HealthReport:
-        """Ejecuta todos los chequeos de diagnóstico y genera un HealthReport integral."""
+    def run_all_checks(self, force: bool = False, ttl_seconds: float | None = None) -> HealthReport:
+        """Ejecuta todos los chequeos de diagnóstico y genera un HealthReport integral (con soporte TTL)."""
+        now_mono = time.monotonic()
         with self._lock:
+            effective_ttl = ttl_seconds if ttl_seconds is not None else self.cache_ttl_seconds
+            if not force and self._last_report is not None and (now_mono - self._last_report_monotonic) < effective_ttl:
+                return self._last_report
             probes = dict(self._custom_probes)
 
         checks: dict[str, HealthCheck] = {}
@@ -228,6 +237,7 @@ class HealthMonitor:
         with self._lock:
             self._last_report = report
             self._last_checked_at = report.timestamp
+            self._last_report_monotonic = time.monotonic()
 
         return report
 

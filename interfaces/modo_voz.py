@@ -43,6 +43,7 @@ from services.voice.continuous_voice_session import (
 )
 from services.voice.device_resolver import VoiceDeviceResolver
 from services.voice.stt_event_adapter import STTEventAdapter
+from services.voice.stt_service import get_stt_service
 from services.voice.tts_provider import get_tts_manager
 from services.voice.voice_diagnostics import (
     UtteranceLatencyTrace,
@@ -58,6 +59,18 @@ BANNER_VOZ = r"""
   |                                                               |
   |   * Activa con: "Jessica, [tu orden]"                         |
   |   * Luego habla directamente sin repetir "Jessica"            |
+  |   * Di "adios", "salir" o presiona Ctrl+C para finalizar.     |
+  +===============================================================+
+"""
+
+BANNER_PTT = r"""
+  +===============================================================+
+  |              J E S S Y C A   3 . 0  —  PULSAR PARA HABLAR     |
+  |             Flujo de Voz Bajo Demanda (Prompt 08 / PTT)       |
+  |                                                               |
+  |   * Presiona ENTER para activar el micrófono y hablar         |
+  |   * Transcripción local y envío al Core unificado             |
+  |   * Sin escucha permanente en segundo plano                   |
   |   * Di "adios", "salir" o presiona Ctrl+C para finalizar.     |
   +===============================================================+
 """
@@ -187,12 +200,13 @@ def iniciar_modo_voz(
     show_header: bool = True,
     custom_banner: str | None = None,
     mcp_info: str | None = None,
+    ptt_mode: bool = False,
 ) -> None:
-    """Inicia el bucle interactivo de voz continua con JESSYCA."""
+    """Inicia el bucle interactivo de voz (continua o Pulsar para Hablar / PTT)."""
     if custom_banner:
         print(custom_banner)
     elif show_header:
-        print(BANNER_VOZ)
+        print(BANNER_PTT if ptt_mode else BANNER_VOZ)
 
     settings = get_settings()
 
@@ -236,8 +250,14 @@ def iniciar_modo_voz(
         print(f"\n  [ERROR] No se pudo encontrar micrófono de entrada: {e}")
         return
 
-    # 2. Inicialización del motor de captura calibrado (Fases 51.1 y 51.2)
+    # 2. Inicialización del proveedor STT y del motor de captura calibrado (Fases 51.1, 51.2 y Prompt 08)
     try:
+        stt_provider_name = getattr(settings, "VOICE_STT_PROVIDER", "faster-whisper")
+        stt_service = get_stt_service(stt_provider_name)
+        net_desc = "Sí (requiere internet)" if stt_service.requires_network else "No (100% local/offline)"
+        print(f"  STT Motor: {stt_service.name} (Requiere red: {net_desc})")
+        logger.info(f"[MODO_VOZ] STT inicializado: {stt_service.name} (requires_network={stt_service.requires_network})")
+
         capture_engine = CalibratedVoiceCaptureEngine(
             sample_rate=settings.VOICE_SAMPLE_RATE,
             channels=settings.VOICE_CHANNELS,
@@ -252,12 +272,13 @@ def iniciar_modo_voz(
             device_resolver=resolver,
             resolved_device=resolved_dev,
             adaptive_eos_enabled=settings.VOICE_ADAPTIVE_EOS_ENABLED,
+            stt_service=stt_service,
         )
         print(f"  [Calibrando micrófono ({resolved_dev.display_name}) para ruido ambiente...]")
         calib_res = capture_engine.calibrate_ambient_noise(duration_sec=settings.VOICE_CALIBRATION_DURATION_SEC)
         print(f"  [Calibración completada | Ruido base: {calib_res.noise_floor_rms:.1f} RMS | Umbral VAD: {calib_res.recommended_start_threshold:.1f}]")
     except Exception as e:
-        print(f"\n  [ERROR] No se pudo inicializar el micrófono: {e}")
+        print(f"\n  [ERROR] No se pudo inicializar el micrófono o STT: {e}")
         print("  Verifica que tu micrófono esté conectado y habilitado.")
         return
 
@@ -268,7 +289,7 @@ def iniciar_modo_voz(
         conversation_idle_timeout=10.0,
     )
     state_machine = StateMachine(follow_up_window=10.0)
-    stt_event_adapter = STTEventAdapter(state_machine=state_machine)
+    stt_event_adapter = STTEventAdapter(stt_service=stt_service, state_machine=state_machine)
     barge_in_controller = BargeInController(
         tts_manager=tts_mgr,
         state_machine=state_machine,
@@ -298,18 +319,33 @@ def iniciar_modo_voz(
 
     while True:
         try:
-            # Comprobar expiración por inactividad
-            voice_session.check_timeout()
-
-            if voice_session.mode in (VoiceSessionMode.CONVERSATION_ACTIVE, VoiceSessionMode.WAITING_FOR_FOLLOWUP):
-                print(f"\n  [Conversación Continua Activa — Turno {voice_session.turns_count + 1} | Habla directamente...]")
+            # En modo Pulsar para Hablar (PTT), esperar activación explícita del usuario
+            if ptt_mode:
+                try:
+                    user_prompt = input("\n  [🎤 PULSAR PARA HABLAR: Presiona ENTER para grabar tu orden (o escribe 'salir')] > ")
+                    if user_prompt.strip().lower() in ("salir", "exit", "quit", "q", "adios", "adiós"):
+                        despedida = "¡Hasta luego! Modo voz detenido."
+                        print(f"\n  Jessyca: {despedida}\n")
+                        speaker.speak(despedida)
+                        voice_session.end_session()
+                        break
+                except (EOFError, KeyboardInterrupt):
+                    break
+                print("  [🔴 Grabando audio bajo demanda... Habla ahora]")
+                capture_mode_str = VoiceSessionMode.CONVERSATION_ACTIVE.value
             else:
-                print("\n  [En espera de 'Jessica' | Habla ahora...]")
+                # Comprobar expiración por inactividad
+                voice_session.check_timeout()
+                if voice_session.mode in (VoiceSessionMode.CONVERSATION_ACTIVE, VoiceSessionMode.WAITING_FOR_FOLLOWUP):
+                    print(f"\n  [Conversación Continua Activa — Turno {voice_session.turns_count + 1} | Habla directamente...]")
+                else:
+                    print("\n  [En espera de 'Jessica' | Habla ahora...]")
+                capture_mode_str = voice_session.mode.value
 
-            logger.info(f"[VOICE_CAPTURE_STARTED] Modo: {voice_session.mode.value}...")
+            logger.info(f"[VOICE_CAPTURE_STARTED] Modo: {capture_mode_str}...")
             t_capture_start = time.perf_counter()
             capture_result = capture_engine.capture_and_transcribe(
-                mode=voice_session.mode.value,
+                mode=capture_mode_str,
                 timeout=7.0,
             )
             stt_latency_ms = (time.perf_counter() - t_capture_start) * 1000.0

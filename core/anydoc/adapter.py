@@ -16,19 +16,44 @@ import re
 import time
 import urllib.parse
 import uuid
-from pathlib import Path
 from typing import Any
 
-import anydoc
+try:
+    import anydoc
+    _AnyDocNeedsOcr = anydoc.NeedsOcrError
+    _AnyDocResourceLimit = anydoc.ResourceLimitError
+    _AnyDocMalformed = anydoc.MalformedError
+    _AnyDocEncrypted = anydoc.EncryptedError
+    _AnyDocMissingPart = anydoc.MissingPartError
+    _AnyDocUnsupported = anydoc.UnsupportedError
+except ImportError:
+    anydoc = None  # type: ignore[assignment]
 
-from core.execution.execution_verifier import ExecutionStatus
+    class _AnyDocNeedsOcr(Exception):  # type: ignore[no-redef]
+        pass
+
+    class _AnyDocResourceLimit(Exception):  # type: ignore[no-redef]
+        pass
+
+    class _AnyDocMalformed(Exception):  # type: ignore[no-redef]
+        pass
+
+    class _AnyDocEncrypted(Exception):  # type: ignore[no-redef]
+        pass
+
+    class _AnyDocMissingPart(Exception):  # type: ignore[no-redef]
+        pass
+
+    class _AnyDocUnsupported(Exception):  # type: ignore[no-redef]
+        pass
+
 from core.anydoc.models import (
     AnyDocMode,
-    AnyDocProposal,
     AnyDocResult,
     ConversionStatus,
     DocumentFormat,
 )
+from core.execution.execution_verifier import ExecutionStatus
 from core.integration.adapter import IntegrationAdapter
 from core.integration.models import (
     IntegrationCapability,
@@ -66,13 +91,29 @@ _FORBIDDEN_SYSTEM_PATHS = [
 ]
 
 
+def _is_strictly_contained(target_path: str, parent_dir: str) -> bool:
+    """Comprueba que target_path resida estrictamente dentro de parent_dir o sea idéntico.
+
+    Previene ataques de prefijo hermano (ej. /data/anydoc_sibling vs /data/anydoc),
+    rutas relativas con escape y normaliza mayúsculas/minúsculas en Windows.
+    """
+    try:
+        norm_target = os.path.normcase(os.path.realpath(target_path))
+        norm_parent = os.path.normcase(os.path.realpath(parent_dir))
+        return norm_target == norm_parent or norm_target.startswith(norm_parent + os.sep)
+    except Exception:
+        return False
+
+
 class AnyDocAdapter(IntegrationAdapter):
-    """Adapter para el motor de conversión documental AnyDoc."""
+    """Adapter para el motor de conversión documental AnyDoc y Docling."""
 
     def __init__(
         self,
         mode: AnyDocMode | str = AnyDocMode.LAB,
         base_sandbox_dir: str | None = None,
+        allowed_read_dirs: list[str] | None = None,
+        backend: str | None = None,
         max_file_size_bytes: int = 50 * 1024 * 1024,  # 50 MB límite por defecto
         certified: bool = False,
     ) -> None:
@@ -95,14 +136,52 @@ class AnyDocAdapter(IntegrationAdapter):
         self._base_sandbox_dir = os.path.realpath(
             base_sandbox_dir or os.path.join("data", "anydoc")
         )
+        self._allowed_read_dirs = [
+            self._base_sandbox_dir,
+            os.path.realpath(os.path.join("lab", "anydoc")),
+            os.path.realpath(os.path.join("tests", "anydoc")),
+        ]
+        if allowed_read_dirs:
+            for d in allowed_read_dirs:
+                real_d = os.path.realpath(d)
+                if real_d not in self._allowed_read_dirs:
+                    self._allowed_read_dirs.append(real_d)
+
         self._max_file_size_bytes = max_file_size_bytes
         self._network_calls_count = 0
+
+        # Resolución del backend documental
+        if backend is not None:
+            self._backend_type = str(backend).lower().strip()
+        else:
+            try:
+                from config import settings
+                if getattr(settings, "DOCLING_ENABLED", False) or getattr(settings, "ANYDOC_BACKEND", "anydoc") == "docling":
+                    self._backend_type = "docling"
+                else:
+                    self._backend_type = "anydoc"
+            except Exception:
+                self._backend_type = "anydoc"
+
+        self._docling_backend: Any = None
+        if self._backend_type == "docling":
+            from core.anydoc.docling_backend import DoclingBackend
+            self._docling_backend = DoclingBackend(
+                base_sandbox_dir=self._base_sandbox_dir,
+                max_file_size_bytes=self._max_file_size_bytes,
+            )
+
         self._register_capabilities()
 
     @property
     def mode(self) -> AnyDocMode:
         """Modo de operación actual (OFF, LAB, SHADOW, CONTROLLED, ACTIVE)."""
         return self._mode
+
+    @property
+    def backend_type(self) -> str:
+        """Tipo de backend activo ('anydoc' o 'docling')."""
+        return self._backend_type
 
     @property
     def is_certified(self) -> bool:
@@ -136,8 +215,29 @@ class AnyDocAdapter(IntegrationAdapter):
     def network_calls_count(self) -> int:
         return self._network_calls_count
 
-    def validate_and_confine_path(self, target_path: str, must_exist: bool = False) -> str:
-        """Valida rutas contra path traversal y escapes del sandbox permitido."""
+    def add_allowed_read_dir(self, directory: str) -> None:
+        """Agrega un directorio autorizado de lectura al sandbox de AnyDoc."""
+        real_d = os.path.realpath(directory)
+        if real_d not in self._allowed_read_dirs:
+            self._allowed_read_dirs.append(real_d)
+
+    def validate_and_confine_path(
+        self,
+        target_path: str,
+        must_exist: bool = False,
+        is_output: bool = False,
+        allow_quarantine: bool = False,
+    ) -> str:
+        """Valida rutas contra path traversal y escapes del sandbox permitido.
+
+        Garantiza:
+        - Rechazo de byte nulo, URL encoded traversal y traversal explícito.
+        - Rechazo de rutas UNC de red.
+        - Rechazo de rutas críticas del sistema operativo.
+        - Para escrituras (is_output=True): confinamiento estricto a _base_sandbox_dir.
+        - Para lecturas (is_output=False): confinamiento estricto a _allowed_read_dirs.
+        - Prevención estricta de ataques de prefijo hermano (sibling prefix).
+        """
         if not target_path or not str(target_path).strip():
             raise ValueError("Target path cannot be empty")
 
@@ -152,16 +252,42 @@ class AnyDocAdapter(IntegrationAdapter):
         if ".." in decoded or "%2e%2e" in raw_str.lower():
             raise ValueError(f"Path traversal detected in path: {raw_str}")
 
+        # Rechazo de rutas UNC de red
+        if raw_str.startswith("\\\\") or raw_str.startswith("//"):
+            raise ValueError(f"UNC network paths are forbidden: '{target_path}'")
+
         # Comprobar rutas críticas prohibidas del sistema operativo
         norm_lower = os.path.normpath(raw_str).lower()
         for forbidden in _FORBIDDEN_SYSTEM_PATHS:
             if forbidden in norm_lower:
                 raise ValueError(f"Access to critical system path forbidden: {raw_str}")
 
-        real_target = os.path.realpath(raw_str)
+        # Resolución canónica
+        if os.path.exists(raw_str):
+            real_target = os.path.realpath(raw_str)
+        else:
+            parent_dir = os.path.dirname(raw_str) or "."
+            real_parent = os.path.realpath(parent_dir)
+            real_target = os.path.normpath(os.path.join(real_parent, os.path.basename(raw_str)))
 
         if must_exist and not os.path.exists(real_target):
             raise FileNotFoundError(f"File not found: {target_path}")
+
+        # Confinamiento estricto a sandbox
+        if is_output:
+            if not _is_strictly_contained(real_target, self._base_sandbox_dir):
+                raise ValueError(
+                    f"Security sandbox violation: output path '{target_path}' escapes authorized sandbox '{self._base_sandbox_dir}'"
+                )
+        else:
+            is_authorized = any(
+                _is_strictly_contained(real_target, allowed_dir)
+                for allowed_dir in self._allowed_read_dirs
+            )
+            if not is_authorized:
+                raise ValueError(
+                    f"Security sandbox violation: input path '{target_path}' is outside authorized read sandbox '{self._base_sandbox_dir}'"
+                )
 
         return real_target
 
@@ -176,11 +302,16 @@ class AnyDocAdapter(IntegrationAdapter):
 
     def detect_format(self, file_path_or_bytes: str | bytes) -> str:
         """Detecta el formato mediante análisis de contenido (markers) y extensiones."""
+        if anydoc is None:
+            if isinstance(file_path_or_bytes, (str, Path)):
+                return Path(str(file_path_or_bytes)).suffix.lstrip(".").lower() or DocumentFormat.UNKNOWN.value
+            return DocumentFormat.UNKNOWN.value
+
         if isinstance(file_path_or_bytes, bytes):
             detected = anydoc.format_from_bytes(file_path_or_bytes)
             return detected or DocumentFormat.UNKNOWN.value
 
-        real_path = self.validate_and_confine_path(file_path_or_bytes, must_exist=True)
+        real_path = self.validate_and_confine_path(file_path_or_bytes, must_exist=True, is_output=False)
         try:
             with open(real_path, "rb") as f:
                 header = f.read(131072)
@@ -206,7 +337,7 @@ class AnyDocAdapter(IntegrationAdapter):
         start_time = time.perf_counter()
 
         try:
-            real_input = self.validate_and_confine_path(input_path, must_exist=True)
+            real_input = self.validate_and_confine_path(input_path, must_exist=True, is_output=False)
             file_size = os.path.getsize(real_input)
 
             if file_size > self._max_file_size_bytes:
@@ -220,6 +351,25 @@ class AnyDocAdapter(IntegrationAdapter):
                     input_size_bytes=file_size,
                 )
 
+            final_out_path = None
+            if output_path:
+                final_out_path = self.validate_and_confine_path(output_path, must_exist=False, is_output=True)
+
+            # Si el backend activo es Docling, delegar la conversión estructurada
+            if self._backend_type == "docling" and self._docling_backend is not None:
+                docling_res = self._docling_backend.convert_document(
+                    real_input,
+                    output_path=final_out_path,
+                    redact_fn=self.redact_secrets if redact else None,
+                    operation_id=op_id,
+                )
+                if docling_res.status == ConversionStatus.SUCCESS:
+                    return docling_res
+                # Fallback explícito si Docling falla
+                logger.warning(
+                    f"Docling falló con status {docling_res.status}. Realizando fallback a AnyDoc nativo."
+                )
+
             detected_fmt = self.detect_format(real_input)
 
             # Conversión local forzando ocr='reject' para garantizar 0 llamadas de red
@@ -228,13 +378,10 @@ class AnyDocAdapter(IntegrationAdapter):
             final_markdown = self.redact_secrets(raw_markdown) if redact else raw_markdown
 
             # Si se especificó output_path, confinar y guardar
-            final_out_path = None
-            if output_path:
-                real_output = self.validate_and_confine_path(output_path, must_exist=False)
-                os.makedirs(os.path.dirname(real_output), exist_ok=True)
-                with open(real_output, "w", encoding="utf-8") as out_f:
+            if final_out_path:
+                os.makedirs(os.path.dirname(final_out_path), exist_ok=True)
+                with open(final_out_path, "w", encoding="utf-8") as out_f:
                     out_f.write(final_markdown)
-                final_out_path = real_output
 
             # Inspección no invasiva del Document Model si está disponible
             doc_model_info: dict[str, Any] = {}
@@ -264,7 +411,7 @@ class AnyDocAdapter(IntegrationAdapter):
                 document_model_summary=doc_model_info,
             )
 
-        except anydoc.NeedsOcrError as e:
+        except _AnyDocNeedsOcr as e:
             return AnyDocResult(
                 operation_id=op_id,
                 status=ConversionStatus.NEEDS_OCR,
@@ -273,7 +420,7 @@ class AnyDocAdapter(IntegrationAdapter):
                 error_message=f"Document requires OCR: {e}",
                 latency_ms=(time.perf_counter() - start_time) * 1000.0,
             )
-        except anydoc.ResourceLimitError as e:
+        except _AnyDocResourceLimit as e:
             return AnyDocResult(
                 operation_id=op_id,
                 status=ConversionStatus.RESOURCE_LIMIT,
@@ -282,7 +429,7 @@ class AnyDocAdapter(IntegrationAdapter):
                 error_message=f"Resource safety limit exceeded: {e}",
                 latency_ms=(time.perf_counter() - start_time) * 1000.0,
             )
-        except anydoc.MalformedError as e:
+        except _AnyDocMalformed as e:
             return AnyDocResult(
                 operation_id=op_id,
                 status=ConversionStatus.MALFORMED,
@@ -291,7 +438,7 @@ class AnyDocAdapter(IntegrationAdapter):
                 error_message=f"Malformed document structure: {e}",
                 latency_ms=(time.perf_counter() - start_time) * 1000.0,
             )
-        except anydoc.EncryptedError as e:
+        except _AnyDocEncrypted as e:
             return AnyDocResult(
                 operation_id=op_id,
                 status=ConversionStatus.ENCRYPTED,
@@ -300,7 +447,7 @@ class AnyDocAdapter(IntegrationAdapter):
                 error_message=f"Document is encrypted or password-protected: {e}",
                 latency_ms=(time.perf_counter() - start_time) * 1000.0,
             )
-        except anydoc.MissingPartError as e:
+        except _AnyDocMissingPart as e:
             return AnyDocResult(
                 operation_id=op_id,
                 status=ConversionStatus.MISSING_PART,
@@ -309,7 +456,7 @@ class AnyDocAdapter(IntegrationAdapter):
                 error_message=f"Missing required part: {e}",
                 latency_ms=(time.perf_counter() - start_time) * 1000.0,
             )
-        except anydoc.UnsupportedError as e:
+        except _AnyDocUnsupported as e:
             return AnyDocResult(
                 operation_id=op_id,
                 status=ConversionStatus.UNSUPPORTED,
@@ -682,15 +829,26 @@ class AnyDocAdapter(IntegrationAdapter):
             duration_ms=(time.perf_counter() - start_time) * 1000.0,
         )
 
+    def close(self) -> None:
+        """Cierre limpio y liberación de recursos de backend."""
+        if self._docling_backend is not None:
+            self._docling_backend.close()
+
     async def health_check(self) -> IntegrationHealth:
+        details = {
+            "mode": self._mode.value,
+            "engine": f"anydoc-{self._backend_type}",
+            "backend": self._backend_type,
+            "max_file_size_bytes": self._max_file_size_bytes,
+            "network_calls_count": self._network_calls_count,
+        }
+        if self._backend_type == "docling" and self._docling_backend is not None:
+            details["docling"] = self._docling_backend.health()
+
         return IntegrationHealth(
-            healthy=True,
             status=self.status,
-            message=f"AnyDocAdapter operational in mode {self._mode.value} (v0.2.4-lab)",
-            details={
-                "mode": self._mode.value,
-                "engine": "anydoc-rust-core",
-                "max_file_size_bytes": self._max_file_size_bytes,
-                "network_calls_count": self._network_calls_count,
-            },
+            is_healthy=True,
+            message=f"AnyDocAdapter operational in mode {self._mode.value} (backend: {self._backend_type})",
+            details=details,
         )
+

@@ -24,7 +24,13 @@ from core.emergency_stop import CancellationToken, EmergencyStopManager, get_eme
 from core.event_bus import get_event_bus
 from core.logger import get_logger
 from core.ocr_sanitizer import OCRTextSanitizer
-from core.ui_inspection_models import UIElementInfo, UIElementRequest, UIInspectionResult
+from core.ui_inspection_models import (
+    ObservationProvenance,
+    ObservationStatus,
+    UIElementInfo,
+    UIElementRequest,
+    UIInspectionResult,
+)
 from tools.desktop.ui_backend import (
     IUIInspectionBackend,
     WindowsUIAutomationBackend,
@@ -41,12 +47,22 @@ class ActionVerifier:
         ui_backend: IUIInspectionBackend | None = None,
         emergency_stop_manager: EmergencyStopManager | None = None,
         sanitizer: OCRTextSanitizer | None = None,
+        require_real_evidence: bool | None = None,
     ) -> None:
         self.ui_backend = ui_backend or WindowsUIAutomationBackend()
         self.emergency_stop = emergency_stop_manager or get_emergency_stop_manager()
         self.sanitizer = sanitizer or OCRTextSanitizer()
         self.audit_logger = get_audit_logger()
         self.event_bus = get_event_bus()
+        if require_real_evidence is not None:
+            self.require_real_evidence = require_real_evidence
+        else:
+            try:
+                from config.manager import get_settings
+                settings = get_settings()
+                self.require_real_evidence = (getattr(settings, "ENVIRONMENT", "").lower() == "production")
+            except Exception:
+                self.require_real_evidence = False
 
     def verify_action_outcome(
         self,
@@ -58,11 +74,17 @@ class ActionVerifier:
         NUNCA realiza sleeps fijos no cancelables.
         Si la verificación falla o expira, retorna explícitamente VERIFICATION_FAILED o VERIFICATION_TIMEOUT
         permitiendo que la capa superior decida el curso de acción (NO AUTO-RETRY).
+        En producción o cuando require_real_evidence=True, rechaza evidencia sintética como prueba física.
         """
         start_t = datetime.now(UTC)
         exp = request.expected_state
         deadline = time.time() + request.timeout_seconds
         last_observed: ObservedState | None = None
+        effective_require_real = (
+            request.require_real_evidence
+            if request.require_real_evidence is not None
+            else self.require_real_evidence
+        )
 
         logger.info(f"[ACTION VERIFIER] Iniciando fase VERIFY para acción [{request.action_id}] (timeout={request.timeout_seconds}s)")
 
@@ -108,6 +130,60 @@ class ActionVerifier:
                     max_elements=100,
                 )
                 ui_res = self.ui_backend.inspect_ui(inspect_req)
+
+                # Comprobar disponibilidad técnica del backend de percepción
+                if ui_res.metadata.status == ObservationStatus.BACKEND_UNAVAILABLE:
+                    proc_ms = (datetime.now(UTC) - start_t).total_seconds() * 1000
+                    res = VerificationResult(
+                        status=VerificationStatus.BACKEND_UNAVAILABLE,
+                        success=False,
+                        expected=exp,
+                        observed=None,
+                        confidence=0.0,
+                        processing_time_ms=proc_ms,
+                        reason=f"Backend UI no disponible: {ui_res.metadata.error_message or 'dependencia uiautomation ausente'}",
+                        timestamp=datetime.now(UTC),
+                        provenance=str(ui_res.metadata.provenance),
+                        is_synthetic=ui_res.is_synthetic,
+                    )
+                    self._log_audit(request.action_id, res)
+                    return res
+
+                if ui_res.metadata.status == ObservationStatus.INSPECTION_ERROR:
+                    proc_ms = (datetime.now(UTC) - start_t).total_seconds() * 1000
+                    res = VerificationResult(
+                        status=VerificationStatus.UNVERIFIED,
+                        success=False,
+                        expected=exp,
+                        observed=None,
+                        confidence=0.0,
+                        processing_time_ms=proc_ms,
+                        reason=f"Fallo durante la inspección UI nativa: {ui_res.metadata.error_message or 'error de inspección'}",
+                        timestamp=datetime.now(UTC),
+                        provenance=str(ui_res.metadata.provenance),
+                        is_synthetic=ui_res.is_synthetic,
+                    )
+                    self._log_audit(request.action_id, res)
+                    return res
+
+                # Rechazar evidencia sintética como prueba física si se exige evidencia real
+                if ui_res.is_synthetic and effective_require_real:
+                    proc_ms = (datetime.now(UTC) - start_t).total_seconds() * 1000
+                    res = VerificationResult(
+                        status=VerificationStatus.SYNTHETIC_REJECTED,
+                        success=False,
+                        expected=exp,
+                        observed=None,
+                        confidence=0.0,
+                        processing_time_ms=proc_ms,
+                        reason="Evidencia sintética rechazada: no constituye verificación física real.",
+                        timestamp=datetime.now(UTC),
+                        provenance=str(ui_res.metadata.provenance),
+                        is_synthetic=True,
+                    )
+                    self._log_audit(request.action_id, res)
+                    return res
+
                 is_match, observed_state, match_reason = self._evaluate_state(ui_res, exp, request.min_confidence)
                 last_observed = observed_state
 
@@ -122,6 +198,8 @@ class ActionVerifier:
                         processing_time_ms=proc_ms,
                         reason=match_reason,
                         timestamp=datetime.now(UTC),
+                        provenance=str(ui_res.metadata.provenance),
+                        is_synthetic=ui_res.is_synthetic,
                     )
                     self._log_audit(request.action_id, res)
                     return res
@@ -168,6 +246,8 @@ class ActionVerifier:
             processing_time_ms=proc_ms,
             reason=fail_reason,
             timestamp=datetime.now(UTC),
+            provenance=last_observed.provenance if last_observed else "UNKNOWN",
+            is_synthetic=last_observed.is_synthetic if last_observed else False,
         )
         self._log_audit(request.action_id, res)
         return res
@@ -197,6 +277,8 @@ class ActionVerifier:
                     observed_state_hash=None,
                     observed_confidence=1.0,
                     timestamp=now,
+                    provenance=str(ui_res.metadata.provenance),
+                    is_synthetic=ui_res.is_synthetic,
                 )
                 return True, obs, "Verificación exitosa: El elemento ha desaparecido de la pantalla como se esperaba."
             else:
@@ -208,6 +290,8 @@ class ActionVerifier:
                     observed_state_hash=None,
                     observed_confidence=0.9,
                     timestamp=now,
+                    provenance=str(ui_res.metadata.provenance),
+                    is_synthetic=ui_res.is_synthetic,
                 )
                 return False, obs, "Verificación fallida: El elemento aún permanece visible en pantalla."
 
@@ -231,6 +315,8 @@ class ActionVerifier:
             observed_state_hash=None,
             observed_confidence=0.95 if target_elem.is_enabled else 0.50,
             timestamp=now,
+            provenance=str(ui_res.metadata.provenance),
+            is_synthetic=ui_res.is_synthetic,
         )
 
         if obs_state.observed_confidence < min_confidence:

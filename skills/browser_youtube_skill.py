@@ -21,6 +21,7 @@ import urllib.request
 from collections.abc import Callable
 from typing import Any
 
+from core.browser_models import MediaState
 from core.browser_session_manager import BrowserSessionManager
 from core.logger import get_logger
 from core.security_architecture import SecurityLevel
@@ -102,6 +103,10 @@ class BrowserYouTubeSkill(BaseSkill):
             return self._execute_search(query)
         elif operacion in ("play", "reproducir", "play_media", "compound_open_and_play", "search_and_play"):
             return self._execute_compound_play(query, parametros)
+        elif operacion in ("pause", "pausar", "stop"):
+            return self._execute_pause(parametros)
+        elif operacion in ("resume", "reanudar", "continue"):
+            return self._execute_resume(parametros)
         else:
             return {
                 "exito": False,
@@ -343,6 +348,28 @@ class BrowserYouTubeSkill(BaseSkill):
                 "media_state": "PLAYING",
             }
 
+        if parametros.get("verify_playback"):
+            try:
+                state_tab = bsm.control_media("play", tab_id=tab.tab_id if tab else None)
+                if state_tab and state_tab.media_state == MediaState.PLAYING:
+                    return {
+                        "exito": True,
+                        "executed": True,
+                        "step": "PLAY_MEDIA",
+                        "steps_executed": tuple(steps_done),
+                        "query": clean_query,
+                        "video_id": video_id,
+                        "url": target_video_url,
+                        "tab_id": tab.tab_id if tab else "tab-1",
+                        "mensaje": f"Listo, reproduciendo {clean_query} en YouTube.",
+                        "verified": True,
+                        "verification_status": "VERIFIED",
+                        "verification_required": True,
+                        "media_state": "PLAYING",
+                    }
+            except Exception:
+                pass
+
         return {
             "exito": True,
             "executed": True,
@@ -358,6 +385,62 @@ class BrowserYouTubeSkill(BaseSkill):
             "verification_required": True,
             "media_state": "MEDIA_UNKNOWN",
         }
+
+    def _execute_pause(self, parametros: dict[str, Any]) -> dict[str, Any]:
+        """Pausa la reproducción multimedia activa en el navegador."""
+        bsm = self._get_session_manager()
+        tab_id = parametros.get("tab_id")
+        try:
+            tab = bsm.control_media("pause", tab_id=tab_id)
+            is_paused = (tab.media_state == MediaState.PAUSED) or (tab.media_info.get("is_paused") is True)
+            return {
+                "exito": True,
+                "executed": True,
+                "step": "PAUSE_MEDIA",
+                "tab_id": tab.tab_id,
+                "media_state": tab.media_state.value if hasattr(tab.media_state, "value") else str(tab.media_state),
+                "mensaje": "Reproducción pausada correctamente." if is_paused else "Se envió comando de pausa al reproductor.",
+                "verified": is_paused,
+                "verification_status": "VERIFIED" if is_paused else "UNVERIFIED",
+            }
+        except Exception as exc:
+            logger.error(f"[YOUTUBE PAUSE ERROR] Error al pausar medio: {exc}")
+            return {
+                "exito": False,
+                "step": "PAUSE_MEDIA",
+                "error_code": "PAUSE_FAILED",
+                "mensaje": f"No se pudo pausar el reproductor: {exc}",
+                "verified": False,
+                "verification_status": "FAILED",
+            }
+
+    def _execute_resume(self, parametros: dict[str, Any]) -> dict[str, Any]:
+        """Reanuda la reproducción multimedia activa en el navegador."""
+        bsm = self._get_session_manager()
+        tab_id = parametros.get("tab_id")
+        try:
+            tab = bsm.control_media("play", tab_id=tab_id)
+            is_playing = (tab.media_state == MediaState.PLAYING) or (tab.media_info.get("is_playing") is True)
+            return {
+                "exito": True,
+                "executed": True,
+                "step": "RESUME_MEDIA",
+                "tab_id": tab.tab_id,
+                "media_state": tab.media_state.value if hasattr(tab.media_state, "value") else str(tab.media_state),
+                "mensaje": "Reproducción reanudada." if is_playing else "Se envió comando de reproducción al reproductor.",
+                "verified": is_playing,
+                "verification_status": "VERIFIED" if is_playing else "UNVERIFIED",
+            }
+        except Exception as exc:
+            logger.error(f"[YOUTUBE RESUME ERROR] Error al reanudar medio: {exc}")
+            return {
+                "exito": False,
+                "step": "RESUME_MEDIA",
+                "error_code": "RESUME_FAILED",
+                "mensaje": f"No se pudo reanudar el reproductor: {exc}",
+                "verified": False,
+                "verification_status": "FAILED",
+            }
 
     def resolve_video_id(self, query: str) -> str | None:
         """Resuelve el ID de vídeo (11 caracteres) para una consulta de búsqueda."""

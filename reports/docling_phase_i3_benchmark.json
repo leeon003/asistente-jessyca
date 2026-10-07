@@ -1,0 +1,106 @@
+{
+  "timestamp": 1791154978.8986125,
+  "benchmark": "AnyDoc vs Docling Comparative Corpus Evaluation (Phase I3)",
+  "results": [
+    {
+      "file": "simple.pdf",
+      "description": "PDF Digital",
+      "size_bytes": 90060,
+      "anydoc_native": {
+        "status": "SUCCESS",
+        "latency_ms": 12.72,
+        "output_chars": 1070,
+        "tables_extracted": 0,
+        "error": null
+      },
+      "docling_backend": {
+        "status": "SUCCESS",
+        "latency_ms": 14079.73,
+        "output_chars": 1036,
+        "tables_extracted": 0,
+        "pages_count": 2,
+        "error": null
+      }
+    },
+    {
+      "file": "simple.xlsx",
+      "description": "Tablas Complejas XLSX",
+      "size_bytes": 7106,
+      "anydoc_native": {
+        "status": "SUCCESS",
+        "latency_ms": 3.91,
+        "output_chars": 396,
+        "tables_extracted": 0,
+        "error": null
+      },
+      "docling_backend": {
+        "status": "SUCCESS",
+        "latency_ms": 18.25,
+        "output_chars": 636,
+        "tables_extracted": 2,
+        "pages_count": 2,
+        "error": null
+      }
+    },
+    {
+      "file": "simple.csv",
+      "description": "Tabla CSV",
+      "size_bytes": 210,
+      "anydoc_native": {
+        "status": "SUCCESS",
+        "latency_ms": 2.76,
+        "output_chars": 294,
+        "tables_extracted": 0,
+        "error": null
+      },
+      "docling_backend": {
+        "status": "SUCCESS",
+        "latency_ms": 8.13,
+        "output_chars": 440,
+        "tables_extracted": 1,
+        "pages_count": 0,
+        "error": null
+      }
+    },
+    {
+      "file": "scanned.pdf",
+      "description": "PDF Escaneado (OCR)",
+      "size_bytes": 1046,
+      "anydoc_native": {
+        "status": "NEEDS_OCR",
+        "latency_ms": 2.95,
+        "output_chars": 0,
+        "tables_extracted": 0,
+        "error": "Document requires OCR: all 2 pages need OCR"
+      },
+      "docling_backend": {
+        "status": "SUCCESS",
+        "latency_ms": 1935.66,
+        "output_chars": 30,
+        "tables_extracted": 0,
+        "pages_count": 2,
+        "error": null
+      }
+    },
+    {
+      "file": "truncated.docx",
+      "description": "Archivo Malformado",
+      "size_bytes": 6095,
+      "anydoc_native": {
+        "status": "MALFORMED",
+        "latency_ms": 2.11,
+        "output_chars": 0,
+        "tables_extracted": 0,
+        "error": "Malformed document structure: malformed document: not a readable zip archive: invalid Zip archive: Could not find EOCD"
+      },
+      "docling_backend": {
+        "status": "MALFORMED",
+        "latency_ms": 4.77,
+        "output_chars": 0,
+        "tables_extracted": 0,
+        "pages_count": 0,
+        "error": "Malformed document structure: malformed document: not a readable zip archive: invalid Zip archive: Could not find EOCD"
+      }
+    }
+  ]
+}

@@ -15,6 +15,11 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
 
+from core.dag import (
+    DAGError,
+    InvalidPlanError,
+    topological_sort,
+)
 from core.logger import get_logger
 from core.security import RiskLevel
 
@@ -87,54 +92,41 @@ class ExecutionPlan:
         self.total_risk = max_risk_level
         self.required_context = sorted(context_keys)
 
-    def validate_dependencies(self) -> bool:
-        """Verifica que todas las dependencias entre subtareas existan y no contengan ciclos.
+    def validate_dependencies(self, raise_on_error: bool = False) -> bool:
+        """Verifica que todas las dependencias entre subtareas existan y no contengan ciclos,
+        autodependencias ni identificadores duplicados.
+
+        Args:
+            raise_on_error: Si es True, propaga la excepción DAGError en caso de fallo estructural.
 
         Returns:
-            bool: True si el grafo de dependencias es válido y acíclico, False si es inválido.
+            bool: True si el grafo de dependencias es un DAG válido y acíclico, False si es inválido.
         """
-        task_ids = {t.task_id for t in self.tasks}
-
-        # 1. Comprobar que todas las dependencias referenciadas existan
-        for t in self.tasks:
-            for dep in t.dependencies:
-                if dep not in task_ids:
-                    logger.error(
-                        f"Plan '{self.plan_id}' inválido: Subtarea '{t.task_id}' depende de '{dep}' no existente."
-                    )
-                    return False
-
-        # 2. Detección de ciclos en el grafo (Algoritmo de Kahn / DFS)
-        visited: set[str] = set()
-        rec_stack: set[str] = set()
-
-        adj: dict[str, list[str]] = {t.task_id: t.dependencies for t in self.tasks}
-
-        def has_cycle(node: str) -> bool:
-            visited.add(node)
-            rec_stack.add(node)
-
-            for neighbor in adj.get(node, []):
-                if neighbor not in visited:
-                    if has_cycle(neighbor):
-                        return True
-                elif neighbor in rec_stack:
-                    return True
-
-            rec_stack.remove(node)
+        try:
+            self.get_ordered_tasks()
+            return True
+        except DAGError as err:
+            logger.error(f"Plan '{self.plan_id}' inválido: {err}")
+            if raise_on_error:
+                raise
             return False
 
-        for t_id in task_ids:
-            if t_id not in visited:
-                if has_cycle(t_id):
-                    logger.error(f"Plan '{self.plan_id}' inválido: Se detectó un ciclo de dependencia circular.")
-                    return False
-
-        return True
-
     def get_ordered_tasks(self) -> list[SubTask]:
-        """Obtiene la lista de subtareas ordenada estrictamente según el orden de ejecución y dependencias."""
-        return sorted(self.tasks, key=lambda t: (t.execution_order, t.task_id))
+        """Obtiene la lista de subtareas ordenada estrictamente según orden topológico determinista.
+
+        Garantiza que ningún nodo se ejecute antes de que sus prerrequisitos hayan finalizado.
+        execution_order y task_id se utilizan únicamente para desempatar entre nodos
+        cuyas dependencias ya están resueltas.
+
+        Raises:
+            DAGError: Si el plan contiene referencias inexistentes, ciclos, autodependencias o IDs duplicados.
+        """
+        return topological_sort(
+            self.tasks,
+            get_id=lambda t: t.task_id,
+            get_dependencies=lambda t: t.dependencies,
+            tie_breaker=lambda t: (t.execution_order, t.task_id),
+        )
 
     def to_dict(self) -> dict[str, Any]:
         """Convierte el plan en un diccionario serializable."""
@@ -192,8 +184,13 @@ class AIPlanner:
 
         plan.consolidate_risk_and_context()
 
-        if not plan.validate_dependencies():
-            logger.warning(f"Se generó un plan con dependencias no válidas para '{goal_text}'")
+        # Validación estricta: No entregar como ejecutable un plan inválido
+        try:
+            plan.get_ordered_tasks()
+        except DAGError as exc:
+            msg = f"Se rechazó la creación de un plan inválido o no ejecutable para '{goal_text}': {exc}"
+            logger.error(msg)
+            raise InvalidPlanError(msg) from exc
 
         logger.info(
             f"Plan generado ID: '{plan.plan_id}' [{len(plan.tasks)} subtareas, Riesgo Global: {plan.total_risk.value}]"

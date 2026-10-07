@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from core.anydoc.adapter import AnyDocAdapter
-from core.anydoc.models import AnyDocMode, AnyDocProposal, DocumentFormat
+from core.anydoc.models import AnyDocMode, AnyDocProposal
 from core.logger import get_logger
 from core.security import RiskLevel
 

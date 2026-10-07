@@ -21,8 +21,21 @@ import re
 import threading
 import time
 import uuid
+from pathlib import Path
 from typing import Any
 
+from core.are.action_catalog import (
+    ActionCatalog,
+    ActionVerificationStrategy,
+    get_default_action_catalog,
+)
+from core.are.dataflow import DataFlowResolver
+from core.are.exceptions import (
+    MissingOutputDependencyError,
+    PlanClarificationRequired,
+    UnresolvableActionError,
+)
+from core.are.execution_state import AREPlanExecutionState
 from core.are.models import (
     AREDiagnosis,
     AREPlanProposal,
@@ -30,9 +43,8 @@ from core.are.models import (
     ARERuntimeMode,
     AREStepProposal,
 )
+from core.are.plan_validator import LLMPlanProposal, PlanValidator
 from core.execution.execution_verifier import (
-    ExecutionEvidence,
-    ExecutionResult,
     ExecutionStatus,
     ExecutionVerifier,
     get_execution_verifier,
@@ -45,7 +57,6 @@ from core.execution.idempotency_guard import (
 from core.integration.adapters.are_adapter import AREAdapter
 from core.jde.runtime_binding import (
     JDERuntimeBinding,
-    JDERuntimeVerdict,
     JDERuntimeVerdictType,
     get_jde_runtime_binding,
 )
@@ -80,13 +91,38 @@ class ARERuntime:
         jde_binding: JDERuntimeBinding | None = None,
         idempotency_guard: ExecutionIdempotencyGuard | None = None,
         execution_verifier: ExecutionVerifier | None = None,
+        action_catalog: ActionCatalog | None = None,
+        plan_validator: PlanValidator | None = None,
     ) -> None:
         self._mutex = threading.RLock()
-        self.are_adapter = are_adapter or AREAdapter()
+        self._mode = self._resolve_mode(mode)
+        if are_adapter is not None:
+            self.are_adapter = are_adapter
+        else:
+            try:
+                from core.integration.hub import get_integration_hub
+                hub = get_integration_hub()
+                existing = hub.registry.get("are")
+                if existing is not None and isinstance(existing, AREAdapter):
+                    self.are_adapter = existing
+                else:
+                    self.are_adapter = AREAdapter()
+                    hub.registry.register(self.are_adapter, enabled=(self._mode != ARERuntimeMode.DISABLED))
+            except Exception:
+                self.are_adapter = AREAdapter()
+
         self.jde_binding = jde_binding or get_jde_runtime_binding()
         self.idempotency_guard = idempotency_guard or get_idempotency_guard()
         self.execution_verifier = execution_verifier or get_execution_verifier()
-        self._mode = self._resolve_mode(mode)
+        self.action_catalog = action_catalog or get_default_action_catalog()
+        self.plan_validator = plan_validator or PlanValidator(catalog=self.action_catalog)
+        self._previously_denied_actions: set[str] = set()
+        self.last_execution_state: AREPlanExecutionState | None = None
+
+        # Sincronizar estado inicial con modo resuelto
+        if self._mode == ARERuntimeMode.DISABLED and hasattr(self.are_adapter, "status"):
+            from core.integration.models import IntegrationStatus
+            self.are_adapter.status = IntegrationStatus.DISABLED
 
         # Garantizar que el adaptador esté inicializado de forma segura
         self._ensure_adapter_ready()
@@ -143,6 +179,11 @@ class ARERuntime:
         with self._mutex:
             return self._mode == ARERuntimeMode.ACTIVE
 
+    @property
+    def previously_denied_actions(self) -> set[str]:
+        with self._mutex:
+            return set(self._previously_denied_actions)
+
     def set_mode(self, mode: ARERuntimeMode | str) -> tuple[bool, str]:
         """Cambia el modo operativo de ARE respetando los límites de seguridad."""
         with self._mutex:
@@ -152,6 +193,12 @@ class ARERuntime:
 
             resolved = self._resolve_mode(mode)
             self._mode = resolved
+            if hasattr(self.are_adapter, "status"):
+                from core.integration.models import IntegrationStatus
+                if resolved == ARERuntimeMode.DISABLED:
+                    self.are_adapter.status = IntegrationStatus.DISABLED
+                elif self.are_adapter.status == IntegrationStatus.DISABLED:
+                    self.are_adapter.status = IntegrationStatus.READY
             logger.info(f"[ARE RUNTIME] Modo operativo actualizado a {resolved.value}.")
             return True, f"Modo operativo actualizado a {resolved.value}."
 
@@ -191,6 +238,22 @@ class ARERuntime:
             return True
         if len(params.get("steps", [])) > 1 or len(params.get("targets", [])) > 1:
             return True
+
+        # Intenciones atómicas o directas gobernadas por skills dedicadas
+        atomic_intents = {
+            "browser_read",
+            "extract_content",
+            "follow_link",
+            "browser_navigate",
+            "open_browser",
+            "browser_open",
+            "browser_download",
+            "media_control",
+            "youtube_search",
+            "youtube_play",
+        }
+        if intent in atomic_intents:
+            return False
 
         # Análisis léxico sobre la orden del usuario
         text = (user_input or "").strip()
@@ -341,7 +404,7 @@ class ARERuntime:
             # Build graph and check topological sort
             try:
                 adj: dict[str, list[str]] = {sid: [] for sid in step_ids}
-                in_deg: dict[str, int] = {sid: 0 for sid in step_ids}
+                in_deg: dict[str, int] = dict.fromkeys(step_ids, 0)
                 for u, v_list in deps.items():
                     for v in v_list:
                         if v in adj and u in in_deg:
@@ -542,7 +605,7 @@ class ARERuntime:
                 error="ARE Runtime is DISABLED",
             )
 
-        start_time = time.perf_counter()
+        _start_time = time.perf_counter()
         token = cancellation_token
         if token and token.is_cancelled:
             return JessycaResponse(
@@ -600,14 +663,160 @@ class ARERuntime:
                 error=err_msg,
             )
 
-        # 2. Ejecución gobernada paso a paso bajo autoridad de JDE
+        return self._execute_plan_internal(
+            agent=agent,
+            req=req,
+            plan=plan,
+            goal=goal,
+            context=context,
+            user_confirmed=user_confirmed,
+            cancellation_token=cancellation_token,
+        )
+
+    def validate_llm_plan(
+        self,
+        plan_input: dict[str, Any] | str | LLMPlanProposal,
+        sandbox_dir: Path | str | None = None,
+        task_id: str = "task_llm_plan",
+        plan_id: str = "plan_llm_validated",
+    ) -> AREPlanProposal:
+        """Valida una propuesta de plan JSON fuera del LLM aplicando todas las políticas perimétricas."""
+        validator = PlanValidator(
+            catalog=self.action_catalog,
+            sandbox_dir=sandbox_dir,
+        )
+        return validator.validate_plan(
+            plan_input=plan_input,
+            previously_denied_actions=self._previously_denied_actions,
+            task_id=task_id,
+            plan_id=plan_id,
+        )
+
+    def execute_llm_plan(
+        self,
+        agent: Any,
+        req: Any,
+        plan_input: dict[str, Any] | str | LLMPlanProposal,
+        sandbox_dir: Path | str | None = None,
+        user_confirmed: bool = False,
+        cancellation_token: Any | None = None,
+        previous_state: AREPlanExecutionState | None = None,
+    ) -> Any:
+        """Valida rigurosamente fuera del LLM y ejecuta un plan propuesto en formato JSON."""
+        from core.local_agent.local_agent_models import AgentExecutionState, JessycaResponse
+
+        req_id = getattr(req, "request_id", "req_llm_plan")
+        sess_id = getattr(req, "session_id", "sess_llm_plan")
+
+        try:
+            validated_plan = self.validate_llm_plan(
+                plan_input=plan_input,
+                sandbox_dir=sandbox_dir,
+                task_id=req_id,
+            )
+        except PlanClarificationRequired as pcr:
+            return JessycaResponse(
+                request_id=req_id,
+                session_id=sess_id,
+                success=True,
+                status=AgentExecutionState.AWAITING_CLARIFICATION,
+                response_text=f"Aclaración requerida: {pcr.prompt}",
+                requires_clarification=True,
+            )
+        except Exception as exc:
+            logger.error(f"[ARE LLM PLAN VALIDATION FAILED] {exc}")
+            return JessycaResponse(
+                request_id=req_id,
+                session_id=sess_id,
+                success=False,
+                status=AgentExecutionState.FAILED,
+                response_text=f"Fallo de validación perimétrica de plan: {exc}",
+                error=str(exc),
+            )
+
+        ctx = {"sandbox_dir": str(sandbox_dir)} if sandbox_dir else {}
+        return self._execute_plan_internal(
+            agent=agent,
+            req=req,
+            plan=validated_plan,
+            goal=validated_plan.goal,
+            context=ctx,
+            user_confirmed=user_confirmed,
+            cancellation_token=cancellation_token,
+            previous_state=previous_state,
+        )
+
+    def resume_llm_plan(
+        self,
+        agent: Any,
+        req: Any,
+        plan_input: dict[str, Any] | str | LLMPlanProposal,
+        previous_state: AREPlanExecutionState,
+        sandbox_dir: Path | str | None = None,
+        user_confirmed: bool = False,
+        cancellation_token: Any | None = None,
+    ) -> Any:
+        """Reanuda un plan previamente interrumpido o fallido evitando repetir escrituras ya realizadas."""
+        return self.execute_llm_plan(
+            agent=agent,
+            req=req,
+            plan_input=plan_input,
+            sandbox_dir=sandbox_dir,
+            user_confirmed=user_confirmed,
+            cancellation_token=cancellation_token,
+            previous_state=previous_state,
+        )
+
+    def _execute_plan_internal(
+        self,
+        agent: Any,
+        req: Any,
+        plan: AREPlanProposal,
+        goal: str,
+        context: dict[str, Any] | None = None,
+        user_confirmed: bool = False,
+        cancellation_token: Any | None = None,
+        previous_state: AREPlanExecutionState | None = None,
+    ) -> Any:
+        """Núcleo de ejecución gobernada paso a paso bajo autoridad de JDE."""
+        from core.local_agent.local_agent_models import AgentExecutionState, JessycaResponse
+
+        req_id = getattr(req, "request_id", "req_are_task")
+        sess_id = getattr(req, "session_id", "sess_are_task")
+        token = cancellation_token
+        jde_binding = getattr(agent, "jde_runtime_binding", None) or self.jde_binding
+
+        exec_state = AREPlanExecutionState(
+            task_id=req_id,
+            plan_id=plan.plan_id,
+            goal=goal,
+            previously_denied_actions=set(self._previously_denied_actions),
+            sandbox_dir=str(context.get("sandbox_dir")) if context and context.get("sandbox_dir") else None,
+        )
+        self.last_execution_state = exec_state
+
         executed_steps: list[str] = []
         step_outputs: dict[str, Any] = {}
         recovery_attempts: dict[str, int] = {}
         steps_by_id = {s.step_id: s for s in plan.steps}
 
+        def _mark_remaining_dependents_blocked(failed_id: str, reason: str) -> None:
+            """Detiene y marca como BLOCKED todos los pasos posteriores que dependen del paso fallido."""
+            try:
+                failed_idx = plan.execution_order.index(failed_id)
+            except ValueError:
+                failed_idx = -1
+            blocked_ancestors = {failed_id}
+            for rem_id in plan.execution_order[failed_idx + 1:]:
+                rem_step = steps_by_id[rem_id]
+                if any(d in blocked_ancestors for d in rem_step.depends_on) or rem_id not in exec_state.step_records:
+                    blocked_ancestors.add(rem_id)
+                    exec_state.record_step_blocked(rem_id, rem_step.action_type, reason)
+
         for step_id in plan.execution_order:
             if token and token.is_cancelled:
+                exec_state.mark_plan_cancelled()
+                _mark_remaining_dependents_blocked(step_id, "Cancelado por el usuario.")
                 return JessycaResponse(
                     request_id=req.request_id,
                     session_id=req.session_id,
@@ -615,15 +824,75 @@ class ARERuntime:
                     status=AgentExecutionState.INTERRUPTED,
                     response_text="Operación interrumpida durante la ejecución del plan.",
                     tools_executed=executed_steps,
+                    output_data={"execution_state": exec_state.to_dict(), "explanation": exec_state.explain_state()},
                 )
 
             step = steps_by_id[step_id]
 
-            # Resolver parámetros dependientes
-            resolved_params = dict(step.parameters)
-            for k, v in list(resolved_params.items()):
-                if isinstance(v, str) and v in step_outputs:
-                    resolved_params[k] = step_outputs[v]
+            # Invariante de Replanificación: no se puede borrar una denegación previa ni ampliar permisos
+            if step.action_type in self._previously_denied_actions or step.action in self._previously_denied_actions:
+                logger.warning(f"[ARE RUNTIME - REPLANNING DENIAL VIOLATION] Acción '{step.action_type}' fue previamente denegada.")
+                exec_state.record_denial(step.action_type, step.step_id, "Acción previamente denegada en replanificación.")
+                _mark_remaining_dependents_blocked(step.step_id, "Acción denegada por política de replanificación.")
+                exec_state.mark_plan_failed("Replanificación no puede borrar una denegación previa ni ampliar permisos.")
+                return JessycaResponse(
+                    request_id=req_id,
+                    session_id=sess_id,
+                    success=False,
+                    status=AgentExecutionState.FAILED,
+                    response_text=f"Replanificación denegada: la acción '{step.action_type}' fue previamente denegada por gobernanza de seguridad.",
+                    security_verdict="DENY",
+                    tools_executed=executed_steps,
+                    output_data={"execution_state": exec_state.to_dict(), "explanation": exec_state.explain_state()},
+                )
+
+            # Idempotencia al reintentar: No repetir escrituras ya realizadas y verificadas en estado previo
+            if previous_state and step_id in previous_state.step_records:
+                prev_rec = previous_state.step_records[step_id]
+                if prev_rec.status == "SUCCEEDED" and prev_rec.is_verified:
+                    # Comprobar si era acción física con archivo en disco
+                    file_still_ok = True
+                    if isinstance(prev_rec.output, dict):
+                        chk_p = prev_rec.output.get("file_path") or prev_rec.output.get("destination_path") or prev_rec.output.get("output_path")
+                        if chk_p:
+                            p_chk = Path(chk_p).resolve()
+                            file_still_ok = p_chk.exists() and p_chk.stat().st_size > 0
+
+                    if file_still_ok:
+                        logger.info(f"[ARE RESUME IDEMPOTENT] Paso '{step_id}' completado en ejecución previa y verificado en disco. Omitiendo reescritura.")
+                        step_outputs[step_id] = prev_rec.output
+                        executed_steps.append(step.action_type)
+                        exec_state.record_step_skipped(
+                            step.step_id,
+                            step.action_type,
+                            "Escritura ya realizada en ejecución previa; reutilizada por idempotencia física.",
+                            output=prev_rec.output,
+                        )
+                        continue
+
+            # Resolver parámetros dependientes con DataFlowResolver
+            try:
+                resolved_params = DataFlowResolver.resolve_parameters(
+                    step.parameters,
+                    step_outputs,
+                    step_id=step.step_id,
+                )
+            except MissingOutputDependencyError as mode_err:
+                logger.error(f"[ARE DATAFLOW ERROR] {mode_err}")
+                exec_rec = exec_state.record_step_start(step.step_id, step.action_type, step.parameters)
+                exec_rec.mark_failed(str(mode_err))
+                _mark_remaining_dependents_blocked(step.step_id, f"Dependencia ausente o requisito no satisfecho: {mode_err.message}")
+                exec_state.mark_plan_failed(str(mode_err))
+                return JessycaResponse(
+                    request_id=req_id,
+                    session_id=sess_id,
+                    success=False,
+                    status=AgentExecutionState.FAILED,
+                    response_text=f"Fallo de dependencia de datos en '{step.step_id}': {mode_err.message}",
+                    error=str(mode_err),
+                    tools_executed=executed_steps,
+                    output_data={"execution_state": exec_state.to_dict(), "explanation": exec_state.explain_state()},
+                )
 
             # A. Evaluación en JDE Runtime Binding (AUTORIDAD ÚNICA)
             step_verdict = jde_binding.evaluate(
@@ -637,9 +906,13 @@ class ARERuntime:
                 risk_level=step.risk_level,
             )
 
-            # B. Si JDE DENY -> Abortar inmediatamente sin efectos secundarios
+            # B. Si JDE DENY -> Abortar inmediatamente sin efectos secundarios y registrar denegación
             if step_verdict.verdict == JDERuntimeVerdictType.DENY:
                 logger.warning(f"[ARE RUNTIME - DENY] Paso '{step.step_id}' ({step.action_type}) denegado por JDE.")
+                self._previously_denied_actions.add(step.action_type)
+                exec_state.record_denial(step.action_type, step.step_id, step_verdict.reason)
+                _mark_remaining_dependents_blocked(step.step_id, f"Acción previa denegada por gobernanza: {step_verdict.reason}")
+                exec_state.mark_plan_failed(f"Acción denegada por gobernanza JDE: {step_verdict.reason}")
                 return JessycaResponse(
                     request_id=req_id,
                     session_id=sess_id,
@@ -648,6 +921,7 @@ class ARERuntime:
                     response_text=f"Acción denegada por gobernanza JDE: {step_verdict.reason}",
                     security_verdict="DENY",
                     tools_executed=executed_steps,
+                    output_data={"execution_state": exec_state.to_dict(), "explanation": exec_state.explain_state()},
                 )
 
             # C. Si JDE REQUIRE_REVIEW -> Detener y solicitar confirmación
@@ -664,8 +938,34 @@ class ARERuntime:
                         tools_executed=executed_steps,
                     )
 
-            # D. Si JDE ALLOW -> Proceder con capas de seguridad física
-            target_str = str(resolved_params.get("target") or resolved_params.get("path") or step.title)
+            # D. Si JDE ALLOW -> Validar antes de ejecutar que el paso resuelva a una herramienta existente
+            # (No ejecutar action.execute ni otros nombres genéricos sin implementación concreta)
+            try:
+                resolved_act = self.action_catalog.resolve_action(
+                    step.action_type,
+                    skill_manager=getattr(agent, "skill_manager", None),
+                    tool_registry=getattr(agent, "tool_registry", None),
+                )
+            except UnresolvableActionError as uae:
+                logger.error(f"[ARE PRE-EXECUTION VALIDATION] Acción '{step.action_type}' no ejecutable: {uae}")
+                exec_rec = exec_state.record_step_start(step.step_id, step.action_type, resolved_params)
+                exec_rec.mark_failed(str(uae), is_verified=False)
+                _mark_remaining_dependents_blocked(step.step_id, f"Acción '{step.action_type}' no resoluble: {uae}")
+                exec_state.mark_plan_failed(str(uae))
+                return JessycaResponse(
+                    request_id=req_id,
+                    session_id=sess_id,
+                    success=False,
+                    status=AgentExecutionState.FAILED,
+                    response_text=f"Error de planificación: la acción '{step.action_type}' no resuelve a ninguna herramienta concreta ni ejecutable.",
+                    error=str(uae),
+                    tools_executed=executed_steps,
+                    output_data={"execution_state": exec_state.to_dict(), "explanation": exec_state.explain_state()},
+                )
+
+            # Proceder con capas de seguridad física
+            exec_rec = exec_state.record_step_start(step.step_id, step.action_type, resolved_params)
+            target_str = str(resolved_params.get("target") or resolved_params.get("path") or resolved_params.get("file_path") or step.title)
             fprint = ExecutionFingerprint(
                 session_id=sess_id,
                 request_id=f"{req_id}_{step.step_id}",
@@ -685,19 +985,30 @@ class ARERuntime:
             step_output: Any = None
             step_error: str | None = None
 
-            # Subordinación estricta de ORCA/ADE
-            if step.action_type.startswith("agent_orchestration."):
+            # 1. Catálogo de acciones de ARE (files.search, documents.read, data.extract_table, etc.)
+            if resolved_act and resolved_act.handler is not None:
+                try:
+                    step_output = resolved_act.execute(resolved_params, {"session_id": sess_id, "request_id": req_id})
+                    step_success = True
+                    step_error = None
+                except Exception as exc:
+                    step_success = False
+                    step_error = str(exc)
+
+            # 2. Subordinación estricta de ORCA/ADE
+            elif step.action_type.startswith("agent_orchestration.") or step.action_type in ("worktree_isolation", "parallel_agent_dispatch"):
                 from core.orca_ade.adapter import OrcaAdeAdapter
                 from core.orca_ade.models import OrcaAdeMode
                 orca = OrcaAdeAdapter(mode=OrcaAdeMode.CONTROLLED)
+                cap = step.action_type if step.action_type in orca._capabilities else "parallel_agent_dispatch"
                 from core.integration.models import IntegrationContext
-                ctx = IntegrationContext(request_id=req.request_id, parameters=resolved_params)
-                res = asyncio.run(orca.execute(step.action_type, ctx))
+                ctx = IntegrationContext(session_id=sess_id, parameters=resolved_params, metadata={"request_id": req_id})
+                res = asyncio.run(orca.execute(cap, ctx))
                 step_success = res.status == ExecutionStatus.SUCCEEDED
                 step_output = res.output
                 step_error = res.error
 
-            # Subordinación estricta de AnyDoc
+            # 3. Subordinación estricta de AnyDoc
             elif step.action_type.startswith("document_processing."):
                 forbidden_caps = ("external_ocr", "external_upload", "document_write", "arbitrary_shell", "admin", "outbound_network")
                 if any(fc in step.action_type for fc in forbidden_caps):
@@ -709,50 +1020,66 @@ class ARERuntime:
                     from core.anydoc.models import AnyDocMode
                     anydoc = AnyDocAdapter(mode=AnyDocMode.CONTROLLED)
                     from core.integration.models import IntegrationContext
-                    ctx = IntegrationContext(request_id=req.request_id, parameters=resolved_params)
+                    ctx = IntegrationContext(session_id=sess_id, parameters=resolved_params, metadata={"request_id": req_id})
                     res = asyncio.run(anydoc.execute(step.action_type, ctx))
                     step_success = res.status == ExecutionStatus.SUCCEEDED
                     step_output = res.output
                     step_error = res.error
 
-            # Despacho estándar a SkillManager
-            else:
-                if hasattr(agent, "skill_manager") and agent.skill_manager and agent.skill_manager.registry.lookup(step.action_type):
-                    exec_params = dict(resolved_params)
-                    if step.action_type == "files.search" and not any(k in exec_params for k in ("nombre", "query", "pattern", "file")):
-                        exec_params["nombre"] = "descarga"
-                    skill_res = agent.skill_manager.execute_skill(step.action_type, parameters=exec_params)
-                    if skill_res.success:
-                        step_success = True
-                        step_output = skill_res.output if skill_res.output else {"exito": True, "verified": True}
-                        step_error = None
-                    else:
-                        # Si falló por falta de archivos reales en disco durante una prueba de orquestación
-                        step_success = True
-                        step_output = {"exito": True, "verified": True, "message": f"Paso {step.step_id} completado (simulado de forma segura)."}
-                        step_error = None
-                else:
-                    # Acción analítica/lógica del grafo coordinada por ARE/JDE
+            # 4. Despacho estándar a SkillManager
+            elif hasattr(agent, "skill_manager") and agent.skill_manager and agent.skill_manager.registry.lookup(step.action_type):
+                exec_params = dict(resolved_params)
+                if step.action_type == "files.search" and not any(k in exec_params for k in ("nombre", "query", "pattern", "file")):
+                    exec_params["nombre"] = "descarga"
+                skill_res = agent.skill_manager.execute_skill(step.action_type, parameters=exec_params)
+                if skill_res.success:
                     step_success = True
-                    step_output = {"exito": True, "verified": True, "message": f"Paso {step.step_id} ({step.action_type}) completado bajo gobernanza JDE."}
+                    step_output = skill_res.output if skill_res.output else {"exito": True, "verified": True}
+                    step_error = None
+                else:
+                    step_success = False
+                    step_error = skill_res.error or f"Fallo al ejecutar skill {step.action_type}"
+            else:
+                step_success = False
+                step_error = f"No existe implementación ejecutable para la acción '{step.action_type}'"
 
             # Verificación Física Obligatoria (Anti-False Success)
             if step_success:
-                raw_ev = step_output.get("evidence") if isinstance(step_output, dict) else None
-                if raw_ev:
-                    is_verif = bool(raw_ev.get("is_verified", False))
-                elif isinstance(step_output, dict) and "verified" in step_output:
-                    is_verif = bool(step_output.get("verified", False))
-                elif isinstance(step_output, dict) and step_output.get("exito") is True:
-                    # Si el resultado dict reporta exito y no es acción física que requiera archivo/proceso
-                    is_verif = True
+                is_verif = False
+                if resolved_act and resolved_act.verification_strategy == ActionVerificationStrategy.PHYSICAL_FILE_EXISTS:
+                    if isinstance(step_output, dict):
+                        chk_file = step_output.get("file_path") or step_output.get("destination_path") or step_output.get("output_path") or step_output.get("table_path")
+                        if chk_file:
+                            p_chk = Path(chk_file)
+                            is_verif = p_chk.exists() and (p_chk.stat().st_size > 0 or step_output.get("verified", False))
+                        elif "all_verified" in step_output:
+                            is_verif = bool(step_output.get("all_verified", False))
+                        else:
+                            is_verif = bool(step_output.get("verified", False))
+                elif resolved_act and resolved_act.verification_strategy == ActionVerificationStrategy.CONTENT_VERIFIED:
+                    if isinstance(step_output, dict):
+                        is_verif = bool(step_output.get("verified", False)) and bool(step_output.get("references")) and bool(step_output.get("summary"))
+                elif resolved_act and resolved_act.verification_strategy == ActionVerificationStrategy.SCHEMA_VERIFIED:
+                    if isinstance(step_output, dict):
+                        is_verif = bool(step_output.get("verified", False))
+                elif resolved_act and resolved_act.verification_strategy == ActionVerificationStrategy.STATE_MATCH:
+                    if isinstance(step_output, dict):
+                        is_verif = bool(step_output.get("verified", False)) or ("found_files" in step_output) or ("content" in step_output) or ("status" in step_output) or ("precondition_met" in step_output)
                 else:
-                    ev_result = self.execution_verifier.verify_execution(
-                        action=step.action_type,
-                        target=target_str,
-                        parameters=resolved_params,
-                    )
-                    is_verif = ev_result.is_verified
+                    raw_ev = step_output.get("evidence") if isinstance(step_output, dict) else None
+                    if raw_ev:
+                        is_verif = bool(raw_ev.get("is_verified", False))
+                    elif isinstance(step_output, dict) and "verified" in step_output:
+                        is_verif = bool(step_output.get("verified", False))
+                    elif isinstance(step_output, dict) and step_output.get("exito") is True:
+                        is_verif = True
+                    else:
+                        ev_result = self.execution_verifier.verify_execution(
+                            action=step.action_type,
+                            target=target_str,
+                            parameters=resolved_params,
+                        )
+                        is_verif = ev_result.is_verified
 
                 if not is_verif:
                     logger.warning(f"[ARE ANTI-FALSE SUCCESS] Paso '{step.step_id}' no demostró evidencia física. Degradando a fallo.")
@@ -765,6 +1092,7 @@ class ARERuntime:
                     status="SUCCEEDED",
                     result_message="Paso verificado exitosamente.",
                 )
+                exec_rec.mark_completed(step_output, is_verified=True)
                 executed_steps.append(step.action_type)
                 step_outputs[step.step_id] = step_output
             else:
@@ -773,6 +1101,7 @@ class ARERuntime:
                     status="FAILED",
                     result_message=step_error or "Fallo en ejecución.",
                 )
+                exec_rec.mark_failed(step_error or "Fallo en ejecución", is_verified=False)
                 # Manejo de Fallo y Recuperación (are.diagnose_failure & are.recover_plan)
                 cur_attempts = recovery_attempts.get(step.step_id, 0) + 1
                 recovery_attempts[step.step_id] = cur_attempts
@@ -804,6 +1133,8 @@ class ARERuntime:
                         tools_executed=executed_steps,
                     )
                 else:
+                    _mark_remaining_dependents_blocked(step.step_id, f"Fallo en paso '{step.title}': {step_error}")
+                    exec_state.mark_plan_failed(step_error or "Step failed")
                     return JessycaResponse(
                         request_id=req_id,
                         session_id=sess_id,
@@ -812,10 +1143,14 @@ class ARERuntime:
                         response_text=f"Fallo en paso '{step.title}': {step_error}. Diagnóstico ARE: {recovery_prop.rationale}",
                         error=step_error or "Step failed",
                         tools_executed=executed_steps,
+                        output_data={"execution_state": exec_state.to_dict(), "explanation": exec_state.explain_state()},
                     )
 
         # Plan completado exitosamente
         step_outputs["governance"] = "JDE"
+        exec_state.mark_plan_completed()
+        step_outputs["execution_state"] = exec_state.to_dict()
+        step_outputs["explanation"] = exec_state.explain_state()
         return JessycaResponse(
             request_id=req_id,
             session_id=sess_id,

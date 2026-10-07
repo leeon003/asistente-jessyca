@@ -4,6 +4,8 @@ Exporta los servicios de captura de audio, calibración, diagnósticos, VAD, Wak
 STT, TTS, controlador de Barge-in, sesiones continuas y el pipeline de orquestación.
 """
 
+from typing import Any
+
 from services.voice.audio_capture import (
     AmbientNoiseCalibrator,
     CalibratedVoiceCaptureEngine,
@@ -35,6 +37,13 @@ from services.voice.device_resolver import (
     ResolvedAudioDevice,
     VoiceDeviceResolver,
     get_voice_device_resolver,
+)
+from services.voice.push_to_talk import (
+    PushToTalkController,
+    PushToTalkState,
+    PTTExecutionResult,
+    TTSProviderComparisonItem,
+    compare_tts_providers,
 )
 from services.voice.stt_event_adapter import STTEventAdapter
 from services.voice.stt_service import (
@@ -68,6 +77,7 @@ from services.voice.vad_service import (
     IVADService,
     VADEvent,
     VADResult,
+    get_vad_service,
 )
 from services.voice.voice_confirmation import (
     VoiceConfirmationDecision,
@@ -83,6 +93,7 @@ from services.voice.voice_errors import (
     AudioDeviceDisconnectedError,
     MicrophonePermissionDeniedError,
     MicrophoneUnavailableError,
+    SileroVADUnavailableError,
     STTError,
     STTModelUnavailableError,
     STTTimeoutError,
@@ -105,6 +116,7 @@ from services.voice.wake_word_service import (
     IWakeWordService,
     KeywordWakeWordService,
     WakeWordResult,
+    get_wake_word_service,
 )
 
 __all__ = [
@@ -142,6 +154,9 @@ __all__ = [
     "PocketTTSProvider",
     "ResolvedAudioDevice",
     "STTError",
+    "PTTExecutionResult",
+    "PushToTalkController",
+    "PushToTalkState",
     "STTEventAdapter",
     "STTModelUnavailableError",
     "STTTimeoutError",
@@ -178,6 +193,26 @@ __all__ = [
     "WakeWordResult",
     "get_audio_device_manager",
     "get_tts_manager",
+    "get_vad_service",
     "get_voice_device_resolver",
     "get_voice_telemetry",
+    "get_wake_word_service",
+    "SileroVADService",
+    "SileroVADUnavailableError",
+    "OpenWakeWordAcousticService",
 ]
+
+
+def __getattr__(name: str) -> Any:
+    """Importación perezosa (lazy) de adaptadores neuronales opcionales."""
+    if name == "SileroVADService":
+        from services.voice.silero_vad_service import SileroVADService
+
+        return SileroVADService
+    if name == "OpenWakeWordAcousticService":
+        from services.voice.openwakeword_service import OpenWakeWordAcousticService
+
+        return OpenWakeWordAcousticService
+    raise AttributeError(f"módulo {__name__!r} no tiene el atributo {name!r}")
+
+

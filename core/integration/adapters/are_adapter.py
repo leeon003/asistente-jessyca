@@ -97,36 +97,20 @@ class TaskGraph:
         self.nodes[node.id] = node
 
     def get_topological_order(self) -> list[str]:
-        """Calcula el orden topológico de ejecución mediante el algoritmo de Kahn.
+        """Calcula el orden topológico de ejecución mediante el algoritmo de Kahn determinista.
 
         Raises:
-            ValueError: Si se detecta una dependencia circular (ciclo).
+            ValueError: Si se detecta una dependencia circular (ciclo) o referencia inválida.
         """
-        in_degree: dict[str, int] = {node_id: 0 for node_id in self.nodes}
-        adj_list: dict[str, list[str]] = defaultdict(list)
+        from core.dag import topological_sort
 
-        for node_id, node in self.nodes.items():
-            for dep in node.depends_on:
-                if dep not in self.nodes:
-                    raise ValueError(f"Dependencia desconocida '{dep}' en el nodo '{node_id}'")
-                adj_list[dep].append(node_id)
-                in_degree[node_id] += 1
-
-        queue = deque([node_id for node_id, deg in in_degree.items() if deg == 0])
-        ordered: list[str] = []
-
-        while queue:
-            curr = queue.popleft()
-            ordered.append(curr)
-            for neighbor in adj_list[curr]:
-                in_degree[neighbor] -= 1
-                if in_degree[neighbor] == 0:
-                    queue.append(neighbor)
-
-        if len(ordered) != len(self.nodes):
-            raise ValueError("El grafo de tareas contiene dependencias circulares (ciclo detectado).")
-
-        return ordered
+        ordered_nodes = topological_sort(
+            self.nodes.values(),
+            get_id=lambda n: n.id,
+            get_dependencies=lambda n: n.depends_on,
+            tie_breaker=lambda n: n.id,
+        )
+        return [node.id for node in ordered_nodes]
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -336,8 +320,218 @@ class AREAdapter(IntegrationAdapter):
 
         # Reglas analíticas de descomposición basadas en patrones de intención
         goal_lower = goal_clean.lower()
+        ctx = params.get("context", {}) or {}
 
-        if "busca" in goal_lower and ("resume" in goal_lower or "guarda" in goal_lower):
+        # ── OBJETIVO 1: Localizar documento y resumirlo con referencias ──
+        if ("localiza" in goal_lower or ("busca" in goal_lower and "documento" in goal_lower)) and ("resume" in goal_lower or "referencia" in goal_lower):
+            doc_dir = ctx.get("directory") or params.get("directory") or "."
+            doc_query = ctx.get("query") or ctx.get("pattern") or ctx.get("filename") or "documento"
+            explicit_path = ctx.get("file_path") or params.get("file_path")
+
+            if explicit_path:
+                graph.add_node(
+                    TaskNode(
+                        id="step_1_read",
+                        title="Leer documento localizado",
+                        action_type="documents.read",
+                        parameters={"file_path": str(explicit_path)},
+                        depends_on=[],
+                        is_critical=True,
+                    )
+                )
+                graph.add_node(
+                    TaskNode(
+                        id="step_2_summarize",
+                        title="Sintetizar documento con referencias",
+                        action_type="documents.summarize",
+                        parameters={
+                            "content": "$step_1_read.output.content",
+                            "file_path": "$step_1_read.output.file_path",
+                            "max_points": 5,
+                        },
+                        depends_on=["step_1_read"],
+                        is_critical=True,
+                    )
+                )
+            else:
+                graph.add_node(
+                    TaskNode(
+                        id="step_1_search",
+                        title="Localizar documento en directorio",
+                        action_type="files.search",
+                        parameters={"directory": str(doc_dir), "query": str(doc_query)},
+                        depends_on=[],
+                        is_critical=True,
+                    )
+                )
+                graph.add_node(
+                    TaskNode(
+                        id="step_2_read",
+                        title="Leer contenido del documento localizado",
+                        action_type="documents.read",
+                        parameters={"file_path": "$step_1_search.output.found_files[0]"},
+                        depends_on=["step_1_search"],
+                        is_critical=True,
+                    )
+                )
+                graph.add_node(
+                    TaskNode(
+                        id="step_3_summarize",
+                        title="Sintetizar contenido con referencias auditables",
+                        action_type="documents.summarize",
+                        parameters={
+                            "content": "$step_2_read.output.content",
+                            "file_path": "$step_2_read.output.file_path",
+                            "max_points": 5,
+                        },
+                        depends_on=["step_2_read"],
+                        is_critical=True,
+                    )
+                )
+
+        # ── OBJETIVO 2: Organizar copias de archivos con vista previa ──
+        elif "organiza" in goal_lower and "copia" in goal_lower and ("preview" in goal_lower or "vista previa" in goal_lower or "previa" in goal_lower):
+            org_dir = ctx.get("directory") or params.get("directory") or "."
+            org_dest = ctx.get("target_base") or ctx.get("destination") or params.get("target_base") or "."
+
+            graph.add_node(
+                TaskNode(
+                    id="step_1_scan",
+                    title="Escanear archivos en directorio origen",
+                    action_type="files.search",
+                    parameters={"directory": str(org_dir)},
+                    depends_on=[],
+                    is_critical=True,
+                )
+            )
+            graph.add_node(
+                TaskNode(
+                    id="step_2_preview",
+                    title="Generar vista previa de organización de copias",
+                    action_type="files.preview_organize",
+                    parameters={"directory": "$step_1_scan.output.directory", "target_base": str(org_dest)},
+                    depends_on=["step_1_scan"],
+                    is_critical=True,
+                )
+            )
+            graph.add_node(
+                TaskNode(
+                    id="step_3_copy",
+                    title="Copiar archivos según vista previa",
+                    action_type="files.copy",
+                    parameters={
+                        "source_path": ctx.get("source_path", "$step_1_scan.output.found_files[0]"),
+                        "destination_path": ctx.get("destination_path", "$step_2_preview.output.preview_mapping"),
+                    },
+                    depends_on=["step_2_preview"],
+                    is_critical=True,
+                )
+            )
+            graph.add_node(
+                TaskNode(
+                    id="step_4_verify",
+                    title="Verificar físicamente integridad de copias",
+                    action_type="files.verify_copies",
+                    parameters={"copies_mapping": "$step_2_preview.output.preview_mapping"},
+                    depends_on=["step_3_copy"],
+                    is_critical=True,
+                )
+            )
+
+        # ── OBJETIVO 3: Extraer una tabla a un archivo verificable ──
+        elif ("extrae" in goal_lower or "convierte" in goal_lower or "tabla" in goal_lower) and ("tabla" in goal_lower or "csv" in goal_lower) and ("archivo" in goal_lower or "verificable" in goal_lower or "csv" in goal_lower or "extrae" in goal_lower):
+            src_file = ctx.get("source_file") or ctx.get("file_path") or params.get("source_file") or params.get("file_path") or "tabla.txt"
+            out_file = ctx.get("output_path") or params.get("output_path") or "tabla_extraida.csv"
+            table_content = ctx.get("content") or params.get("content")
+
+            if table_content:
+                graph.add_node(
+                    TaskNode(
+                        id="step_1_extract",
+                        title="Extraer estructura de tabla en memoria",
+                        action_type="data.extract_table",
+                        parameters={"content": table_content},
+                        depends_on=[],
+                        is_critical=True,
+                    )
+                )
+                graph.add_node(
+                    TaskNode(
+                        id="step_2_write",
+                        title="Escribir tabla a archivo verificable",
+                        action_type="data.write_table",
+                        parameters={
+                            "output_path": str(out_file),
+                            "headers": "$step_1_extract.output.headers",
+                            "rows": "$step_1_extract.output.rows",
+                        },
+                        depends_on=["step_1_extract"],
+                        is_critical=True,
+                    )
+                )
+                graph.add_node(
+                    TaskNode(
+                        id="step_3_verify",
+                        title="Verificar físicamente tabla y conteo de filas",
+                        action_type="files.verify_table",
+                        parameters={
+                            "table_path": "$step_2_write.output.output_path",
+                            "expected_rows_count": "$step_1_extract.output.rows_count",
+                        },
+                        depends_on=["step_2_write"],
+                        is_critical=True,
+                    )
+                )
+            else:
+                graph.add_node(
+                    TaskNode(
+                        id="step_1_read",
+                        title="Leer archivo con contenido tabular",
+                        action_type="documents.read",
+                        parameters={"file_path": str(src_file)},
+                        depends_on=[],
+                        is_critical=True,
+                    )
+                )
+                graph.add_node(
+                    TaskNode(
+                        id="step_2_extract",
+                        title="Extraer estructura de tabla",
+                        action_type="data.extract_table",
+                        parameters={"content": "$step_1_read.output.content"},
+                        depends_on=["step_1_read"],
+                        is_critical=True,
+                    )
+                )
+                graph.add_node(
+                    TaskNode(
+                        id="step_3_write",
+                        title="Escribir tabla a archivo verificable",
+                        action_type="data.write_table",
+                        parameters={
+                            "output_path": str(out_file),
+                            "headers": "$step_2_extract.output.headers",
+                            "rows": "$step_2_extract.output.rows",
+                        },
+                        depends_on=["step_2_extract"],
+                        is_critical=True,
+                    )
+                )
+                graph.add_node(
+                    TaskNode(
+                        id="step_4_verify",
+                        title="Verificar físicamente tabla y conteo de filas",
+                        action_type="files.verify_table",
+                        parameters={
+                            "table_path": "$step_3_write.output.output_path",
+                            "expected_rows_count": "$step_2_extract.output.rows_count",
+                        },
+                        depends_on=["step_3_write"],
+                        is_critical=True,
+                    )
+                )
+
+        elif ("busca" in goal_lower or "investiga" in goal_lower) and ("resume" in goal_lower or "guarda" in goal_lower or "analiza" in goal_lower or "información" in goal_lower or "registro" in goal_lower):
             # Tarea multi-etapa: Búsqueda -> Extracción -> Síntesis/Guardado
             graph.add_node(
                 TaskNode(
@@ -366,6 +560,69 @@ class AREAdapter(IntegrationAdapter):
                     action_type="documents.create" if "guarda" in goal_lower else "core.assistant",
                     parameters={"source_step": "step_2_extract"},
                     depends_on=["step_2_extract"],
+                    is_critical=False,
+                )
+            )
+        elif "worktree" in goal_lower or "agentes" in goal_lower or "orquestaci" in goal_lower:
+            graph.add_node(
+                TaskNode(
+                    id="step_1_agent_pipeline",
+                    title=f"Ejecutar orquestación agéntica: {goal_clean}",
+                    action_type="agent_orchestration.run_agent_pipeline",
+                    parameters={"goal": goal_clean, "worktree": "isolated"},
+                    depends_on=[],
+                    is_critical=True,
+                )
+            )
+        elif "markdown" in goal_lower or ("documento" in goal_lower and "analiza" in goal_lower) or ("informe" in goal_lower and "analiza" in goal_lower):
+            graph.add_node(
+                TaskNode(
+                    id="step_1_convert_doc",
+                    title="Convertir documento a formato markdown",
+                    action_type="document_processing.convert",
+                    parameters={"input_path": ctx.get("input_path", "documento.docx"), "output_path": ctx.get("output_path", "documento.md")},
+                    depends_on=[],
+                    is_critical=True,
+                )
+            )
+            graph.add_node(
+                TaskNode(
+                    id="step_2_analyze_doc",
+                    title="Analizar estructura y párrafos del documento",
+                    action_type="document_processing.extract_structure",
+                    parameters={"input_path": "$step_1_convert_doc.output.output_path"},
+                    depends_on=["step_1_convert_doc"],
+                    is_critical=True,
+                )
+            )
+        elif "notepad" in goal_lower or ("abre" in goal_lower and "notas" in goal_lower):
+            graph.add_node(
+                TaskNode(
+                    id="step_1_prep",
+                    title=f"Validar precondiciones para: {goal_clean}",
+                    action_type="system.check",
+                    parameters={"target": goal_clean},
+                    depends_on=[],
+                    is_critical=True,
+                )
+            )
+            graph.add_node(
+                TaskNode(
+                    id="step_2_act",
+                    title=f"Preparar notas: {goal_clean}",
+                    action_type="core.assistant",
+                    parameters={"goal": goal_clean},
+                    depends_on=["step_1_prep"],
+                    is_critical=True,
+                )
+            )
+            graph.add_node(
+                TaskNode(
+                    id="step_3_verify",
+                    title="Verificar resultado obtenido",
+                    action_type="system.verify",
+                    parameters={"target_step": "step_2_act"},
+                    depends_on=["step_2_act"],
                     is_critical=False,
                 )
             )
@@ -417,7 +674,7 @@ class AREAdapter(IntegrationAdapter):
                 TaskNode(
                     id="step_2_act",
                     title=f"Ejecutar acción principal: {goal_clean}",
-                    action_type="action.execute",
+                    action_type="core.assistant",
                     parameters={"goal": goal_clean},
                     depends_on=["step_1_prep"],
                     is_critical=True,

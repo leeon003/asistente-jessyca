@@ -222,13 +222,50 @@ class WindowsAppsSkill(BaseSkill):
         accion = str(parametros.get("accion") or parametros.get("action") or "abrir").lower()
         nombre_app = (
             parametros.get("nombre_app")
+            or parametros.get("application")
             or parametros.get("app")
             or parametros.get("nombre")
             or parametros.get("query")
         )
 
+        # Si se solicita abrir una carpeta específica o el explorador con ruta
+        ruta_carpeta_raw = (
+            parametros.get("ruta_carpeta")
+            or parametros.get("carpeta")
+            or parametros.get("folder")
+            or parametros.get("directorio")
+            or parametros.get("path")
+            or parametros.get("ruta")
+        )
+        ruta_carpeta_valida: str | None = None
+        if ruta_carpeta_raw:
+            ruta_abs = os.path.abspath(os.path.expanduser(str(ruta_carpeta_raw)))
+            if not os.path.exists(ruta_abs):
+                return {
+                    "exito": False,
+                    "mensaje": f"La carpeta especificada no existe: {ruta_abs}",
+                    "error_code": "DIRECTORY_NOT_FOUND",
+                }
+            if not os.path.isdir(ruta_abs):
+                return {
+                    "exito": False,
+                    "mensaje": f"La ruta especificada no es una carpeta: {ruta_abs}",
+                    "error_code": "NOT_A_DIRECTORY",
+                }
+            from skills.files_skills import es_ruta_critica
+            if es_ruta_critica(ruta_abs):
+                return {
+                    "exito": False,
+                    "mensaje": f"Acceso denegado: '{ruta_abs}' es una ubicación protegida del sistema.",
+                    "error_code": "CRITICAL_PATH_ACCESS_DENIED",
+                }
+            ruta_carpeta_valida = ruta_abs
+            # Si se especificó carpeta, la aplicación objetivo es el Explorador
+            if str(nombre_app).lower() in ("carpeta", "folder", "directorio") or not nombre_app:
+                nombre_app = "explorer"
+
         if not nombre_app:
-            return {"exito": False, "mensaje": "Debe especificar el nombre de la aplicación."}
+            return {"exito": False, "mensaje": "Debe especificar el nombre de la aplicación o carpeta a abrir."}
 
         req_id = str(parametros.get("request_id") or "req_apps")
         exec_id = str(parametros.get("execution_id") or "exec_apps")
@@ -237,9 +274,13 @@ class WindowsAppsSkill(BaseSkill):
         mapeo = self._cargar_mapeo()
         comando = _buscar_en_mapeo(str(nombre_app), mapeo) or f"{nombre_app}.exe"
 
+        launch_args: list[str] = list(parametros.get("args") or [])
+        if ruta_carpeta_valida and ruta_carpeta_valida not in launch_args:
+            launch_args.append(ruta_carpeta_valida)
+
         # 1. ACCIÓN: ABRIR
-        if accion in ("abrir", "open", "launch"):
-            logger.info(f"[APP_EXECUTION_REQUEST] request_id={req_id} action_id={action_id} target={nombre_app} accion={accion} comando={comando}")
+        if accion in ("abrir", "open", "launch", "open_folder", "abrir_carpeta", "explore"):
+            logger.info(f"[APP_EXECUTION_REQUEST] request_id={req_id} action_id={action_id} target={nombre_app} accion={accion} comando={comando} args={launch_args}")
             try:
                 # Estado previo: Medir procesos existentes antes del intento de apertura
                 pids_before = self._get_running_pids(comando)
@@ -247,7 +288,7 @@ class WindowsAppsSkill(BaseSkill):
 
                 # Invocar lanzamiento a través de ApplicationSessionManager (Fase 75.1-B)
                 logger.info(f"[APP_LAUNCH_INVOKED] execution_id={exec_id} action_id={action_id} target={nombre_app} command={comando}")
-                session = self.session_manager.launch_app(str(nombre_app), action_id=action_id)
+                session = self.session_manager.launch_app(str(nombre_app), args=tuple(launch_args), action_id=action_id)
                 execution_count = self.session_manager.get_execution_count(str(nombre_app))
                 logger.info(f"[APP_LAUNCH_RESULT] execution_id={exec_id} action_id={action_id} session={session.session_id} execution_count={execution_count}")
 
@@ -257,7 +298,13 @@ class WindowsAppsSkill(BaseSkill):
                     pids_after: list[int] = [session.pid] if session.pid is not None else []
                     new_pids: list[int] = [session.pid] if session.pid is not None else []
                     evidence_verified = True
-                    evidence_dict: dict[str, Any] = {"verified": True, "details": {"pids": pids_after}}
+                    evidence_dict: dict[str, Any] = {
+                        "is_verified": True,
+                        "verified": True,
+                        "verification_type": "gui_application_visible" if "explorer" not in comando else "process_exists",
+                        "target": str(nombre_app),
+                        "details": {"pids": pids_after},
+                    }
                 else:
                     evidence = get_execution_verifier().verify_execution(
                         "open_application", comando, {"nombre_app": nombre_app, "initial_pids": pids_before}, timeout_seconds=2.5
@@ -280,11 +327,14 @@ class WindowsAppsSkill(BaseSkill):
                     if texto_escribir:
                         texto_escrito_ok = self._type_into_app(str(nombre_app), str(texto_escribir))
 
-                    msg_resp = (
-                        f"Listo, abrí {nombre_app} y escribí '{texto_escribir}'."
-                        if (texto_escribir and texto_escrito_ok)
-                        else f"Listo, abrí {nombre_app}."
-                    )
+                    if ruta_carpeta_valida:
+                        msg_resp = f"Listo, abrí la carpeta '{os.path.basename(ruta_carpeta_valida) or ruta_carpeta_valida}' en el Explorador."
+                    else:
+                        msg_resp = (
+                            f"Listo, abrí {nombre_app} y escribí '{texto_escribir}'."
+                            if (texto_escribir and texto_escrito_ok)
+                            else f"Listo, abrí {nombre_app}."
+                        )
                     return {
                         "exito": True,
                         "app_state": "TEXT_WRITTEN" if (texto_escribir and texto_escrito_ok) else state_change,

@@ -30,26 +30,24 @@ if TYPE_CHECKING:
 logger = get_logger("jessyca.local_agent.conversational")
 
 DEFAULT_SYSTEM_PROMPT = (
-    "Eres Jessyca, tu asistente local e inteligente para Windows.\n"
-    "Tu personalidad es cálida, natural, amable, servicial y empática.\n"
-    "Responde en el mismo idioma utilizado por el usuario, salvo que el usuario "
-    "solicite explícitamente otro idioma.\n"
-    "Si el usuario solicita hablar, responder, saludar o explicar algo en un "
-    "idioma específico, utiliza ese idioma.\n"
-    "Mantén el idioma solicitado durante la respuesta y no lo traduzcas "
-    "automáticamente al español.\n"
-    "Responde de manera muy concisa, fluida y directa (máximo 2 o 3 oraciones breves), "
-    "óptima para síntesis de voz (TTS). Ve directo al grano sin introducciones innecesarias.\n"
-    "No utilices viñetas, asteriscos, títulos markdown ni formato estructurado pesado.\n"
-    "Si te piden saludar a una persona en específico, dale un saludo personalizado.\n"
-    "Tienes acceso al historial reciente de la conversación en el bloque '--- Historial reciente ---'.\n"
-    "Cuando el usuario pregunte por cosas dichas anteriormente (como su nombre, proyectos o temas mencionados, "
-    "palabras secretas o lo primero que dijo), utiliza obligatoriamente la información de ese historial reciente "
-    "para responder con exactitud. Si pregunta por el proyecto mencionado y se mencionó JESSYCA, responde que es el proyecto JESSYCA.\n"
-    "Si el usuario hace referencia a una persona o tema de turnos anteriores, "
-    "mantén la coherencia del diálogo.\n"
-    "Si la pregunta es académica, científica o de conocimiento general, "
-    "responde con claridad y precisión real."
+    "Eres Jessyca, asistente local para Windows.\n"
+    "REGLA PRIMORDIAL: Responde primero y directamente a la pregunta concreta formulada por el usuario, "
+    "con precisión técnica, veracidad y en español natural.\n"
+    "CERO PITCH AUTOMÁTICO: Prohibido incluir autopresentaciones no solicitadas (como 'Hola, soy Jessyca...', "
+    "'Como tu asistente...'), listas de capacidades ('Puedo ayudarte a abrir aplicaciones...') o invitaciones "
+    "promocionales. No agregues esos elementos a menos que el usuario pregunte explícitamente quién eres o qué sabes hacer.\n"
+    "DISTINCIÓN EPISTÉMICA: Distingue rigurosamente entre hechos comprobados (datos verificados en el sistema "
+    "o en el historial), inferencias lógicas y datos desconocidos. Si no dispones de un dato o se desconoce, indícalo con "
+    "franqueza y exactitud; nunca inventes ni supongas información.\n"
+    "VERACIDAD TÉCNICA: No inventes archivos, comandos, dependencias, rutas, herramientas, métricas de rendimiento ni características.\n"
+    "NO ANTICIPAR VERIFICACIÓN: No afirmes que una acción del sistema concluyó o tuvo éxito antes de disponer de verificación observable.\n"
+    "LIMITACIONES HONESTAS: Si una solicitud no está soportada o excede tus capacidades, declara la limitación "
+    "con claridad y sobriedad, sin sustituirla por publicidad o sugerencias irrelevantes.\n"
+    "CONCISIÓN Y TTS: Responde de forma breve y fluida (máximo 2 o 3 oraciones breves), directa al grano, "
+    "óptima para síntesis de voz (TTS). Evita markdown pesado (sin viñetas, asteriscos o títulos).\n"
+    "IDIOMA: Responde en el mismo idioma utilizado por el usuario, salvo que solicite explícitamente otro idioma.\n"
+    "HISTORIAL: Tienes acceso al historial reciente de la conversación en '--- Historial reciente ---'. "
+    "Úsalo para responder preguntas sobre turnos previos y mantener coherencia estricta."
 )
 
 
@@ -152,7 +150,8 @@ class ConversationalDialogueHandler:
 
                 if llm_response and len(llm_response.strip()) > 5:
                     logger.info(f"[CONVERSATIONAL LLM OK] Respuesta: '{llm_response[:80]}...'")
-                    return self._clean_for_speech(llm_response)
+                    filtered = self._filter_unsolicited_pitch(llm_response, user_input)
+                    return self._clean_for_speech(filtered)
                 logger.warning("[CONVERSATIONAL LLM] Respuesta vacía del LLM, usando síntesis.")
             except Exception as ex:
                 logger.warning(f"[CONVERSATIONAL LLM FALLBACK] Inferencia falló ({ex}), usando síntesis contextual.")
@@ -160,12 +159,13 @@ class ConversationalDialogueHandler:
             logger.info("[CONVERSATIONAL] Ollama no disponible, usando síntesis contextual.")
 
         # 2. Síntesis dialógica semántica contextual
-        return self._synthesize_dialogue(
+        synth_res = self._synthesize_dialogue(
             user_input=user_input,
             target_person=target_person,
             history=history_turns,
             params=params_dict,
         )
+        return self._filter_unsolicited_pitch(synth_res, user_input)
 
     def generate_response_stream(
         self,
@@ -251,7 +251,8 @@ class ConversationalDialogueHandler:
             history=history_turns,
             params=params_dict,
         )
-        words = fallback_text.split(" ")
+        filtered_fallback = self._filter_unsolicited_pitch(fallback_text, user_input)
+        words = filtered_fallback.split(" ")
         for i, w in enumerate(words):
             yield w + (" " if i < len(words) - 1 else "")
 
@@ -338,14 +339,20 @@ class ConversationalDialogueHandler:
 
         # 3. Saludos directos ("Jessyca saluda", "Hola", "Buenas tardes")
         if any(w in lower for w in ("saluda", "saludos", "dame un saludo", "manda un saludo")) and not person:
-            return "¡Hola! Soy Jessyca. Te mando un saludo muy cordial. ¿En qué te puedo ayudar hoy?"
+            return "¡Hola! Te mando un saludo cordial. ¿En qué te puedo ayudar hoy?"
 
-        if lower in ("hola", "hola jessyca", "hola jessica", "jessyca hola", "jessica hola", "hey", "buenas", "buenos días", "buenas tardes", "buenas noches"):
-            return "¡Hola! Soy Jessyca. ¿En qué te puedo ayudar hoy?"
+        if lower in ("hola", "hola jessyca", "hola jessica", "jessyca hola", "jessica hola", "hey", "buenas", "buenos días", "buenos dias", "buenas tardes", "buenas noches", "buen día", "buen dia"):
+            if any(w in lower for w in ("buenos días", "buenos dias", "buen día", "buen dia")):
+                return "¡Buenos días! ¿En qué puedo ayudarte hoy?"
+            elif "buenas tardes" in lower:
+                return "¡Buenas tardes! ¿En qué puedo colaborarte hoy?"
+            elif "buenas noches" in lower:
+                return "¡Buenas noches! ¿En qué te puedo colaborar hoy?"
+            return "¡Hola! ¿En qué te puedo ayudar hoy?"
 
         # 4. Preguntas de estado / Identidad
         if any(w in lower for w in ("cómo estás", "como estas", "cómo te va", "como te va", "qué tal", "que tal")):
-            return "¡Estoy muy bien, muchas gracias! Lista para ayudarte en lo que necesites hoy."
+            return "¡Estoy muy bien, muchas gracias! ¿En qué te puedo ayudar hoy?"
 
         if any(w in lower for w in ("quién eres", "quien eres", "cuál es tu nombre", "cual es tu nombre", "quién te creó")):
             return "Soy Jessyca, tu asistente local e inteligente para Windows."
@@ -413,6 +420,51 @@ class ConversationalDialogueHandler:
                 "La inteligencia artificial es una rama de la informática dedicada al desarrollo de sistemas "
                 "capaces de aprender a partir de datos, razonar y tomar decisiones para resolver tareas complejas."
             )
+
+        # 8.1 Conceptos de computación, desarrollo y bases de datos (respuestas directas y técnicas)
+        if any(w in lower for w in ("clave primaria", "llave primaria", "primary key")):
+            return (
+                "Una clave primaria es una columna o conjunto de columnas que identifica de forma unívoca "
+                "cada fila en una tabla de base de datos relacional, garantizando valores únicos y no nulos."
+            )
+
+        if any(w in lower for w in ("qué es un puntero", "que es un puntero", "cómo funciona un puntero", "como funciona un puntero")):
+            return (
+                "Un puntero es una variable que almacena la dirección de memoria de otra variable, "
+                "permitiendo acceder y manipular datos directamente en memoria."
+            )
+
+        if any(w in lower for w in ("diferencia entre proceso e hilo", "diferencia entre un proceso y un hilo", "proceso e hilo", "proceso y un hilo", "proceso o hilo", "hilos y procesos")):
+            return (
+                "Un proceso es una instancia de un programa en ejecución con su propio espacio de direcciones aislado, "
+                "mientras que un hilo es una unidad básica de ejecución que comparte la memoria y recursos con otros hilos del mismo proceso."
+            )
+
+        if any(w in lower for w in ("git rebase", "qué hace git rebase", "que hace git rebase", "cómo funciona git rebase")):
+            return (
+                "Git rebase traslada una serie de commits sobre una nueva base de commits, "
+                "reescribiendo el historial para mantener un registro lineal sin bifurcaciones innecesarias."
+            )
+
+        if any(w in lower for w in ("deadlock", "interbloqueo", "bloqueo mutuo")):
+            return (
+                "Un deadlock o interbloqueo es una condición en sistemas concurrentes donde dos o más procesos "
+                "se bloquean indefinidamente, ya que cada uno espera un recurso que el otro retiene."
+            )
+
+        if any(w in lower for w in ("qué es una api rest", "que es una api rest", "qué es una api", "que es una api", "api rest")):
+            return (
+                "Una API REST es una interfaz de desarrollo que sigue los principios arquitectónicos REST sobre HTTP, "
+                "empleando métodos como GET, POST, PUT y DELETE para operar de manera uniforme sobre recursos."
+            )
+
+        # 8.2 Distinción de datos desconocidos (evita inventar o suponer datos inexistentes en el sistema)
+        if any(w in lower for w in ("cuál es mi saldo", "cual es mi saldo", "saldo de mi cuenta", "mi cuenta bancaria", "cuántos correos tengo", "cuantos correos tengo", "dónde están mis llaves", "donde estan mis llaves")):
+            return "No dispongo de acceso a esa información ni existen registros comprobados sobre ese dato en el sistema local."
+
+        # 8.3 Reconocimiento de limitaciones sin publicidad sustitutiva
+        if any(w in lower for w in ("edita este video para tiktok", "editalo para tiktok", "edita profesionalmente", "prende las luces", "enciende las luces", "hackea")):
+            return "Esa acción no está soportada en el sistema. No dispongo de herramientas para realizarla."
 
         # 9. Información geográfica y cultural (ej. Lima)
         if "lima" in lower:
@@ -500,3 +552,62 @@ class ConversationalDialogueHandler:
         # Normalizar espacios
         cleaned = re.sub(r"\s+", " ", cleaned).strip()
         return cleaned
+
+    def _filter_unsolicited_pitch(self, response_text: str, user_input: str) -> str:
+        """Elimina autopresentaciones y promociones no solicitadas generadas por el LLM o síntesis.
+
+        Conserva presentaciones completas cuando el usuario pregunta explícitamente por identidad
+        ('¿Quién eres?', '¿Cómo te llamas?') o capacidades ('¿Qué puedes hacer?').
+        En consultas técnicas o generales, asegura responder primero a la pregunta concreta.
+        """
+        if not response_text:
+            return ""
+
+        lower_input = user_input.strip().lower()
+        is_explicit_identity_or_cap = any(
+            p in lower_input
+            for p in (
+                "quién eres",
+                "quien eres",
+                "cómo te llamas",
+                "como te llamas",
+                "cuál es tu nombre",
+                "cual es tu nombre",
+                "qué puedes hacer",
+                "que puedes hacer",
+                "qué sabes hacer",
+                "que sabes hacer",
+                "cuáles son tus capacidades",
+                "cuales son tus capacidades",
+                "capacidades",
+                "describe tus capacidades",
+            )
+        )
+        if is_explicit_identity_or_cap:
+            return response_text
+
+        text = response_text.strip()
+
+        # 1. Eliminar autopresentación inicial repetitiva no solicitada
+        patterns_prefix = [
+            r"^(?:¡?hola[!\.,]?\s*)?(?:soy|mi nombre es)\s+jessyca[,\.]?(?:\s+tu asistente[^.!?\n]*[.!?])?\s*",
+            r"^como tu asistente[^.!?,\n]*[,.!?]\s*",
+        ]
+        for pat in patterns_prefix:
+            m = re.match(pat, text, flags=re.IGNORECASE)
+            if m and len(m.group(0)) < len(text):
+                trimmed = text[m.end():].strip()
+                if trimmed:
+                    text = trimmed[0].upper() + trimmed[1:]
+                    break
+
+        # 2. Eliminar coletillas promocionales o publicitarias no solicitadas al final
+        patterns_suffix = [
+            r"[\s\.,;]+(?:recuerda que\s+(?:puedo|soy jessyca)[^\.\n]*[\.!]?)$",
+            r"[\s\.,;]+(?:si deseas, puedo abrir alguna aplicación o[^\.\n]*[\?!]?)$",
+            r"[\s\.,;]+(?:puedo ayudarte a abrir aplicaciones, reproducir videos o[^\.\n]*[\.!]?)$",
+        ]
+        for pat in patterns_suffix:
+            text = re.sub(pat, ".", text, flags=re.IGNORECASE).strip()
+
+        return text

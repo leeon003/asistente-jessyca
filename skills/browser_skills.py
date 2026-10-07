@@ -76,44 +76,38 @@ class BrowserOpenSkill(BaseSkill):
         try:
             bsm = BrowserSessionManager()
             tab = bsm.open_url(url)
-            try:
-                import webbrowser
-                webbrowser.open(url)
-            except Exception:
-                pass
+
+            # Comprobar bloqueo CAPTCHA o autenticación en la página
+            is_blocked, block_msg = bsm.detect_blocking_state(tab.tab_id)
+            if is_blocked:
+                return {
+                    "exito": False,
+                    "bloqueado": True,
+                    "requiere_intervencion": True,
+                    "mensaje": block_msg,
+                    "url": tab.url,
+                    "tab_id": tab.tab_id,
+                }
 
             is_mock_verif = parametros.get("mock_verified")
             if is_mock_verif is True:
-                return {
-                    "exito": True,
-                    "executed": True,
-                    "mensaje": f"Se abrió la URL '{url}' en el navegador.",
-                    "url": url,
-                    "tab_id": tab.tab_id if tab else "tab-1",
-                    "verified": True,
-                    "verification_status": "VERIFIED",
-                    "verification_required": True,
-                }
+                is_verif = True
             elif is_mock_verif is False:
-                return {
-                    "exito": True,
-                    "executed": True,
-                    "mensaje": f"Se solicitó abrir la URL '{url}' en el navegador.",
-                    "url": url,
-                    "tab_id": tab.tab_id if tab else "tab-1",
-                    "verified": False,
-                    "verification_status": "UNVERIFIED",
-                    "verification_required": True,
-                }
+                is_verif = False
+            else:
+                is_verif = bool(tab and tab.tab_id and not tab.is_loading)
+
+            verif_stat = "VERIFIED" if is_verif else "UNVERIFIED"
 
             return {
                 "exito": True,
                 "executed": True,
-                "mensaje": f"Se solicitó abrir la URL '{url}' en el navegador.",
-                "url": url,
-                "tab_id": tab.tab_id if tab else "tab-1",
-                "verified": False,
-                "verification_status": "UNVERIFIED",
+                "mensaje": f"Listo, abrí '{tab.title or url}' en el navegador.",
+                "url": tab.url,
+                "titulo": tab.title,
+                "tab_id": tab.tab_id,
+                "verified": is_verif,
+                "verification_status": verif_stat,
                 "verification_required": True,
             }
         except Exception as exc:
@@ -128,7 +122,7 @@ class BrowserNavigateSkill(BaseSkill):
             id="browser.navigate",
             name="Browser Navigator",
             version="1.0.0",
-            description="Navega a una nueva dirección web en la sesión activa del navegador.",
+            description="Navega a una nueva dirección web o sigue enlaces en la sesión activa del navegador.",
             author="Jessyca Core",
             capabilities=("browser_navigation",),
             required_tools=("browser.navigate",),
@@ -141,40 +135,52 @@ class BrowserNavigateSkill(BaseSkill):
             skill_id="browser.navigate",
             name="Browser Navigator",
             version="1.0.0",
-            description="Navegación web en pestaña activa.",
+            description="Navegación web y seguimiento de enlaces en pestaña activa.",
             capabilities=("browser_navigation",),
             required_tools=("browser.navigate",),
             required_permissions=("browser.navigate",),
             risk_level=SecurityLevel.SAFE,
-            tags=("navegar", "ir", "web", "url", "redireccionar"),
+            tags=("navegar", "ir", "web", "url", "redireccionar", "enlace", "link"),
             manifest=manifest,
         )
         super().__init__(nombre="browser.navigate", nivel_riesgo=1, definition=def_obj)
 
     def ejecutar(self, parametros: dict[str, Any]) -> dict[str, Any]:
         url = str(parametros.get("url") or parametros.get("destino") or "").strip()
-        if not url:
-            return {"exito": False, "mensaje": "Debe especificar la URL de destino."}
+        link = str(parametros.get("link") or parametros.get("enlace") or parametros.get("link_text") or "").strip()
 
-        if not url.startswith(("http://", "https://")):
-            url = f"https://{url}"
+        bsm = BrowserSessionManager()
+        try:
+            if link:
+                tab = bsm.follow_link(link)
+            elif url:
+                if not url.startswith(("http://", "https://")):
+                    url = f"https://{url}"
+                tab = bsm.open_url(url)
+            else:
+                return {"exito": False, "mensaje": "Debe especificar la URL o enlace de destino."}
 
-        return {
-            "exito": True,
-            "mensaje": f"Navegación exitosa hacia '{url}'.",
-            "url_actual": url,
-        }
+            return {
+                "exito": True,
+                "mensaje": f"Navegación exitosa hacia '{tab.url}'.",
+                "url_actual": tab.url,
+                "titulo": tab.title,
+                "tab_id": tab.tab_id,
+                "verified": True,
+            }
+        except Exception as exc:
+            return {"exito": False, "mensaje": f"Error en navegación: {exc}"}
 
 
 class BrowserReadSkill(BaseSkill):
-    """Skill para leer y extraer el contenido textual de una página web."""
+    """Skill para leer y extraer el contenido textual de una página web con URL de procedencia."""
 
     def __init__(self) -> None:
         manifest = SkillManifest(
             id="browser.read",
             name="Browser Page Reader",
             version="1.0.0",
-            description="Extrae el texto visible y la estructura de la página web activa.",
+            description="Extrae el texto visible y la estructura de la página web activa con URL de procedencia.",
             author="Jessyca Core",
             capabilities=("browser_navigation", "content_read"),
             required_tools=("browser.read",),
@@ -198,14 +204,21 @@ class BrowserReadSkill(BaseSkill):
         super().__init__(nombre="browser.read", nivel_riesgo=1, definition=def_obj)
 
     def ejecutar(self, parametros: dict[str, Any]) -> dict[str, Any]:
-        url = str(parametros.get("url") or "https://active-page.local")
-        return {
-            "exito": True,
-            "mensaje": "Contenido de la página extraído con éxito.",
-            "url": url,
-            "titulo": "Página Web en Microsoft Edge",
-            "texto_extraido": "Contenido textual principal de la página web inspeccionada.",
-        }
+        selector = parametros.get("selector")
+        bsm = BrowserSessionManager()
+        try:
+            data = bsm.extract_content(selector=selector)
+            return {
+                "exito": True,
+                "mensaje": f"Contenido de la página '{data.get('title')}' extraído con éxito.",
+                "url": data.get("url"),
+                "titulo": data.get("title"),
+                "texto_extraido": data.get("texto"),
+                "provenance": data.get("provenance", "REAL_PHYSICAL"),
+                "is_untrusted_data": True,
+            }
+        except Exception as exc:
+            return {"exito": False, "mensaje": f"Error al extraer contenido: {exc}"}
 
 
 class BrowserDownloadSkill(BaseSkill):
@@ -242,6 +255,7 @@ class BrowserDownloadSkill(BaseSkill):
     def ejecutar(self, parametros: dict[str, Any]) -> dict[str, Any]:
         url = str(parametros.get("url") or "").strip()
         nombre_archivo = str(parametros.get("nombre_archivo") or parametros.get("filename") or "").strip()
+        sandbox_dir = str(parametros.get("sandbox_dir") or "Downloads")
 
         if not url:
             return {"exito": False, "mensaje": "Debe especificar la URL de descarga."}
@@ -257,10 +271,16 @@ class BrowserDownloadSkill(BaseSkill):
                 "mensaje": f"Seguridad: Descarga denegada. Extensión peligrosa bloqueada '{ext}'.",
             }
 
-        return {
-            "exito": True,
-            "mensaje": f"Archivo '{target_name}' preparado para descarga segura.",
-            "url": url,
-            "nombre_archivo": target_name,
-            "destino_sugerido": os.path.join(os.getcwd(), "Downloads", target_name),
-        }
+        bsm = BrowserSessionManager()
+        try:
+            dest = bsm.download_file(url, sandbox_dir=sandbox_dir, target_filename=target_name)
+            return {
+                "exito": True,
+                "mensaje": f"Archivo '{target_name}' descargado exitosamente en '{dest}'.",
+                "url": url,
+                "nombre_archivo": target_name,
+                "ruta_destino": dest,
+                "verified": os.path.exists(dest),
+            }
+        except Exception as exc:
+            return {"exito": False, "mensaje": f"Error al descargar archivo: {exc}"}

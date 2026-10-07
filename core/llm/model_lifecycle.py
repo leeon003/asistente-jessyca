@@ -280,6 +280,21 @@ class ModelLifecycleManager:
             self._active_model = None
             self._vram_governor.reset()
 
+    def acquire_inference_slot(
+        self,
+        model_name: str | None = None,
+        timeout_seconds: float = 30.0,
+    ):
+        """Adquiere un slot acotado de inferencia GPU a través del VRAMGovernor."""
+        return self._vram_governor.acquire_inference_slot(
+            model_name=model_name,
+            timeout_seconds=timeout_seconds,
+        )
+
+    def get_inference_concurrency_stats(self) -> dict[str, int]:
+        """Retorna estadísticas de concurrencia y cola del gobernador GPU."""
+        return self._vram_governor.get_inference_concurrency_stats()
+
 
 def get_model_lifecycle_manager() -> ModelLifecycleManager:
     """Función de acceso directo a la instancia global de ModelLifecycleManager."""

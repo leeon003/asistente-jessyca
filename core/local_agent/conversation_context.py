@@ -284,17 +284,27 @@ class ConversationContextManager:
 
             # 4.0 GESTIÓN DE CONFIRMACIÓN PENDIENTE (FASE 53)
             if session.pending_confirmation:
+                from core.jde.confirmation import get_confirmation_manager
+                conf_mgr = get_confirmation_manager()
+
                 if lower in ("sí", "si", "confirmo", "autorizo", "adelante", "de acuerdo", "procede", "afirmativo", "sí autorizo", "si autorizo"):
                     pending = dict(session.pending_confirmation)
                     session.clear_pending_confirmation()
                     session.dialogue_state = DialogueState.EXECUTING
+                    conf_mgr.confirm(
+                        session_id=session_id,
+                        action=pending["intent"],
+                        parameters=pending.get("parameters"),
+                    )
                     return pending["intent"], {**pending["parameters"], "is_confirmed": True}, False, None
                 elif lower in ("no", "cancelar", "cancela", "no autorizo", "no confirmo", "detente", "alto", "rechazar"):
                     session.clear_pending_confirmation()
                     session.dialogue_state = DialogueState.NO_ACTIVE_TASK
+                    conf_mgr.clear_session(session_id)
                     return "cancel_task", {}, False, "Entendido, acción cancelada."
                 else:
                     session.clear_pending_confirmation()
+                    conf_mgr.clear_session(session_id)
 
             # 4.0.0.0 APERTURA / CIERRE EXPLÍCITO DE APLICACIONES Y NAVEGADOR
             if any(lower.startswith(w) or lower == w for w in ("abre google", "abrir google", "inicia google", "abre el buscador google", "abrir el buscador google")):
@@ -417,6 +427,49 @@ class ConversationContextManager:
                 session.set_context_item("last_referenced_entity", "YouTube", relevance=1.0)
                 return "open_browser", {"url": "https://www.youtube.com", "site": "YouTube"}, False, None
 
+            # 4.0.0.2.1 APERTURA DE PÁGINA WEB ESPECÍFICA ("Abre la página https://...", "Navega a https://...")
+            if any(w in lower for w in ("abre la página", "abrir la página", "abre la pagina", "abrir la pagina", "navega a", "navegar a", "abre el sitio", "abrir el sitio")) or (
+                ("abre " in lower or "abrir " in lower) and ("http://" in lower or "https://" in lower or "www." in lower or ".org" in lower or ".com" in lower or ".es" in lower or ".net" in lower)
+            ):
+                m_url = re.search(r'(https?://[^\s"\']+|www\.[^\s"\']+|[a-zA-Z0-9-]+\.[a-zA-Z]{2,}(?:/[^\s"\']*)?)', text)
+                if m_url:
+                    target_url = m_url.group(1).strip()
+                    if not target_url.startswith(("http://", "https://")):
+                        target_url = f"https://{target_url}"
+                    return "open_browser", {"url": target_url, "site": target_url}, False, None
+
+            # 4.0.0.2.2 CONTROL DE REPRODUCCIÓN MULTIMEDIA ("Pausa el video", "Reanuda el video")
+            if any(w in lower for w in ("pausa el video", "pausa la reproducción", "pausa la reproduccion", "pausar video", "pausar el video", "detén el video", "deten el video", "pausa youtube", "pausa la música", "pausa la musica")):
+                return "media_control", {"action": "pause"}, False, None
+            if any(w in lower for w in ("reanuda el video", "reanuda la reproducción", "reanuda la reproduccion", "reanudar video", "reanudar el video", "continúa el video", "continua el video", "reanuda youtube", "reanuda la música", "reanuda la musica")):
+                return "media_control", {"action": "resume"}, False, None
+
+            # 4.0.0.2.3 SEGUIR ENLACES ("Sigue el enlace X", "Haz clic en el enlace X")
+            if any(w in lower for w in ("sigue el enlace", "seguir el enlace", "haz clic en el enlace", "hacer clic en el enlace", "click en el enlace", "abre el enlace", "abrir el enlace", "clic en el link", "click en el link", "sigue el link")):
+                m_link = re.search(r'["\']([^"\']+)["\']', text)
+                if m_link:
+                    link_txt = m_link.group(1).strip()
+                else:
+                    link_txt = re.sub(
+                        r"^(?:jessyca,?\s*|jessica,?\s*)?(?:sigue\s+el\s+enlace|seguir\s+el\s+enlace|haz\s+clic\s+en\s+el\s+enlace|click\s+en\s+el\s+enlace|abre\s+el\s+enlace|sigue\s+el\s+link|click\s+en\s+el\s+link)\s+(?:a\s+|hacia\s+)?",
+                        "",
+                        text,
+                        flags=re.IGNORECASE,
+                    ).strip()
+                return "follow_link", {"link": link_txt}, False, None
+
+            # 4.0.0.2.4 EXTRAER CONTENIDO DE LA PÁGINA ("Extrae el contenido de la página", "Lee la página", "Extrae el texto")
+            if any(w in lower for w in ("extrae el contenido", "extraer el contenido", "extrae el texto", "extraer el texto", "lee la página", "leer la página", "lee la pagina", "leer la pagina", "lee el contenido web", "extrae la información de la página", "extraer la informacion de la pagina")):
+                return "browser_read", {}, False, None
+
+            # 4.0.0.2.5 DESCARGAR ARCHIVO WEB ("Descarga el archivo https://...", "Descarga desde https://...")
+            if any(w in lower for w in ("descarga el archivo", "descargar el archivo", "descarga desde", "descargar desde", "descarga de la url", "baja el archivo", "bajar el archivo")) or (
+                ("descarga " in lower or "descargar " in lower) and ("http://" in lower or "https://" in lower)
+            ):
+                m_url = re.search(r'(https?://[^\s"\']+|www\.[^\s"\']+)', text)
+                target_url = m_url.group(1).strip() if m_url else ""
+                return "browser_download", {"url": target_url}, False, None
+
             # 4.0.0.3 DESAMBIGUACIÓN: "Busca una canción" / "Busca"
             if lower in ("busca una canción", "busca una cancion", "buscar una canción", "buscar una cancion", "pon una canción", "pon una cancion"):
                 session.set_pending_question(
@@ -433,6 +486,118 @@ class ConversationContextManager:
                     expected_slot="search_query",
                 )
                 return "browser_search", {"immediate_response": "Perfecto, ¿qué quieres que busque?", "requires_clarification": True}, True, "Perfecto, ¿qué quieres que busque?"
+
+            # 4.0.0.2.8 OPERACIONES DE ARCHIVOS Y CARPETAS
+            # 4.0.0.2.8.1 APERTURA DE CARPETAS EN EL EXPLORADOR ("Abre la carpeta C:\...", "Abre el explorador en...")
+            if any(w in lower for w in ("abre la carpeta", "abrir la carpeta", "abre el directorio", "abrir el directorio", "abre el explorador en", "abrir el explorador en")) or (
+                ("abre " in lower or "abrir " in lower) and ("carpeta" in lower or "directorio" in lower)
+            ):
+                folder_m = re.search(r'["\']([^"\']+)["\']', text)
+                if folder_m:
+                    folder_path = folder_m.group(1).strip()
+                else:
+                    folder_path = re.sub(
+                        r"^(?:jessyca,?\s*|jessica,?\s*)?(?:abre|abrir)\s+(?:la\s+carpeta(?:\s+en|\s+de)?|el\s+directorio(?:\s+en|\s+de)?|el\s+explorador(?:\s+en)?)\s*",
+                        "",
+                        text,
+                        flags=re.IGNORECASE,
+                    ).strip()
+                return "open_folder", {"ruta_carpeta": folder_path, "app_name": "explorer"}, False, None
+
+            # 4.0.0.2.8.2 CREAR CARPETA ("Crea una carpeta en C:\... llamada prueba", "Crea la carpeta...")
+            if any(w in lower for w in ("crea una carpeta", "crear una carpeta", "crea la carpeta", "crear la carpeta", "nueva carpeta", "crea un directorio", "crear un directorio", "crea el directorio")):
+                # Si dice "crea una carpeta llamada <nombre> en <ruta>"
+                m_named_in = re.search(r"(?:llamada|llamado|con\s+nombre)\s+[\"']?([^\"'\s]+)[\"']?\s+en\s+[\"']?([^\"'\r\n]+)[\"']?", text, flags=re.IGNORECASE)
+                if m_named_in:
+                    f_name = m_named_in.group(1).strip()
+                    f_parent = m_named_in.group(2).strip().strip("\"'")
+                    full_p = os.path.join(f_parent, f_name)
+                    return "create_folder", {"ruta": full_p, "nombre": f_name}, False, None
+
+                # Si especifica ruta con comillas o directa
+                p_m = re.search(r'["\']([^"\']+)["\']', text)
+                if p_m:
+                    full_p = p_m.group(1).strip()
+                else:
+                    full_p = re.sub(
+                        r"^(?:jessyca,?\s*|jessica,?\s*)?(?:crea|crear)\s+(?:una\s+carpeta|la\s+carpeta|un\s+directorio|el\s+directorio)\s+(?:en|llamada|con\s+nombre)?\s*",
+                        "",
+                        text,
+                        flags=re.IGNORECASE,
+                    ).strip()
+                return "create_folder", {"ruta": full_p}, False, None
+
+            # 4.0.0.2.8.3 LISTAR ARCHIVOS ("Lista los archivos en C:\...", "Qué archivos hay en...")
+            if any(w in lower for w in ("lista los archivos", "listar los archivos", "listar archivos", "lista archivos", "muestra los archivos", "mostrar archivos", "qué archivos hay", "que archivos hay", "contenido de la carpeta", "contenido del directorio", "lista el contenido")):
+                p_m = re.search(r'["\']([^"\']+)["\']', text)
+                if p_m:
+                    dir_path = p_m.group(1).strip()
+                else:
+                    dir_path = re.sub(
+                        r"^(?:jessyca,?\s*|jessica,?\s*)?(?:lista|listar|muestra|mostrar)\s+(?:los\s+archivos|archivos|el\s+contenido)?\s*(?:en|de|del|de\s+la\s+carpeta|del\s+directorio)?\s*",
+                        "",
+                        text,
+                        flags=re.IGNORECASE,
+                    ).strip()
+                    dir_path = re.sub(r"^(?:qué\s+archivos\s+hay\s+en|que\s+archivos\s+hay\s+en)\s*", "", dir_path, flags=re.IGNORECASE).strip()
+                return "list_files", {"ruta_carpeta": dir_path or "."}, False, None
+
+            # 4.0.0.2.8.4 METADATOS DE ARCHIVO ("Consulta los metadatos de...", "Propiedades del archivo...")
+            if any(w in lower for w in ("metadatos del archivo", "metadatos de", "consulta los metadatos", "consultar metadatos", "propiedades del archivo", "propiedades de", "detalles del archivo", "información del archivo", "informacion del archivo")):
+                p_m = re.search(r'["\']([^"\']+)["\']', text)
+                if p_m:
+                    file_p = p_m.group(1).strip()
+                else:
+                    file_p = re.sub(
+                        r"^(?:jessyca,?\s*|jessica,?\s*)?(?:consulta|consultar|muestra|ver)?\s*(?:los\s+metadatos|metadatos|propiedades|detalles|informaci[oó]n)?\s*(?:del?\s+archivo|de|del)?\s*",
+                        "",
+                        text,
+                        flags=re.IGNORECASE,
+                    ).strip()
+                return "file_metadata", {"ruta": file_p}, False, None
+
+            # 4.0.0.2.8.5 COPIAR ARCHIVO ("Copia el archivo X a Y", "Copia X en Y")
+            if any(w in lower for w in ("copia el archivo", "copiar el archivo", "copia este archivo", "copiar este archivo", "duplica el archivo")) or (
+                ("copia " in lower or "copiar " in lower) and (" a " in lower or " en " in lower or " hacia " in lower)
+            ):
+                m_q = re.search(r'["\']([^"\']+)["\']\s+(?:a|hacia|en)\s+["\']([^"\']+)["\']', text)
+                if m_q:
+                    src, dst = m_q.group(1).strip(), m_q.group(2).strip()
+                else:
+                    m_p = re.search(r"(?:archivo|fichero)?\s*[\"']?([^\s\"']+)[\"']?\s+(?:a|hacia|en)\s+[\"']?([^\r\n\"']+)[\"']?", text, flags=re.IGNORECASE)
+                    if m_p:
+                        src, dst = m_p.group(1).strip(), m_p.group(2).strip()
+                    else:
+                        src, dst = "", ""
+                return "copy_file", {"origen": src, "destino": dst}, False, None
+
+            # 4.0.0.2.8.6 MOVER ARCHIVO ("Mueve el archivo X a Y", "Mueve X en Y")
+            if any(w in lower for w in ("mueve el archivo", "mover el archivo", "mueve este archivo", "mover este archivo", "traslada el archivo")) or (
+                ("mueve " in lower or "mover " in lower) and (" a " in lower or " en " in lower or " hacia " in lower)
+            ):
+                m_q = re.search(r'["\']([^"\']+)["\']\s+(?:a|hacia|en)\s+["\']([^"\']+)["\']', text)
+                if m_q:
+                    src, dst = m_q.group(1).strip(), m_q.group(2).strip()
+                else:
+                    m_p = re.search(r"(?:archivo|fichero)?\s*[\"']?([^\s\"']+)[\"']?\s+(?:a|hacia|en)\s+[\"']?([^\r\n\"']+)[\"']?", text, flags=re.IGNORECASE)
+                    if m_p:
+                        src, dst = m_p.group(1).strip(), m_p.group(2).strip()
+                    else:
+                        src, dst = "", ""
+                return "move_file", {"origen": src, "destino": dst}, False, None
+
+            # 4.0.0.2.8.7 RENOMBRAR ARCHIVO ("Renombra el archivo X a Y", "Cambia el nombre del archivo X a Y")
+            if any(w in lower for w in ("renombra el archivo", "renombrar el archivo", "renombra este archivo", "cambia el nombre del archivo", "cambiar el nombre del archivo", "renombra", "renombrar")):
+                m_q = re.search(r'["\']([^"\']+)["\']\s+(?:a|por|como)\s+["\']([^"\']+)["\']', text)
+                if m_q:
+                    src, new_n = m_q.group(1).strip(), m_q.group(2).strip()
+                else:
+                    m_p = re.search(r"(?:archivo|fichero)?\s*[\"']?([^\s\"']+)[\"']?\s+(?:a|por|como)\s+[\"']?([^\r\n\"']+)[\"']?", text, flags=re.IGNORECASE)
+                    if m_p:
+                        src, new_n = m_p.group(1).strip(), m_p.group(2).strip()
+                    else:
+                        src, new_n = "", ""
+                return "rename_file", {"ruta": src, "origen": src, "nuevo_nombre": new_n}, False, None
 
             # 4.0.0.3.0 ACCIÓN CRÍTICA / ELIMINACIÓN ("Elimina el archivo...", "Borra...")
             if any(w in lower for w in ("elimina", "eliminar", "borra", "borrar", "destruye")):

@@ -1,5 +1,6 @@
 import logging
 import os
+import threading
 import time
 from typing import Any
 
@@ -23,6 +24,8 @@ if not orq_logger.handlers:
 # Constantes de control de diálogo y aclaración
 MAX_CLARIFICATION_ATTEMPTS: int = 2
 CLARIFICATION_TTL_SECONDS: float = 60.0
+DEFAULT_SESSION_ID: str = "default_session"
+
 PALABRAS_CANCELACION: set[str] = {
     "cancelar",
     "cancela",
@@ -38,29 +41,76 @@ PALABRAS_CANCELACION: set[str] = {
     "ninguna",
 }
 
-# Estado de intención pendiente en memoria (sesión interactiva)
+# ─────────────────────────────────────────────────────────────────────────────
+# NOTA DE ARQUITECTURA (Fase 10 - Consolidación Gradual):
+# core/orquestador.py es un orquestador sincrónico legado diseñado para la
+# interacción en consola local (CLI turno a turno con input() interactivo).
+# Para flujos HTTP multisesión concurrentes (Mobile API, WebUI Bridge) o flujo
+# de Voz principal, la autoridad de despacho unificada y multisesión es
+# JessycaLocalAgent (core/local_agent/local_agent.py).
+#
+# Para evitar interferencias entre sesiones en pruebas o accesos concurrentes,
+# el estado de aclaración pendiente se almacena aislado por session_id con TTL
+# y sincronización threading.RLock().
+# ─────────────────────────────────────────────────────────────────────────────
+
+_session_pending_intents: dict[str, PendingIntent] = {}
+_session_lock: threading.RLock = threading.RLock()
+
+# Variable global mantenida únicamente por compatibilidad hacia atrás con código legacy
 _active_pending_intent: PendingIntent | None = None
 
 
-def get_pending_intent() -> PendingIntent | None:
-    """Obtiene la intención pendiente activa en memoria."""
+def get_pending_intent(session_id: str = DEFAULT_SESSION_ID) -> PendingIntent | None:
+    """Obtiene la intención pendiente activa en memoria para la sesión especificada."""
     global _active_pending_intent
-    return _active_pending_intent
+    with _session_lock:
+        intent = _session_pending_intents.get(session_id)
+        if intent is not None and intent.ha_expirado(CLARIFICATION_TTL_SECONDS):
+            orq_logger.info(
+                f"[Sesión {session_id}] Intención pendiente expirada por TTL ({CLARIFICATION_TTL_SECONDS}s). Descartando."
+            )
+            _session_pending_intents.pop(session_id, None)
+            if session_id == DEFAULT_SESSION_ID:
+                _active_pending_intent = None
+            return None
+        return intent
 
 
-def set_pending_intent(pending: PendingIntent | None) -> None:
-    """Establece o limpia la intención pendiente activa (útil para pruebas y control de sesión)."""
+def set_pending_intent(pending: PendingIntent | None, session_id: str = DEFAULT_SESSION_ID) -> None:
+    """Establece o limpia la intención pendiente activa para la sesión especificada."""
     global _active_pending_intent
-    _active_pending_intent = pending
+    with _session_lock:
+        if pending is None:
+            _session_pending_intents.pop(session_id, None)
+        else:
+            _session_pending_intents[session_id] = pending
+        if session_id == DEFAULT_SESSION_ID:
+            _active_pending_intent = pending
 
 
-def clear_pending_intent() -> None:
-    """Limpia la intención pendiente activa."""
+def clear_pending_intent(session_id: str = DEFAULT_SESSION_ID) -> None:
+    """Limpia la intención pendiente activa para la sesión especificada."""
     global _active_pending_intent
-    _active_pending_intent = None
+    with _session_lock:
+        _session_pending_intents.pop(session_id, None)
+        if session_id == DEFAULT_SESSION_ID:
+            _active_pending_intent = None
 
 
-def ejecutar_orden_texto(texto: str, skills: dict[str, Any] | None = None) -> str:
+def clear_all_pending_intents() -> None:
+    """Limpia todas las intenciones pendientes de todas las sesiones."""
+    global _active_pending_intent
+    with _session_lock:
+        _session_pending_intents.clear()
+        _active_pending_intent = None
+
+
+def ejecutar_orden_texto(
+    texto: str,
+    skills: dict[str, Any] | None = None,
+    session_id: str = DEFAULT_SESSION_ID,
+) -> str:
     """
     Orquesta el flujo completo de una orden de texto con soporte de aclaración (Fase 2):
     1. Comprueba si hay una intención pendiente activa o si ha expirado (TTL).
@@ -77,72 +127,94 @@ def ejecutar_orden_texto(texto: str, skills: dict[str, Any] | None = None) -> st
 
     texto_limpio = texto.strip()
     texto_lower = texto_limpio.lower()
-    orq_logger.info(f"Orden recibida: '{texto_limpio}'")
+    orq_logger.info(f"[Sesión {session_id}] Orden recibida: '{texto_limpio}'")
 
-    # ── Paso 0: Verificación de TTL de intención pendiente ────────────────────
-    if _active_pending_intent is not None:
-        if _active_pending_intent.ha_expirado(CLARIFICATION_TTL_SECONDS):
-            orq_logger.info(f"Intención pendiente expirada por TTL ({CLARIFICATION_TTL_SECONDS}s). Descartando.")
-            _active_pending_intent = None
-
-    # ── Paso 1: Cancelación explícita durante aclaración ──────────────────────
-    if _active_pending_intent is not None and texto_lower in PALABRAS_CANCELACION:
-        orq_logger.info(f"Aclaración cancelada explícitamente por el usuario ('{texto_limpio}').")
-        _active_pending_intent = None
-        return "De acuerdo, cancelé la acción."
-
-    # ── Paso 2: Control de límite de intentos (Anti-Loop) ─────────────────────
     contexto_aclaracion: PendingIntent | None = None
-    if _active_pending_intent is not None:
-        if _active_pending_intent.intentos >= MAX_CLARIFICATION_ATTEMPTS:
-            orq_logger.warning(
-                f"Límite máximo de aclaraciones superado ({MAX_CLARIFICATION_ATTEMPTS} intentos). Cancelando orden."
+    with _session_lock:
+        active_pending = _session_pending_intents.get(session_id)
+
+        # ── Paso 0: Verificación de TTL de intención pendiente ────────────────────
+        if active_pending is not None and active_pending.ha_expirado(CLARIFICATION_TTL_SECONDS):
+            orq_logger.info(
+                f"[Sesión {session_id}] Intención pendiente expirada por TTL ({CLARIFICATION_TTL_SECONDS}s). Descartando."
             )
-            _active_pending_intent = None
-            return "No pude determinar la opción solicitada tras dos intentos. Por favor, formula la orden completa de nuevo."
-        _active_pending_intent.intentos += 1
-        contexto_aclaracion = _active_pending_intent
+            _session_pending_intents.pop(session_id, None)
+            if session_id == DEFAULT_SESSION_ID:
+                _active_pending_intent = None
+            active_pending = None
+
+        # ── Paso 1: Cancelación explícita durante aclaración ──────────────────────
+        if active_pending is not None and texto_lower in PALABRAS_CANCELACION:
+            orq_logger.info(f"[Sesión {session_id}] Aclaración cancelada explícitamente por el usuario ('{texto_limpio}').")
+            _session_pending_intents.pop(session_id, None)
+            if session_id == DEFAULT_SESSION_ID:
+                _active_pending_intent = None
+            return "De acuerdo, cancelé la acción."
+
+        # ── Paso 2: Control de límite de intentos (Anti-Loop) ─────────────────────
+        if active_pending is not None:
+            if active_pending.intentos >= MAX_CLARIFICATION_ATTEMPTS:
+                orq_logger.warning(
+                    f"[Sesión {session_id}] Límite máximo de aclaraciones superado ({MAX_CLARIFICATION_ATTEMPTS} intentos). Cancelando orden."
+                )
+                _session_pending_intents.pop(session_id, None)
+                if session_id == DEFAULT_SESSION_ID:
+                    _active_pending_intent = None
+                return "No pude determinar la opción solicitada tras dos intentos. Por favor, formula la orden completa de nuevo."
+            active_pending.intentos += 1
+            contexto_aclaracion = active_pending
 
     # ── Paso 3: Consultar al Cerebro (LLM) ────────────────────────────────────
     decision = procesar_orden(texto_limpio, skills, contexto_aclaracion=contexto_aclaracion)
 
-    if decision.get("error") and not decision.get("skill") and decision.estado == IntentStatus.INVALID:
-        orq_logger.warning(f"Error en Cerebro: {decision['error']}")
-        _active_pending_intent = None
-        return decision.get("respuesta_hablada") or "Tuve un problema al procesar tu orden."
+    with _session_lock:
+        if decision.get("error") and not decision.get("skill") and decision.estado == IntentStatus.INVALID:
+            orq_logger.warning(f"[Sesión {session_id}] Error en Cerebro: {decision['error']}")
+            _session_pending_intents.pop(session_id, None)
+            if session_id == DEFAULT_SESSION_ID:
+                _active_pending_intent = None
+            return decision.get("respuesta_hablada") or "Tuve un problema al procesar tu orden."
 
-    # ── Paso 4: Validación Determinista con IntentValidator ───────────────────
-    validator = IntentValidator(skills)
-    val_result = validator.validate(decision, skills)
+        # ── Paso 4: Validación Determinista con IntentValidator ───────────────────
+        validator = IntentValidator(skills)
+        val_result = validator.validate(decision, skills)
 
-    # ── Paso 5: Manejo de AMBIGUOUS o INCOMPLETE (Aclaración) ─────────────────
-    if val_result.status in (IntentStatus.AMBIGUOUS, IntentStatus.INCOMPLETE):
-        intentos_actuales = _active_pending_intent.intentos if _active_pending_intent else 0
-        if intentos_actuales >= MAX_CLARIFICATION_ATTEMPTS:
-            orq_logger.warning(
-                f"Límite máximo de aclaraciones alcanzado ({MAX_CLARIFICATION_ATTEMPTS} intentos). Cancelando orden."
+        # ── Paso 5: Manejo de AMBIGUOUS o INCOMPLETE (Aclaración) ─────────────────
+        if val_result.status in (IntentStatus.AMBIGUOUS, IntentStatus.INCOMPLETE):
+            current_pending = _session_pending_intents.get(session_id)
+            intentos_actuales = current_pending.intentos if current_pending else 0
+            if intentos_actuales >= MAX_CLARIFICATION_ATTEMPTS:
+                orq_logger.warning(
+                    f"[Sesión {session_id}] Límite máximo de aclaraciones alcanzado ({MAX_CLARIFICATION_ATTEMPTS} intentos). Cancelando orden."
+                )
+                _session_pending_intents.pop(session_id, None)
+                if session_id == DEFAULT_SESSION_ID:
+                    _active_pending_intent = None
+                return "No pude determinar la opción solicitada tras dos intentos. Por favor, formula la orden completa de nuevo."
+
+            pregunta = val_result.clarification_prompt or decision.pregunta_aclaratoria or decision.respuesta_hablada
+            new_pending = PendingIntent(
+                skill_nombre=val_result.skill_name or (decision.skill or ""),
+                parametros_parciales=val_result.validated_parameters or (decision.parametros or {}),
+                parametro_esperado=val_result.missing_parameter or decision.parametro_faltante,
+                candidatos_posibles=val_result.candidates or decision.candidatos,
+                pregunta_formulada=pregunta or "",
+                timestamp=time.time(),
+                intentos=intentos_actuales,
+                estado_origen=val_result.status,
             )
+            _session_pending_intents[session_id] = new_pending
+            if session_id == DEFAULT_SESSION_ID:
+                _active_pending_intent = new_pending
+            orq_logger.info(
+                f"[Sesión {session_id}] Intención {val_result.status.value}: Guardado PendingIntent para '{new_pending.skill_nombre}'. Pregunta: '{pregunta}'"
+            )
+            return pregunta
+
+        # Si la orden resultó en otro estado, limpiar cualquier PendingIntent previo de esta sesión
+        _session_pending_intents.pop(session_id, None)
+        if session_id == DEFAULT_SESSION_ID:
             _active_pending_intent = None
-            return "No pude determinar la opción solicitada tras dos intentos. Por favor, formula la orden completa de nuevo."
-
-        pregunta = val_result.clarification_prompt or decision.pregunta_aclaratoria or decision.respuesta_hablada
-        _active_pending_intent = PendingIntent(
-            skill_nombre=val_result.skill_name or (decision.skill or ""),
-            parametros_parciales=val_result.validated_parameters or (decision.parametros or {}),
-            parametro_esperado=val_result.missing_parameter or decision.parametro_faltante,
-            candidatos_posibles=val_result.candidates or decision.candidatos,
-            pregunta_formulada=pregunta or "",
-            timestamp=time.time(),
-            intentos=intentos_actuales,
-            estado_origen=val_result.status,
-        )
-        orq_logger.info(
-            f"Intención {val_result.status.value}: Guardado PendingIntent para '{_active_pending_intent.skill_nombre}'. Pregunta: '{pregunta}'"
-        )
-        return pregunta
-
-    # Si la orden resultó en otro estado, limpiar cualquier PendingIntent previo
-    _active_pending_intent = None
 
     # ── Paso 6: Manejo de UNSUPPORTED o INVALID ──────────────────────────────
     if val_result.status == IntentStatus.UNSUPPORTED:

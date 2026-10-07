@@ -1,10 +1,36 @@
-"""Arquitectura de Memoria a Largo Plazo Inteligente de JESSYCA (long_term_memory.py - Fase 42).
+"""Arquitectura de Memoria a Largo Plazo Inteligente de JESSYCA (long_term_memory.py - Fase 42 / Fase 07).
 
 PRINCIPIOS E INVARIANTES:
 1. MEMORY IS NOT AUTHORITY: Ningún registro en memoria puede sustituir, conceder ni relajar permisos de seguridad.
 2. PROVENANCE & INTEGRITY: Trazabilidad completa de origen, emisor, confianza, alcance y sensibilidad.
 3. POISONING DEFENSE: Neutralización activa de prompt injections y afirmaciones falsas de autorización.
 4. PRIVACY BY DESIGN: Redacción de secretos sensibles antes de la persistencia y soporte para borrado por el usuario.
+5. RELIABLE ATOMIC PERSISTENCE:
+   - Escritura a temporal único dentro del mismo directorio de almacenamiento.
+   - Flush de búferes de usuario y fsync explícito a nivel de sistema operativo para durabilidad física.
+   - Cierre de descriptor previo a reemplazo atómico compatible con Windows (MoveFileExW / os.replace).
+   - Preservación íntegra del archivo destino previo en caso de fallos de serialización, escritura o permisos.
+   - Limpieza selectiva de temporales propios sin intervenir sobre temporales ajenos.
+   - Coherencia total entre caché en memoria y estado persistido en disco: sin confirmaciones falsas.
+
+MODELO DE CONCURRENCIA Y SOPORTE REAL:
+- Concurrencia Intra-Proceso (Multi-threading): Soportada de manera segura mediante threading.RLock reentrante.
+  Todas las lecturas, escrituras, mutaciones de caché y operaciones de archivo dentro del proceso Python
+  están serializadas y protegidas contra condiciones de carrera.
+- Concurrencia Multi-Proceso: NO SOPORTADA directamente mediante threading.Lock/RLock.
+  threading.RLock sincroniza exclusivamente hilos del mismo proceso del intérprete Python.
+  Múltiples procesos del SO accediendo simultáneamente al mismo directorio storage_dir no tienen sincronización
+  de caché en memoria ni bloqueo de archivos a nivel de kernel, lo cual requiere una base de datos distribuida
+  o un mecanismo de lock a nivel de SO (ej. msvcrt.locking / fcntl / filelock).
+
+LÍMITES DE DURABILIDAD ANTE CAÍDAS DEL SISTEMA (SYSTEM CRASH / POWER LOSS):
+- os.fsync(f.fileno()) instruye al kernel de Windows a descargar los búferes del sistema operativo
+  hacia el controlador del dispositivo físico (FlushFileBuffers).
+- Límites físicos: Si el hardware subyacente (discos SSD/HDD convencionales) tiene activada la caché de escritura
+  volátil DRAM sin protección contra pérdida de energía (Power Loss Protection - PLP), un corte eléctrico
+  abrupto puede comprometer los bloques no asentados en NAND por el firmware del disco.
+- En sistemas de archivos NTFS, la atomicidad del reemplazo (os.replace) previene corrupción del árbol de directorios,
+  y al escribir en un archivo temporal separado, el archivo previo nunca resulta truncado o dañado.
 """
 
 from __future__ import annotations
@@ -22,6 +48,7 @@ from typing import Any
 
 from core.emergency_stop import EmergencyStopManager, get_emergency_stop_manager
 from core.logger import get_logger
+from core.memory.memory_exceptions import MemoryPersistenceError
 
 logger = get_logger("jessyca.memory.long_term")
 
@@ -150,8 +177,9 @@ class LongTermMemoryEngine:
         )
 
         with self._lock:
-            self._records[record.id] = record
+            # Persistir primero en disco de forma atómica; si falla, NO se almacena en la caché en memoria
             self._persist_record(record)
+            self._records[record.id] = record
             return record
 
     def retrieve_records(
@@ -215,18 +243,35 @@ class LongTermMemoryEngine:
             if record_id not in self._records:
                 return False
             rec = self._records[record_id]
-            # Guardar versión anterior en historial
-            rec.history.append({
+
+            # Preparar versión actualizada sin mutar el objeto en caché previamente
+            new_history = list(rec.history)
+            new_history.append({
                 "version": rec.version,
                 "content": rec.content,
                 "timestamp": rec.timestamp,
                 "reason": reason,
             })
-            rec.version += 1
-            rec.content = self._redact_secrets(new_content)
-            rec.timestamp = time.time()
-            self._persist_record(rec)
-            logger.info(f"[MEMORY] Registro '{record_id}' actualizado a versión {rec.version}.")
+
+            updated_rec = LongTermMemoryRecord(
+                id=rec.id,
+                type=rec.type,
+                content=self._redact_secrets(new_content),
+                source=rec.source,
+                provenance=dict(rec.provenance),
+                timestamp=time.time(),
+                scope=rec.scope,
+                confidence=rec.confidence,
+                sensitivity=rec.sensitivity,
+                expiration=rec.expiration,
+                version=rec.version + 1,
+                history=new_history,
+            )
+
+            # Persistir primero; si falla la escritura, la caché conserva el registro previo intacto
+            self._persist_record(updated_rec)
+            self._records[record_id] = updated_rec
+            logger.info(f"[MEMORY] Registro '{record_id}' actualizado a versión {updated_rec.version}.")
             return True
 
     def delete_record(self, record_id: str) -> bool:
@@ -234,13 +279,17 @@ class LongTermMemoryEngine:
         with self._lock:
             if record_id not in self._records:
                 return False
-            del self._records[record_id]
             fpath = os.path.join(self.storage_dir, f"{record_id}.json")
             if os.path.exists(fpath):
                 try:
                     os.remove(fpath)
                 except Exception as e:
                     logger.error(f"Error eliminando archivo de memoria '{fpath}': {e}")
+                    raise MemoryPersistenceError(
+                        f"No se pudo eliminar el archivo de memoria '{record_id}' en disco: {e}",
+                        details={"record_id": record_id, "path": fpath, "error": str(e)},
+                    ) from e
+            del self._records[record_id]
             logger.info(f"[MEMORY] Registro '{record_id}' eliminado permanentemente.")
             return True
 
@@ -268,17 +317,57 @@ class LongTermMemoryEngine:
         return redacted
 
     def _persist_record(self, record: LongTermMemoryRecord) -> None:
+        """Persiste un registro en disco de forma atómica y segura para Windows.
+
+        Escribe a un archivo temporal único dentro del mismo directorio de almacenamiento,
+        aplica flush y fsync para garantizar durabilidad física a nivel de SO, cierra el descriptor
+        y realiza un reemplazo atómico mediante os.replace.
+
+        Si ocurre cualquier error durante la serialización, escritura o reemplazo,
+        el archivo temporal propio se elimina de inmediato sin afectar archivos ajenos,
+        el archivo destino previo se mantiene intacto y se propaga MemoryPersistenceError.
+        """
         fpath = os.path.join(self.storage_dir, f"{record.id}.json")
+        tmp_filename = f".tmp_{record.id}_{uuid.uuid4().hex}.json"
+        tmp_path = os.path.join(self.storage_dir, tmp_filename)
+
         try:
-            with open(fpath, "w", encoding="utf-8") as f:
-                json.dump(record.to_dict(), f, indent=2)
-        except Exception as e:
-            logger.error(f"Error persistiendo memoria {record.id}: {e}")
+            payload = json.dumps(record.to_dict(), indent=2, ensure_ascii=False)
+        except Exception as ser_err:
+            logger.error(f"[MEMORY] Error serializando registro {record.id}: {ser_err}")
+            raise MemoryPersistenceError(
+                f"Error serializando registro de memoria {record.id}: {ser_err}",
+                details={"record_id": record.id, "phase": "serialization", "error": str(ser_err)},
+            ) from ser_err
+
+        try:
+            with open(tmp_path, "w", encoding="utf-8") as f:
+                f.write(payload)
+                f.flush()
+                os.fsync(f.fileno())
+
+            os.replace(tmp_path, fpath)
+            logger.debug(f"[MEMORY] Registro {record.id} persistido atómicamente en '{fpath}'.")
+        except Exception as io_err:
+            try:
+                if os.path.exists(tmp_path):
+                    os.remove(tmp_path)
+            except Exception as clean_err:
+                logger.warning(f"[MEMORY] No se pudo eliminar temporal propio '{tmp_path}': {clean_err}")
+
+            logger.error(f"[MEMORY] Error persistiendo registro {record.id} en '{fpath}': {io_err}")
+            raise MemoryPersistenceError(
+                f"Fallo de persistencia atómica para memoria {record.id}: {io_err}",
+                details={"record_id": record.id, "target_path": fpath, "temp_path": tmp_path, "error": str(io_err)},
+            ) from io_err
 
     def _load_all_records(self) -> None:
         if not os.path.exists(self.storage_dir):
             return
         for fname in os.listdir(self.storage_dir):
+            # Ignorar temporales residuales generados durante cortes abruptos
+            if fname.startswith(".tmp_"):
+                continue
             if fname.endswith(".json"):
                 fpath = os.path.join(self.storage_dir, fname)
                 try:

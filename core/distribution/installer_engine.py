@@ -90,11 +90,15 @@ class WindowsInstallerEngine:
                 self.config_manager.update_config(default_cfg)
                 self.config_manager.save_to_disk(self.config_dir / "settings.json")
 
-                # 4. Registrar accesos directos
-                self._installed_shortcuts = [
-                    "Desktop\\JESSYCA 3.0.lnk",
-                    "StartMenu\\Programs\\JESSYCA.lnk",
-                ]
+                # 4. Crear y registrar accesos directos verificados físicamente
+                shortcut_dir = self.install_root / "shortcuts"
+                shortcut_dir.mkdir(parents=True, exist_ok=True)
+                sc1 = shortcut_dir / "JESSYCA 3.0.lnk"
+                sc2 = shortcut_dir / "StartMenu_JESSYCA.lnk"
+                sc1.write_text("[InternetShortcut]\nURL=jessyca://run\n", encoding="utf-8")
+                sc2.write_text("[InternetShortcut]\nURL=jessyca://run\n", encoding="utf-8")
+                # Solo registrar aquellos accesos directos cuya existencia física en disco está comprobada
+                self._installed_shortcuts = [str(p) for p in (sc1, sc2) if p.is_file()]
 
                 self._current_version = manifest.version
                 self._state = InstallationState.INSTALLED
@@ -164,8 +168,13 @@ class WindowsInstallerEngine:
                 if scope.remove_application_binaries and self.install_root.exists():
                     shutil.rmtree(self.install_root)
 
-                # 2. Eliminar accesos directos
+                # 2. Eliminar accesos directos físicamente
                 if scope.remove_shortcuts:
+                    for sc in self._installed_shortcuts:
+                        try:
+                            Path(sc).unlink(missing_ok=True)
+                        except OSError:
+                            pass
                     self._installed_shortcuts.clear()
 
                 # 3. Eliminar configuraciones si se solicitó

@@ -39,7 +39,6 @@ from core.orca_ade.models import (
     OrcaAdeEvaluationResult,
     OrcaAdeMode,
     OrcaAdeProposal,
-    OrcaPermission,
     OrcaResultContract,
     OrcaTaskContract,
     ProposalActionType,
@@ -102,8 +101,15 @@ class OrcaAdeAdapter(IntegrationAdapter):
         self._base_worktree_dir = os.path.realpath(
             base_worktree_dir or os.path.join("data", "orca_worktrees")
         )
+        self._allowed_dirs: set[str] = {self._base_worktree_dir}
+        self._executor: Any | None = None
         self._task_cache: dict[str, OrcaResultContract] = {}
         self._register_capabilities()
+
+    def add_allowed_dir(self, directory: str | os.PathLike[str]) -> None:
+        """Registra un directorio de proyecto explícitamente autorizado para confinamiento seguro."""
+        p = os.path.realpath(str(directory))
+        self._allowed_dirs.add(p)
 
     @property
     def mode(self) -> OrcaAdeMode:
@@ -113,6 +119,13 @@ class OrcaAdeAdapter(IntegrationAdapter):
     @property
     def is_certified(self) -> bool:
         return self._certified
+
+    def set_executor(self, executor: Any) -> None:
+        """Asigna un ejecutor real de tareas al adapter."""
+        self._executor = executor
+
+    def get_executor(self) -> Any | None:
+        return self._executor
 
     def set_certified(self, certified: bool = True) -> None:
         """Marca formalmente la certificación para autorizar el modo ACTIVE."""
@@ -222,13 +235,17 @@ class OrcaAdeAdapter(IntegrationAdapter):
             if forbidden in norm_lower:
                 raise ValueError(f"Access to system path is forbidden: {forbidden}")
 
-        if re.match(r"^[a-zA-Z]:", unquoted) and not unquoted.startswith(self._base_worktree_dir):
+        if re.match(r"^[a-zA-Z]:", unquoted):
             real_path = os.path.realpath(unquoted)
-            try:
-                common = os.path.commonpath([self._base_worktree_dir, real_path])
-                if common != self._base_worktree_dir:
-                    raise ValueError("Target path escapes sandbox confinement")
-            except ValueError:
+            is_allowed = False
+            for allowed in self._allowed_dirs:
+                try:
+                    if os.path.commonpath([allowed, real_path]) == allowed:
+                        is_allowed = True
+                        break
+                except ValueError:
+                    continue
+            if not is_allowed:
                 raise ValueError("Target path escapes sandbox confinement")
             return real_path
 
@@ -238,7 +255,7 @@ class OrcaAdeAdapter(IntegrationAdapter):
             if common != self._base_worktree_dir:
                 raise ValueError("Target path escapes sandbox confinement")
         except ValueError:
-            raise ValueError("Target path escapes sandbox confinement")
+            raise ValueError("Target path escapes sandbox confinement") from None
 
         return resolved
 
@@ -396,13 +413,14 @@ class OrcaAdeAdapter(IntegrationAdapter):
         self,
         contract: OrcaTaskContract,
         jde_decision: str = "ALLOW",
+        executor: Any | None = None,
     ) -> OrcaResultContract:
         """Ejecuta una tarea gobernada bajo la máquina de estados AgentLifecycle."""
         start_time = time.perf_counter()
         agent_id = f"agent_{contract.task_id}"
         lifecycle = AgentLifecycle(agent_id)
 
-        # Comprobar caché de idempotencia
+        # Comprobar caché de idempotencia (conserva estrictamente el estado de verificación)
         fingerprint = contract.compute_fingerprint()
         if fingerprint in self._task_cache:
             cached = self._task_cache[fingerprint]
@@ -411,12 +429,12 @@ class OrcaAdeAdapter(IntegrationAdapter):
                 decision_id=contract.decision_id,
                 status="CACHE_HIT",
                 workspace=cached.workspace,
-                changed_files=cached.changed_files,
-                tests=cached.tests,
-                evidence=cached.evidence + [{"cache_hit": True, "fingerprint": fingerprint}],
+                changed_files=list(cached.changed_files),
+                tests=dict(cached.tests),
+                evidence=list(cached.evidence) + [{"cache_hit": True, "fingerprint": fingerprint}],
                 checksum=cached.checksum,
                 duration_ms=(time.perf_counter() - start_time) * 1000.0,
-                verified=True,
+                verified=cached.verified,
                 review_status=cached.review_status,
                 metadata={"idempotent": True, "cached_task_id": cached.task_id},
             )
@@ -450,11 +468,90 @@ class OrcaAdeAdapter(IntegrationAdapter):
         lifecycle.transition_to(AgentState.STARTING, "Initializing agent workspace")
         lifecycle.transition_to(AgentState.RUNNING, "Executing assigned actions")
 
-        # Simulación de ejecución controlada en sandbox
-        changed_files = [os.path.join(contract.workspace, "modified_file.py")]
-        evidence = [{"worktree": contract.workspace, "status": "executed"}]
+        # 2. Resolución de Ejecutor Real (Anti-Simulación)
+        effective_executor = executor or self._executor
+        if effective_executor is None:
+            # Regla: Executor ausente no produce éxito.
+            lifecycle.transition_to(AgentState.FAILED, "Executor ausente: no hay ejecutor real conectado")
+            duration = (time.perf_counter() - start_time) * 1000.0
+            return OrcaResultContract(
+                task_id=contract.task_id,
+                decision_id=contract.decision_id,
+                status="UNAVAILABLE",
+                workspace=contract.workspace,
+                changed_files=[],
+                tests={},
+                evidence=[{"status": "unavailable", "reason": "No real executor configured for task"}],
+                checksum=fingerprint,
+                duration_ms=duration,
+                verified=False,
+                review_status="PENDING",
+                metadata={"error": "EXECUTOR_UNAVAILABLE"},
+            )
 
-        # 2. Review Gate si requiere revisión
+        # Ejecución a través del executor real
+        try:
+            if callable(effective_executor):
+                exec_output = effective_executor(contract)
+            elif hasattr(effective_executor, "execute"):
+                exec_output = effective_executor.execute(contract)
+            else:
+                raise TypeError(f"Invalid executor object: {type(effective_executor)}")
+        except Exception as exc:
+            lifecycle.transition_to(AgentState.FAILED, f"Executor execution crashed: {exc}")
+            duration = (time.perf_counter() - start_time) * 1000.0
+            return OrcaResultContract(
+                task_id=contract.task_id,
+                decision_id=contract.decision_id,
+                status="FAILED",
+                workspace=contract.workspace,
+                changed_files=[],
+                tests={},
+                evidence=[{"status": "error", "message": str(exc)}],
+                checksum=fingerprint,
+                duration_ms=duration,
+                verified=False,
+                review_status="PENDING",
+                metadata={"error": str(exc)},
+            )
+
+        # Derivar resultados de cambios observados y pruebas reales
+        tests_data = exec_output.get("tests", {}) if isinstance(exec_output, dict) else getattr(exec_output, "tests", {})
+        evidence_data = exec_output.get("evidence", []) if isinstance(exec_output, dict) else getattr(exec_output, "evidence", [])
+        raw_changed = exec_output.get("changed_files", []) if isinstance(exec_output, dict) else getattr(exec_output, "changed_files", [])
+
+        # Filtrar a archivos observados que realmente existen en disco
+        changed_files = [
+            f for f in raw_changed
+            if os.path.exists(f) or (contract.workspace and os.path.exists(os.path.join(contract.workspace, f)))
+        ]
+
+        # Regla: Prueba fallida conserva el fallo
+        if tests_data and (tests_data.get("passed") is False or tests_data.get("exit_code", 0) != 0):
+            lifecycle.transition_to(AgentState.FAILED, f"Tests failed: exit code {tests_data.get('exit_code')}")
+            duration = (time.perf_counter() - start_time) * 1000.0
+            return OrcaResultContract(
+                task_id=contract.task_id,
+                decision_id=contract.decision_id,
+                status="FAILED",
+                workspace=contract.workspace,
+                changed_files=changed_files,
+                tests=tests_data,
+                evidence=evidence_data,
+                checksum=fingerprint,
+                duration_ms=duration,
+                verified=False,
+                review_status="REJECTED",
+                metadata={"error": "TESTS_FAILED"},
+            )
+
+        # Regla: Evidencia sintética no certifica efectos físicos
+        is_synthetic = any(
+            e.get("synthetic") or e.get("provenance") == "SYNTHETIC_TEST" or e.get("is_synthetic")
+            for e in evidence_data if isinstance(e, dict)
+        )
+
+        # 3. Review Gate
         if contract.requires_review:
             lifecycle.transition_to(AgentState.WAITING_REVIEW, "Code changes pending review")
             review_status = "PENDING"
@@ -463,8 +560,12 @@ class OrcaAdeAdapter(IntegrationAdapter):
         else:
             lifecycle.transition_to(AgentState.COMPLETED, "Completed without review requirement")
             review_status = "APPROVED"
-            status = "VERIFIED_SUCCESS"
-            verified = True
+            if not is_synthetic and len(evidence_data) > 0:
+                status = "VERIFIED_SUCCESS"
+                verified = True
+            else:
+                status = "UNVERIFIED"
+                verified = False
 
         duration = (time.perf_counter() - start_time) * 1000.0
         result = OrcaResultContract(
@@ -473,8 +574,8 @@ class OrcaAdeAdapter(IntegrationAdapter):
             status=status,
             workspace=contract.workspace,
             changed_files=changed_files,
-            tests={"passed": True, "exit_code": 0},
-            evidence=evidence,
+            tests=tests_data,
+            evidence=evidence_data,
             checksum=fingerprint,
             duration_ms=duration,
             verified=verified,
@@ -482,7 +583,7 @@ class OrcaAdeAdapter(IntegrationAdapter):
             metadata={"lifecycle_history": [s[0].value for s in lifecycle.history]},
         )
 
-        # Cachear si fue exitoso
+        # Cachear si fue exitoso o claimed
         if verified or status == "CLAIMED_SUCCESS":
             self._task_cache[fingerprint] = result
 

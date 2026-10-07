@@ -13,7 +13,12 @@ from core.bus import EventBus, get_event_bus
 from core.events import ErrorOccurred, UtteranceFinal
 from core.logger import get_logger
 from core.state import SessionState, StateMachine
-from services.voice.stt_service import ISTTService, MockSTTService, TranscriptResult
+from services.voice.stt_service import (
+    ISTTService,
+    MockSTTService,
+    TranscriptResult,
+    get_stt_service,
+)
 
 logger = get_logger("jessyca.voice.stt_adapter")
 
@@ -30,11 +35,11 @@ class STTEventAdapter:
         """Inicializa el adaptador con inyección de dependencias.
 
         Args:
-            stt_service: Motor STT (ISTTService o compatible). Si es None, usa MockSTTService.
+            stt_service: Motor STT (ISTTService o compatible). Si es None, resuelve mediante get_stt_service().
             event_bus: Instancia de EventBus de Fase 65. Si es None, usa get_event_bus().
             state_machine: Instancia de StateMachine de Fase 66. Si es None, crea una nueva.
         """
-        self.stt_service: Any = stt_service or MockSTTService()
+        self.stt_service: Any = stt_service or get_stt_service()
         self.event_bus: EventBus = event_bus or get_event_bus()
         self.state_machine: StateMachine = state_machine or StateMachine()
 

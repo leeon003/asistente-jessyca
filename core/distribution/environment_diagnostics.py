@@ -112,8 +112,8 @@ class EnvironmentDiagnosticsEngine:
         except Exception:
             pass
 
-        # Fallback para Windows en hardware estándar o CPU
-        return "NVIDIA / DirectX Compatible GPU", 8192.0, 6144.0
+        # Fallback cuando no hay GPU CUDA o acelerada por PyTorch
+        return "CPU / Basic Display Adapter", 0.0, 0.0
 
     @staticmethod
     def _detect_ollama_status() -> tuple[bool, list[str]]:
@@ -121,7 +121,7 @@ class EnvironmentDiagnosticsEngine:
         try:
             import urllib.request
             req = urllib.request.Request("http://127.0.0.1:11434/api/tags", headers={"User-Agent": "Jessyca/3.0"})
-            with urllib.request.urlopen(req, timeout=1.0) as resp:
+            with urllib.request.urlopen(req, timeout=0.5) as resp:
                 if resp.status == 200:
                     data = json.loads(resp.read().decode("utf-8"))
                     models = [m.get("name", "") for m in data.get("models", [])]
@@ -129,8 +129,8 @@ class EnvironmentDiagnosticsEngine:
         except Exception:
             pass
 
-        # Si Ollama no está activo en vivo durante el test, devolver modelos preconfigurados
-        return True, ["qwen2.5-coder:7b", "llama3.2:3b"]
+        # Si Ollama no está respondiendo en loopback, reportar fielmente como no activo
+        return False, []
 
     @staticmethod
     def _detect_audio_input() -> bool:
@@ -152,12 +152,12 @@ class EnvironmentDiagnosticsEngine:
     @staticmethod
     def _check_required_dependencies() -> list[str]:
         """Verifica la importabilidad de módulos críticos del producto."""
-        required = ["json", "threading", "uuid", "hashlib", "dataclasses", "typing"]
+        required = ["pydantic", "pydantic_settings", "dotenv", "psutil", "fastapi", "uvicorn", "requests"]
         missing = []
         for mod in required:
-            if mod not in sys.modules:
-                try:
-                    __import__(mod)
-                except ImportError:
-                    missing.append(mod)
+            try:
+                __import__(mod)
+            except ImportError:
+                missing.append(mod)
         return missing
+

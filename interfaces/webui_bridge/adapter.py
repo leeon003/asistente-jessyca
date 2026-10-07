@@ -131,18 +131,22 @@ def build_jessyca_request(
     session_id: str,
     chat_id: str | None = None,
     conversation_context: list[dict[str, str]] | None = None,
+    request_id: str | None = None,
 ) -> JessycaRequest:
     """Construye la instancia oficial de JessycaRequest respetando el Core de JESSYCA."""
-    return JessycaRequest(
-        session_id=session_id,
-        modality=InputModality.TEXT,
-        user_input=user_input,
-        conversation_context=list(conversation_context or []),
-        metadata={
+    kwargs: dict[str, Any] = {
+        "session_id": session_id,
+        "modality": InputModality.TEXT,
+        "user_input": user_input,
+        "conversation_context": list(conversation_context or []),
+        "metadata": {
             "source": "open_webui",
             "chat_id": chat_id or session_id,
         },
-    )
+    }
+    if request_id and str(request_id).strip():
+        kwargs["request_id"] = str(request_id).strip()
+    return JessycaRequest(**kwargs)
 
 
 def convert_to_openai_response(

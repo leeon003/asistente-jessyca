@@ -14,7 +14,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import StrEnum
-from typing import Any, Protocol
+from typing import Any, Protocol, runtime_checkable
 from urllib.parse import urlparse
 
 from core.emergency_stop import EmergencyStopManager, get_emergency_stop_manager
@@ -88,6 +88,30 @@ class MediaPlaybackError(BrowserControlError):
     pass
 
 
+class BrowserUnavailableError(BrowserControlError):
+    """Error emitido cuando no hay un adaptador ni proceso de navegador real disponible en producción."""
+
+    pass
+
+
+class PlaywrightUnavailableError(BrowserUnavailableError):
+    """Error emitido cuando la librería Playwright o los binarios/canales del navegador no están disponibles."""
+
+    pass
+
+
+class SandboxEscapeError(BrowserControlError):
+    """Error emitido cuando una ruta de descarga intenta escapar del sandbox mediante path traversal."""
+
+    pass
+
+
+class NavigationSecurityError(URLAccessDeniedError):
+    """Error emitido cuando una navegación o redirección viola las políticas de seguridad de URLs."""
+
+    pass
+
+
 @dataclass(frozen=True)
 class BrowserDescriptor:
     """Descriptor inmutable de un navegador web soportado."""
@@ -138,6 +162,12 @@ class BrowserTab:
     is_active: bool = True
     is_loading: bool = False
     media_state: MediaState = MediaState.UNKNOWN
+    provenance: str = "REAL_PHYSICAL"
+
+    @property
+    def is_synthetic(self) -> bool:
+        """Indica si la pestaña proviene de un adaptador simulado/fake."""
+        return self.provenance == "SYNTHETIC_TEST"
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -147,6 +177,8 @@ class BrowserTab:
             "is_active": self.is_active,
             "is_loading": self.is_loading,
             "media_state": str(self.media_state),
+            "provenance": self.provenance,
+            "is_synthetic": self.is_synthetic,
         }
 
 
@@ -348,6 +380,7 @@ class MediaPlaybackController:
         )
 
 
+@runtime_checkable
 class IBrowserAdapter(Protocol):
     """Protocolo abstracto para adaptadores de sesión y pestañas de navegador web."""
 
@@ -373,4 +406,69 @@ class IBrowserAdapter(Protocol):
 
     def control_media(self, tab_id: str, action: str) -> BrowserTab:
         """Controla y verifica la reproducción de medios en una pestaña."""
+        ...
+
+    def get_text(self, selector: str | None = None) -> str:
+        """Extrae el contenido textual sanitizado de un elemento o de la página."""
+        ...
+
+    def query_dom(self, selector: str) -> dict[str, Any]:
+        """Consulta el estado estructurado de un elemento en el DOM."""
+        ...
+
+    def get_accessibility_snapshot(self) -> dict[str, Any]:
+        """Obtiene el árbol o snapshot de accesibilidad de la página activa."""
+        ...
+
+    def fill_form(self, selector_values: dict[str, str]) -> dict[str, bool]:
+        """Rellena campos de formulario de forma gobernada y sanitizada."""
+        ...
+
+    def click(self, selector: str) -> bool:
+        """Emite un clic gobernado con verificación de estado del elemento."""
+        ...
+
+    def download_file(
+        self,
+        url_or_selector: str,
+        sandbox_dir: str,
+        target_filename: str | None = None,
+    ) -> str:
+        """Descarga un archivo confinado estrictamente al sandbox sin auto-ejecución."""
+        ...
+
+    def follow_link(self, link_text_or_selector: str) -> BrowserTab:
+        """Sigue un enlace en la página activa mediante su texto o selector CSS."""
+        ...
+
+    def extract_content(self, selector: str | None = None) -> dict[str, Any]:
+        """Extrae el contenido textual sanitizado y estructurado con URL de procedencia."""
+        ...
+
+    def search_web(self, query: str, engine: str = "google") -> BrowserTab:
+        """Realiza una búsqueda de información en la web usando un motor autorizado."""
+        ...
+
+    def search_youtube(self, query: str) -> BrowserTab:
+        """Busca videos en YouTube en la sesión de navegación."""
+        ...
+
+    def handle_consent_and_popups(self, tab_id: str | None = None) -> dict[str, Any]:
+        """Gestiona automáticamente modales de consentimiento, cookies o popups."""
+        ...
+
+    def detect_blocking_state(self, tab_id: str | None = None) -> tuple[bool, str]:
+        """Detecta si la página activa presenta bloqueo por CAPTCHA o autenticación obligatoria."""
+        ...
+
+    def health(self) -> dict[str, Any]:
+        """Verifica el estado de salud real del backend y proceso del navegador."""
+        ...
+
+    def capabilities(self) -> dict[str, Any]:
+        """Reporta las capacidades técnicas reales del backend."""
+        ...
+
+    def close(self) -> None:
+        """Cierra y libera ordenadamente todos los recursos y procesos del navegador."""
         ...

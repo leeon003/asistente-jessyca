@@ -25,9 +25,14 @@ from core.emergency_stop import EmergencyStopManager, get_emergency_stop_manager
 from core.logger import get_logger
 from services.voice.audio_input import IAudioSource, SyntheticAudioSource
 from services.voice.barge_in_controller import BargeInController
-from services.voice.stt_service import ISTTService, MockSTTService, TranscriptResult
+from services.voice.stt_service import (
+    ISTTService,
+    MockSTTService,
+    TranscriptResult,
+    get_stt_service,
+)
 from services.voice.tts_service import ITTSService, MockTTSService
-from services.voice.vad_service import EnergyVADService, IVADService, VADEvent
+from services.voice.vad_service import EnergyVADService, IVADService, VADEvent, get_vad_service
 from services.voice.voice_confirmation import (
     VoiceConfirmationDecision,
     VoiceConfirmationEvaluator,
@@ -103,9 +108,9 @@ class VoicePipeline:
         emergency_stop: EmergencyStopManager | None = None,
     ) -> None:
         self.audio_source = audio_source or SyntheticAudioSource()
-        self.vad_service = vad_service or EnergyVADService()
+        self.vad_service = vad_service or get_vad_service()
         self.wake_word_service = wake_word_service or KeywordWakeWordService()
-        self.stt_service = stt_service or MockSTTService()
+        self.stt_service = stt_service or get_stt_service()
         self.tts_service = tts_service or MockTTSService()
         self.agent_executor = agent_executor
         self.emergency_stop = emergency_stop or get_emergency_stop_manager()

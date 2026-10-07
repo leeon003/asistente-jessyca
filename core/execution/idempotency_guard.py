@@ -194,9 +194,55 @@ class ExecutionIdempotencyGuard:
             f"result={rec.status}"
         )
 
-    def get_record(self, execution_id: str) -> ExecutionRecord | None:
+    def get_record(self, fingerprint_or_id: ExecutionFingerprint | str) -> ExecutionRecord | None:
+        """Obtiene un registro por execution_id (str) o por fingerprint.
+
+        Cuando recibe un ExecutionFingerprint, busca el registro asociado a su hash.
+        Cuando recibe un str, busca directamente por execution_id.
+        """
         with self._mutex:
-            return self._records.get(execution_id)
+            if isinstance(fingerprint_or_id, ExecutionFingerprint):
+                f_hash = fingerprint_or_id.compute_hash()
+                exec_id = self._hash_to_execution_id.get(f_hash)
+                if exec_id:
+                    return self._records.get(exec_id)
+                return None
+            return self._records.get(fingerprint_or_id)
+
+    def start_execution(self, fingerprint: ExecutionFingerprint) -> ExecutionRecord:
+        """Registra el inicio de una ejecución nueva y devuelve el ExecutionRecord.
+
+        Wrapper de alto nivel sobre acquire_execution que siempre registra
+        (sin deduplicar aquí; la deduplicación se hace antes con get_record).
+        """
+        acquired, record = self.acquire_execution(fingerprint)
+        if acquired:
+            self.record_execution_invoked(record.execution_id)
+        return record
+
+    def record_success(self, execution_id: str, message: str = "") -> None:
+        """Marca la ejecución como exitosa con verificación completada."""
+        self.record_verification_completed(
+            execution_id=execution_id,
+            status="SUCCEEDED",
+            result_message=message,
+        )
+
+    def record_failure(self, execution_id: str, error_message: str = "") -> None:
+        """Marca la ejecución como fallida."""
+        self.record_verification_completed(
+            execution_id=execution_id,
+            status="FAILED",
+            result_message=error_message,
+        )
+
+    def record_verification_failed(self, execution_id: str, reason: str = "") -> None:
+        """Marca la verificación como fallida (la ejecución se hizo pero no se verificó)."""
+        self.record_verification_completed(
+            execution_id=execution_id,
+            status="VERIFICATION_FAILED",
+            result_message=reason,
+        )
 
     def get_records_for_session(self, session_id: str) -> list[ExecutionRecord]:
         with self._mutex:

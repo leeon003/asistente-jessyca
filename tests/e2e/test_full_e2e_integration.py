@@ -584,7 +584,7 @@ def test_adversarial_c_webui_cannot_call_adapter_directly():
 
 def test_adversarial_d_mobile_cannot_call_adapter_directly():
     """Case D: Mobile API has no route or method to bypass Core and call an adapter directly."""
-    app = create_mobile_api_app()
+    app = create_mobile_api_app(auth_token="test_token")
     routes = [route.path for route in app.routes]
 
     # Assert no direct adapter execution route exists

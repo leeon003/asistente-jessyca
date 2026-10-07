@@ -29,12 +29,14 @@ from services.voice.device_resolver import (
     VoiceDeviceResolver,
     get_voice_device_resolver,
 )
-from services.voice.vad_service import EnergyVADService
+from services.voice.stt_service import ISTTService, get_stt_service
+from services.voice.vad_service import EnergyVADService, IVADService, get_vad_service
 from services.voice.voice_diagnostics import (
     VoiceCaptureDiagnostic,
     VoiceDiscardReason,
     get_voice_telemetry,
 )
+from services.voice.voice_errors import STTError, STTTimeoutError
 
 logger = get_logger("jessyca.voice.capture")
 
@@ -219,11 +221,12 @@ class CalibratedVoiceCaptureEngine:
         silence_timeout_ms: int = 2500,
         confidence_threshold: float = 0.50,
         language: str = "es",
-        vad_service: EnergyVADService | None = None,
+        vad_service: IVADService | None = None,
         device_index: int | None = None,
         device_resolver: VoiceDeviceResolver | None = None,
         resolved_device: ResolvedAudioDevice | None = None,
         adaptive_eos_enabled: bool = True,
+        stt_service: ISTTService | None = None,
     ) -> None:
         self.sample_rate = sample_rate
         self.channels = channels
@@ -235,6 +238,7 @@ class CalibratedVoiceCaptureEngine:
         self.confidence_threshold = confidence_threshold
         self.language = language
         self.adaptive_eos_enabled = adaptive_eos_enabled
+        self.stt_service: ISTTService = stt_service or get_stt_service()
         self.device_resolver = device_resolver or get_voice_device_resolver()
 
         self.resolved_device: ResolvedAudioDevice | None = resolved_device
@@ -254,7 +258,7 @@ class CalibratedVoiceCaptureEngine:
         max_preroll_chunks = max(4, int(pre_roll_ms / 50))
         self.pre_roll_buffer = AudioPreRollBuffer(max_chunks=max_preroll_chunks)
 
-        self.vad_service = vad_service or EnergyVADService(
+        self.vad_service = vad_service or get_vad_service(
             energy_threshold=350.0,
             start_threshold=350.0,
             end_threshold=200.0,
@@ -546,14 +550,20 @@ class CalibratedVoiceCaptureEngine:
                 raw_bytes = audio_data.get_raw_data()
                 rms = self._compute_rms(raw_bytes)
 
-                # 3. Transcripción con Google Speech Recognition en español
+                # 3. Transcripción desacoplada mediante ISTTService inyectado
                 t_stt_start = time.perf_counter()
                 eos_to_stt_start_ms = (t_stt_start - t_eos) * 1000.0
-                text = self._recognizer.recognize_google(audio_data, language="es-ES")
+                stt_name = getattr(self.stt_service, "name", "unknown")
+                stt_net = getattr(self.stt_service, "requires_network", False)
+
+                transcript_res = self.stt_service.transcribe(
+                    raw_bytes,
+                    sample_rate=self.sample_rate,
+                )
                 t_stt_end = time.perf_counter()
                 stt_duration_ms = (t_stt_end - t_stt_start) * 1000.0
-                text_clean = (text or "").strip()
-                confidence = 0.90 if text_clean else 0.0
+                text_clean = (transcript_res.text or "").strip()
+                confidence = transcript_res.confidence
 
                 diag_data = diag.to_dict()
                 diag_data["duration_ms"] = (time.time() - start_ts) * 1000.0
@@ -562,10 +572,29 @@ class CalibratedVoiceCaptureEngine:
                 diag_data["stt_attempted"] = True
                 diag_data["stt_text"] = text_clean
                 diag_data["stt_confidence"] = confidence
+                diag_data["stt_provider"] = stt_name
+                diag_data["stt_requires_network"] = stt_net
                 diag_data["eos_to_stt_start_ms"] = eos_to_stt_start_ms
                 diag_data["stt_duration_ms"] = stt_duration_ms
-                diag_data["discard_reason"] = VoiceDiscardReason.NONE.value
 
+                if not text_clean:
+                    diag_data["discard_reason"] = VoiceDiscardReason.EMPTY_TRANSCRIPT.value
+                    final_diag = VoiceCaptureDiagnostic.model_validate(diag_data)
+                    final_diag.log_diagnostic()
+                    get_voice_telemetry().record_capture(final_diag)
+                    return VoiceCaptureResult(
+                        text="",
+                        confidence=0.0,
+                        discard_reason=VoiceDiscardReason.EMPTY_TRANSCRIPT,
+                        user_feedback_message="[Te escuché, pero no pude entender la frase. Intenta de nuevo.]",
+                        diagnostic=final_diag,
+                        is_success=False,
+                        eos_timestamp=t_eos,
+                        eos_to_stt_start_ms=eos_to_stt_start_ms,
+                        stt_duration_ms=stt_duration_ms,
+                    )
+
+                diag_data["discard_reason"] = VoiceDiscardReason.NONE.value
                 final_diag = VoiceCaptureDiagnostic.model_validate(diag_data)
                 final_diag.log_diagnostic()
                 get_voice_telemetry().record_capture(final_diag)
@@ -615,7 +644,23 @@ class CalibratedVoiceCaptureEngine:
                     is_success=False,
                 )
 
-            except sr.RequestError as req_err:
+            except STTTimeoutError as timeout_err:
+                logger.error(f"[VOICE CAPTURE] Timeout del servicio STT: {timeout_err}")
+                diag_data = diag.to_dict()
+                diag_data["duration_ms"] = (time.time() - start_ts) * 1000.0
+                diag_data["discard_reason"] = VoiceDiscardReason.TIMEOUT.value
+                final_diag = VoiceCaptureDiagnostic.model_validate(diag_data)
+                get_voice_telemetry().record_capture(final_diag)
+                return VoiceCaptureResult(
+                    text="",
+                    confidence=0.0,
+                    discard_reason=VoiceDiscardReason.TIMEOUT,
+                    user_feedback_message="[Tiempo de transcripción de voz agotado. Intenta de nuevo.]",
+                    diagnostic=final_diag,
+                    is_success=False,
+                )
+
+            except (sr.RequestError, STTError) as req_err:
                 logger.error(f"[VOICE CAPTURE] Error del servicio STT: {req_err}")
                 diag_data = diag.to_dict()
                 diag_data["duration_ms"] = (time.time() - start_ts) * 1000.0
@@ -626,7 +671,7 @@ class CalibratedVoiceCaptureEngine:
                     text="",
                     confidence=0.0,
                     discard_reason=VoiceDiscardReason.OTHER,
-                    user_feedback_message="[Error de conexión con el servicio de voz.]",
+                    user_feedback_message="[Error en el servicio de transcripción de voz.]",
                     diagnostic=final_diag,
                     is_success=False,
                 )
@@ -702,22 +747,35 @@ class CalibratedVoiceCaptureEngine:
                 is_success=False,
             )
 
-        # Simular transcripción exitosa de prueba
+        # Obtener texto del servicio STT configurado o fallback determinista para tests sintéticos
+        sim_text = "Hola Jessica abre el bloc de notas"
+        sim_conf = 0.95
+        if hasattr(self.stt_service, "transcribe"):
+            try:
+                res_trans = self.stt_service.transcribe(audio_bytes, sample_rate=self.sample_rate)
+                if res_trans and res_trans.text:
+                    sim_text = res_trans.text
+                    sim_conf = res_trans.confidence
+            except Exception:
+                pass
+
         diag_data = diag.to_dict()
         diag_data["duration_ms"] = duration_ms
         diag_data["audio_rms"] = rms
         diag_data["vad_detected"] = True
         diag_data["stt_attempted"] = True
-        diag_data["stt_text"] = "Hola Jessica abre el bloc de notas"
-        diag_data["stt_confidence"] = 0.95
+        diag_data["stt_text"] = sim_text
+        diag_data["stt_confidence"] = sim_conf
+        diag_data["stt_provider"] = getattr(self.stt_service, "name", "simulated")
+        diag_data["stt_requires_network"] = getattr(self.stt_service, "requires_network", False)
         diag_data["discard_reason"] = VoiceDiscardReason.NONE.value
 
         final_diag = VoiceCaptureDiagnostic.model_validate(diag_data)
         get_voice_telemetry().record_capture(final_diag)
 
         return VoiceCaptureResult(
-            text="Hola Jessica abre el bloc de notas",
-            confidence=0.95,
+            text=sim_text,
+            confidence=sim_conf,
             discard_reason=VoiceDiscardReason.NONE,
             user_feedback_message="",
             diagnostic=final_diag,

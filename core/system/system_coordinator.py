@@ -14,7 +14,12 @@ import threading
 import time
 import uuid
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from skills.skill_graph_planner import SkillGraphPlanner
+    from skills.skill_manager import SkillManager
+    from skills.skill_registry import SkillRegistry
 
 from core.audit_logger import AuditEvent, AuditEventType, AuditLogger, get_audit_logger
 from core.collaboration.collaboration_engine import CollaborationEngine
@@ -26,9 +31,6 @@ from core.system.system_contracts import (
     ArchitecturalInvariants,
 )
 from core.system.system_errors import IntentError
-from skills.skill_graph_planner import SkillGraphPlanner
-from skills.skill_manager import SkillManager, get_skill_manager
-from skills.skill_registry import SkillRegistry, get_skill_registry
 
 logger = get_logger("jessyca.system.coordinator")
 
@@ -103,8 +105,18 @@ class SystemCoordinator4:
         emergency_stop: EmergencyStopManager | None = None,
         audit_logger: AuditLogger | None = None,
     ) -> None:
-        self.skill_registry = skill_registry or get_skill_registry()
-        self.skill_manager = skill_manager or get_skill_manager()
+        if skill_registry is None:
+            from skills.skill_registry import get_skill_registry
+            self.skill_registry = get_skill_registry()
+        else:
+            self.skill_registry = skill_registry
+
+        if skill_manager is None:
+            from skills.skill_manager import get_skill_manager
+            self.skill_manager = get_skill_manager()
+        else:
+            self.skill_manager = skill_manager
+
         self.collaboration_engine = collaboration_engine or CollaborationEngine(
             skill_manager=self.skill_manager,
             emergency_stop=emergency_stop,
@@ -112,6 +124,8 @@ class SystemCoordinator4:
         )
         self.emergency_stop = emergency_stop or get_emergency_stop_manager()
         self.audit_logger = audit_logger or get_audit_logger()
+
+        from skills.skill_graph_planner import SkillGraphPlanner
         self.planner = SkillGraphPlanner(registry=self.skill_registry)
         self._lock = threading.RLock()
 

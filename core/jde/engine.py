@@ -74,9 +74,10 @@ class DecisionEngine:
         logger.info(f"[JDE ENGINE] Recibida solicitud {request.request_id} ('{request.user_request}')")
 
         # ── 0. IDEMPOTENCIA Y PREVENCIÓN DE DUPLICADOS ──
+        sess_id = getattr(request, "session_id", "default_session") or "default_session"
         target_str = str(request.parameters.get("path") or request.parameters.get("target") or "")
         fprint = ExecutionFingerprint(
-            session_id="jde_session",
+            session_id=sess_id,
             request_id=request.request_id,
             intent=request.intent or request.proposed_action,
             skill=request.tool,

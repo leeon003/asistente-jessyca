@@ -1,0 +1,62 @@
+{
+  "timestamp": "2026-10-06T13:56:47.378451+00:00",
+  "declared_language_support": {
+    "official_openwakeword_languages": [
+      "en"
+    ],
+    "spanish_acoustic_status": "PENDING_CUSTOM_MODEL_TRAINING",
+    "honest_capability_declaration": true,
+    "naming_convention_invariant": "Renombrar modelos en inglés NO crea soporte en español.",
+    "is_acoustic_model_available": false,
+    "unconfigured_result_status": "ACOUSTIC_MODEL_UNAVAILABLE"
+  },
+  "resampling_tests": {
+    "8000Hz_to_16000Hz": {
+      "input_samples": 4000,
+      "output_samples": 8000,
+      "expected_samples": 8000,
+      "accuracy_ratio": 1.0,
+      "latency_ms": 3400.603
+    },
+    "16000Hz_to_16000Hz": {
+      "input_samples": 8000,
+      "output_samples": 8000,
+      "expected_samples": 8000,
+      "accuracy_ratio": 1.0,
+      "latency_ms": 0.002
+    },
+    "22050Hz_to_16000Hz": {
+      "input_samples": 11025,
+      "output_samples": 8000,
+      "expected_samples": 8000,
+      "accuracy_ratio": 1.0,
+      "latency_ms": 0.402
+    },
+    "44100Hz_to_16000Hz": {
+      "input_samples": 22050,
+      "output_samples": 8000,
+      "expected_samples": 8000,
+      "accuracy_ratio": 1.0,
+      "latency_ms": 0.278
+    },
+    "48000Hz_to_16000Hz": {
+      "input_samples": 24000,
+      "output_samples": 8000,
+      "expected_samples": 8000,
+      "accuracy_ratio": 1.0,
+      "latency_ms": 0.288
+    }
+  },
+  "latency_benchmarks": {},
+  "threshold_analysis": {},
+  "security_invariants": {
+    "unconfigured_authorizes_action": false,
+    "manual_ptt_detected": true,
+    "manual_ptt_authorizes_action": false
+  },
+  "conclusions": {
+    "status": "COMPLIANT_WITH_STRICT_HONESTY_RULES",
+    "acoustic_support_verdict": "openWakeWord preentrenado no incluye un clasificador para 'Jessyca' en español. El sistema declara honestamente is_acoustic_model_available=False, sin inventar modelos ni renombrar archivos en inglés. La infraestructura de inferencia (resampling, buffering, cooldown, push-to-talk) está lista y operativa para recibir el modelo entrenado según el procedimiento documentado en docs/WAKE_WORD_TRAINING_PROCEDURE.md.",
+    "security_invariant_certified": "En el 100% de los casos analizados, authorizes_action=False. La activación por voz jamás concede permisos ni ejecuta herramientas."
+  }
+}

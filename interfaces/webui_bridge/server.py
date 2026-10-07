@@ -20,7 +20,7 @@ from interfaces.webui_bridge.app import create_webui_bridge_app
 
 logger = get_logger("jessyca.webui_bridge.server")
 
-DEFAULT_HOST = "0.0.0.0"
+DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8088
 
 
@@ -43,25 +43,52 @@ def run_webui_server(
     auth_token: str | None = None,
     timeout_seconds: float | None = None,
     perform_health_check: bool = True,
+    force: bool = False,
 ) -> int:
     """Inicia el servidor Uvicorn para JESSYCA Web Bridge de manera controlada.
 
     Args:
-        host: Host o interfaz de escucha (por defecto 0.0.0.0).
+        host: Host o interfaz de escucha (por defecto 127.0.0.1).
         port: Puerto TCP de escucha (por defecto 8088).
         auth_token: Token de autenticación Bearer opcional.
         timeout_seconds: Timeout de procesamiento en segundos.
         perform_health_check: Si debe comprobar el endpoint /health antes de confirmar inicio.
+        force: Si es True, anula el flag WEBUI_BRIDGE_ENABLED=False desde CLI.
 
     Returns:
-        0 si finalizó normalmente, 1 ante error crítico.
+        0 si finalizó normalmente, 1 ante error de configuración o ejecución.
     """
-    eff_host = host or os.getenv("WEBUI_BRIDGE_HOST", DEFAULT_HOST)
-    raw_port = port if port is not None else os.getenv("WEBUI_BRIDGE_PORT", str(DEFAULT_PORT))
+    settings = None
+    try:
+        from config.manager import get_settings
+        settings = get_settings()
+    except Exception:
+        pass
+
+    # Precedencia explícita: WEBUI_BRIDGE_ENABLED=False impide levantar el servicio a menos que se fuerce vía CLI
+    if settings and not settings.WEBUI_BRIDGE_ENABLED and not force:
+        logger.error(
+            "[WebUI Bridge Server] WEBUI_BRIDGE_ENABLED es False. El servicio Web Bridge está deshabilitado y no se iniciará. "
+            "Para permitir el arranque, configure WEBUI_BRIDGE_ENABLED=True o use --force desde la CLI."
+        )
+        print(
+            "[ERROR] Servidor Web Bridge deshabilitado por configuración (WEBUI_BRIDGE_ENABLED=False).",
+            file=sys.stderr,
+        )
+        return 1
+
+    eff_host = host or os.getenv("WEBUI_BRIDGE_HOST", (getattr(settings, "WEBUI_BRIDGE_HOST", DEFAULT_HOST) if settings else DEFAULT_HOST))
+    raw_port = port if port is not None else os.getenv("WEBUI_BRIDGE_PORT", str(getattr(settings, "WEBUI_BRIDGE_PORT", DEFAULT_PORT) if settings else DEFAULT_PORT))
     try:
         eff_port = int(raw_port)
     except (ValueError, TypeError):
         eff_port = DEFAULT_PORT
+
+    if eff_host not in ("127.0.0.1", "localhost", "::1"):
+        logger.warning(
+            f"[WebUI Bridge Server] ADVERTENCIA DE RED: Servidor escuchando en interfaz no-loopback '{eff_host}'. "
+            "El servicio será accesible desde la red local (LAN). Asegúrese de mantener un token robusto."
+        )
 
     logger.info(f"[WebUI Bridge Server] Configurando servidor en http://{eff_host}:{eff_port}...")
 
@@ -69,6 +96,7 @@ def run_webui_server(
         app = create_webui_bridge_app(
             auth_token=auth_token,
             timeout_seconds=timeout_seconds,
+            settings=settings,
         )
     except ValueError as val_err:
         logger.critical(f"[WebUI Bridge Server] Error de configuración: {val_err}")

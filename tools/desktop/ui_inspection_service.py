@@ -116,6 +116,9 @@ class UIInspectionService:
             processing_time_ms=duration,
             backend_name=raw_result.metadata.backend_name,
             timestamp=datetime.now(UTC),
+            provenance=raw_result.metadata.provenance,
+            status=raw_result.metadata.status,
+            error_message=raw_result.metadata.error_message,
         )
 
         truncated = len(elements_sanitized) >= self.max_elements or raw_result.truncated
@@ -132,14 +135,25 @@ class UIInspectionService:
         audit_meta["redactions_count"] = total_redactions
         audit_meta["truncated"] = truncated
 
+        event_type = (
+            AuditEventType.UI_INSPECTION_SUCCEEDED
+            if raw_result.is_available
+            else AuditEventType.UI_INSPECTION_FAILED
+        )
+        reason = (
+            "Inspección visual de elementos UI realizada y sanitizada exitosamente."
+            if raw_result.is_available
+            else f"Inspección visual no disponible o fallida: {raw_result.metadata.error_message or raw_result.metadata.status}"
+        )
+
         self.audit_logger.log_audit_event(
             AuditEvent(
-                event_type=AuditEventType.UI_INSPECTION_SUCCEEDED,
+                event_type=event_type,
                 request_id=req_id,
                 tool_name="windows.desktop",
                 operation="inspect_ui_element",
                 duration_ms=duration,
-                reason="Inspección visual de elementos UI realizada y sanitizada exitosamente.",
+                reason=reason,
                 metadata=audit_meta,
             )
         )
@@ -162,6 +176,7 @@ class UIInspectionService:
             is_maximized=win.is_maximized,
             is_visible=win.is_visible,
             timestamp=win.timestamp,
+            provenance=win.provenance,
         )
         req_id = request_id or "win-active-req"
         self.audit_logger.log_audit_event(
@@ -172,7 +187,7 @@ class UIInspectionService:
                 operation="get_active_window",
                 duration_ms=1.0,
                 reason="Consulta de ventana activa realizada exitosamente.",
-                metadata={"hwnd": win.hwnd, "process_id": win.process_id},
+                metadata={"hwnd": win.hwnd, "process_id": win.process_id, "provenance": str(win.provenance)},
             )
         )
         return sanitized_win
@@ -195,6 +210,7 @@ class UIInspectionService:
                     is_maximized=win.is_maximized,
                     is_visible=win.is_visible,
                     timestamp=win.timestamp,
+                    provenance=win.provenance,
                 )
             )
         req_id = request_id or "win-list-req"

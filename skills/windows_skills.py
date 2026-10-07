@@ -134,6 +134,35 @@ class WindowsNotificationsSkill(BaseSkill):
         )
         super().__init__(nombre="windows.notifications", nivel_riesgo=1, definition=def_obj)
 
+    def _send_toast(self, titulo: str, mensaje: str) -> bool:
+        """Emite una notificación nativa Toast en el centro de notificaciones de Windows."""
+        import subprocess
+
+        safe_title = titulo.replace("'", "''")
+        safe_msg = mensaje.replace("'", "''")
+        ps_cmd = (
+            "[Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] | Out-Null; "
+            "[Windows.Data.Xml.Dom.XmlDocument, Windows.Data.Xml.Dom.XmlDocument, ContentType = WindowsRuntime] | Out-Null; "
+            "$template = [Windows.UI.Notifications.ToastNotificationManager]::GetTemplateContent([Windows.UI.Notifications.ToastTemplateType]::ToastText02); "
+            "$textNodes = $template.GetElementsByTagName('text'); "
+            f"$textNodes.Item(0).AppendChild($template.CreateTextNode('{safe_title}')) | Out-Null; "
+            f"$textNodes.Item(1).AppendChild($template.CreateTextNode('{safe_msg}')) | Out-Null; "
+            "$notifier = [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier('JESSYCA 3.0'); "
+            "$notification = [Windows.UI.Notifications.ToastNotification]::new($template); "
+            "$notifier.Show($notification)"
+        )
+        try:
+            res = subprocess.run(
+                ["powershell", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", ps_cmd],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            return res.returncode == 0
+        except Exception as exc:
+            logger.debug(f"[NOTIFICATION] Falló PowerShell WinRT Toast: {exc}")
+            return False
+
     def ejecutar(self, parametros: dict[str, Any]) -> dict[str, Any]:
         titulo = str(parametros.get("titulo") or parametros.get("title") or "JESSYCA 3.0").strip()
         mensaje = str(parametros.get("mensaje") or parametros.get("message") or "").strip()
@@ -141,12 +170,14 @@ class WindowsNotificationsSkill(BaseSkill):
         if not mensaje:
             return {"exito": False, "mensaje": "Debe especificar un mensaje para la notificación."}
 
-        logger.info(f"[NOTIFICATION SENT] Titulo: '{titulo}' | Mensaje: '{mensaje}'")
+        toast_sent = self._send_toast(titulo, mensaje)
+        logger.info(f"[NOTIFICATION SENT] Titulo: '{titulo}' | Mensaje: '{mensaje}' | Real Toast: {toast_sent}")
         return {
             "exito": True,
-            "mensaje": "Notificación enviada al centro de notificaciones de Windows.",
+            "mensaje": "Notificación enviada al centro de notificaciones de Windows." if toast_sent else "Notificación registrada en el sistema.",
             "titulo": titulo,
             "cuerpo": mensaje,
+            "toast_nativo": toast_sent,
         }
 
 
@@ -183,10 +214,29 @@ class WindowsAudioSkill(BaseSkill):
         self._current_volume: int = 50
         self._is_muted: bool = False
 
+    def _get_endpoint_volume(self) -> Any | None:
+        """Obtiene el endpoint de volumen del dispositivo de audio principal de Windows."""
+        try:
+            from pycaw.pycaw import AudioUtilities
+            speakers = AudioUtilities.GetSpeakers()
+            if speakers:
+                return speakers.EndpointVolume
+        except Exception as exc:
+            logger.debug(f"[AUDIO] Pycaw no disponible o error: {exc}")
+        return None
+
     def ejecutar(self, parametros: dict[str, Any]) -> dict[str, Any]:
         accion = str(parametros.get("accion") or parametros.get("action") or "consultar").lower()
+        endpoint = self._get_endpoint_volume()
 
         if accion in ("consultar", "status", "get"):
+            if endpoint is not None:
+                try:
+                    self._current_volume = round(endpoint.GetMasterVolumeLevelScalar() * 100)
+                    self._is_muted = bool(endpoint.GetMute())
+                except Exception as e:
+                    logger.warning(f"[AUDIO] Error leyendo volumen real: {e}")
+
             return {
                 "exito": True,
                 "mensaje": f"Volumen actual: {self._current_volume}% (Silenciado: {self._is_muted})",
@@ -199,6 +249,11 @@ class WindowsAudioSkill(BaseSkill):
                 return {"exito": False, "mensaje": "Debe indicar el nivel de volumen deseado (0-100)."}
             try:
                 vol_int = max(0, min(100, int(nivel)))
+                if endpoint is not None:
+                    try:
+                        endpoint.SetMasterVolumeLevelScalar(vol_int / 100.0, None)
+                    except Exception as e:
+                        logger.warning(f"[AUDIO] Error fijando volumen real: {e}")
                 self._current_volume = vol_int
                 return {
                     "exito": True,
@@ -208,7 +263,18 @@ class WindowsAudioSkill(BaseSkill):
             except ValueError:
                 return {"exito": False, "mensaje": f"Nivel de volumen '{nivel}' inválido."}
         elif accion in ("silenciar", "mute", "toggle_mute"):
-            self._is_muted = not self._is_muted
+            if endpoint is not None:
+                try:
+                    curr_mute = bool(endpoint.GetMute())
+                    new_mute = not curr_mute
+                    endpoint.SetMute(new_mute, None)
+                    self._is_muted = new_mute
+                except Exception as e:
+                    logger.warning(f"[AUDIO] Error conmutando mute real: {e}")
+                    self._is_muted = not self._is_muted
+            else:
+                self._is_muted = not self._is_muted
+
             estado_str = "silenciado" if self._is_muted else "activo"
             return {
                 "exito": True,

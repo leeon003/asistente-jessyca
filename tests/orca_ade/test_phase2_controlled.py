@@ -42,6 +42,20 @@ from core.orca_ade.orchestrator import OrcaGovernedOrchestrator
 from core.security import RiskLevel
 from lab.orca_ade.sandbox import OrcaWorktreeSandbox
 from lab.orca_ade.worktree_manager import RealGitWorktreeManager
+from typing import Any
+
+
+def _controlled_test_executor(contract: OrcaTaskContract) -> dict[str, Any]:
+    full_ws = contract.workspace
+    os.makedirs(full_ws, exist_ok=True)
+    f_path = os.path.join(full_ws, "code_patch.py")
+    with open(f_path, "w", encoding="utf-8") as f:
+        f.write("# controlled test execution\n")
+    return {
+        "changed_files": [f_path],
+        "tests": {"passed": True, "exit_code": 0},
+        "evidence": [{"type": "FILE_MODIFIED", "path": f_path, "verified_on_disk": True, "synthetic": False}],
+    }
 
 
 # =============================================================================
@@ -248,7 +262,7 @@ class TestCredentialsAndIdempotency:
         assert res.verified is False
 
     def test_idempotency_fingerprint_produces_cache_hit(self) -> None:
-        orchestrator = OrcaGovernedOrchestrator()
+        orchestrator = OrcaGovernedOrchestrator(executor=_controlled_test_executor)
         # Primera ejecución
         res1 = orchestrator.dispatch_task(
             objective="Refactorizar parser de expresiones",
@@ -278,7 +292,7 @@ class TestReviewGateAndVerification:
     """Verifica que el agente no pueda autoaprobarse y que se requiera evidencia física."""
 
     def test_agent_cannot_self_approve(self) -> None:
-        orchestrator = OrcaGovernedOrchestrator()
+        orchestrator = OrcaGovernedOrchestrator(executor=_controlled_test_executor)
         res = orchestrator.dispatch_task(
             objective="Modificar lógica de enrutamiento",
             workspace="ws_review",
@@ -290,15 +304,19 @@ class TestReviewGateAndVerification:
         assert res.review_status == "PENDING"
         assert res.verified is False
 
-        # Aprobación externa formal por el JDE
-        approved_res = orchestrator.approve_review(res.task_id, approver_authority="JDE_SUPERVISOR")
+        # Aprobación externa formal por el JDE con evidencia de verificación
+        approved_res = orchestrator.approve_review(
+            res.task_id,
+            approver_authority="JDE_SUPERVISOR",
+            verification_evidence=[{"type": "PHYSICAL_CHECK", "verified_on_disk": True, "synthetic": False}],
+        )
         assert approved_res.status == "VERIFIED_SUCCESS"
         assert approved_res.review_status == "APPROVED"
         assert approved_res.verified is True
         assert approved_res.metadata["approved_by"] == "JDE_SUPERVISOR"
 
     def test_rejection_of_changes_in_review(self) -> None:
-        orchestrator = OrcaGovernedOrchestrator()
+        orchestrator = OrcaGovernedOrchestrator(executor=_controlled_test_executor)
         res = orchestrator.dispatch_task(
             objective="Cambio riesgoso en parser",
             workspace="ws_reject",
@@ -320,7 +338,7 @@ class TestConcurrencyFailuresAndRollback:
 
     @pytest.mark.parametrize("agent_count", [1, 2, 5, 10])
     def test_parallel_agent_execution_scalability(self, agent_count: int) -> None:
-        orchestrator = OrcaGovernedOrchestrator()
+        orchestrator = OrcaGovernedOrchestrator(executor=_controlled_test_executor)
 
         def run_agent(idx: int) -> OrcaResultContract:
             return orchestrator.dispatch_task(
@@ -395,7 +413,7 @@ class TestE2EControlledScenarios:
     """Ejecuta los 12 escenarios E2E obligatorios de Fase 2."""
 
     def test_run_all_12_e2e_scenarios(self) -> None:
-        orchestrator = OrcaGovernedOrchestrator()
+        orchestrator = OrcaGovernedOrchestrator(executor=_controlled_test_executor)
         e2e_results: list[dict] = []
 
         scenarios = [
@@ -429,9 +447,12 @@ class TestE2EControlledScenarios:
                 simulate_verification_failure=sim_vf,
             )
 
-            # Para E2E-12, probar ciclo de aprobación formal
+            # Para E2E-12, probar ciclo de aprobación formal con evidencia
             if sc_id == "E2E-12":
-                res = orchestrator.approve_review(res.task_id)
+                res = orchestrator.approve_review(
+                    res.task_id,
+                    verification_evidence=[{"type": "PHYSICAL_CHECK", "verified_on_disk": True, "synthetic": False}],
+                )
                 expected_st = "VERIFIED_SUCCESS"
 
             passed = (res.status == expected_st)

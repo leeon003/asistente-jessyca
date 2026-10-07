@@ -14,27 +14,23 @@ Implementa:
 from __future__ import annotations
 
 import hashlib
-import json
 import os
 import re
-import shutil
 import time
 import uuid
 from typing import Any
 
 import anydoc
 
-from core.anydoc.adapter import AnyDocAdapter
+from core.anydoc.adapter import AnyDocAdapter, _is_strictly_contained
 from core.anydoc.models import (
     AnyDocMode,
     AnyDocReceipt,
     AnyDocResult,
     AnyDocTaskContract,
     ConversionStatus,
-    DocumentFormat,
 )
 from core.logger import get_logger
-from core.security import RiskLevel
 
 logger = get_logger("jessyca.anydoc.orchestrator")
 
@@ -56,7 +52,7 @@ class AnyDocGovernedOrchestrator:
         for d in [self.input_dir, self.output_dir, self.cache_dir, self.quarantine_dir]:
             os.makedirs(d, exist_ok=True)
 
-        self.adapter = adapter or AnyDocAdapter(mode=AnyDocMode.CONTROLLED)
+        self.adapter = adapter or AnyDocAdapter(mode=AnyDocMode.CONTROLLED, base_sandbox_dir=self.base_dir)
         self._idempotency_cache: dict[str, AnyDocResult] = {}
         self._execution_history: list[AnyDocResult] = []
 
@@ -83,7 +79,7 @@ class AnyDocGovernedOrchestrator:
 
     def validate_sandbox_path(self, target_path: str, is_output: bool = False, allow_quarantine: bool = False) -> str:
         """Verifica estrictamente que la ruta resida dentro del sandbox permitido de anydoc.
-        
+
         Para escrituras (is_output=True), la ruta DEBE residir dentro de data/anydoc/output/,
         data/anydoc/cache/ o data/anydoc/quarantine/. Jamás fuera del sandbox.
         """
@@ -110,7 +106,7 @@ class AnyDocGovernedOrchestrator:
             if allow_quarantine:
                 valid_dirs.append(self.quarantine_dir)
             is_valid_write = any(
-                real_target.startswith(d + os.sep) or real_target == d
+                _is_strictly_contained(real_target, d)
                 for d in valid_dirs
             )
             if not is_valid_write:
@@ -121,8 +117,8 @@ class AnyDocGovernedOrchestrator:
 
         # Entradas (is_output=False): permitidas en base_dir o en lab/anydoc (fixtures)
         real_lab = os.path.realpath(os.path.join("lab", "anydoc"))
-        is_in_base = real_target.startswith(real_base + os.sep) or real_target == real_base
-        is_in_lab = real_target.startswith(real_lab + os.sep) or real_target == real_lab
+        is_in_base = _is_strictly_contained(real_target, real_base)
+        is_in_lab = _is_strictly_contained(real_target, real_lab)
 
         if not (is_in_base or is_in_lab):
             raise ValueError(f"Security sandbox violation: input path '{target_path}' is outside authorized sandbox '{real_base}'")
@@ -326,14 +322,14 @@ class AnyDocGovernedOrchestrator:
                     assets_dir = os.path.join(os.path.dirname(real_output), "assets")
                     os.makedirs(assets_dir, exist_ok=True)
                     # Extensiones seguras permitidas para assets
-                    ALLOWED_ASSET_EXTS = {".png", ".jpg", ".jpeg", ".gif", ".bmp", ".svg", ".webp", ".bin"}
+                    allowed_asset_exts = {".png", ".jpg", ".jpeg", ".gif", ".bmp", ".svg", ".webp", ".bin"}
                     for idx, a in enumerate(doc_obj.assets):
                         origin_name = os.path.basename(a.origin_part or f"asset_{idx}.bin")
                         # Saneamiento anti-traversal en nombres de assets
                         safe_name = re.sub(r"[^a-zA-Z0-9_\-\.]", "_", origin_name)
                         # Prevenir nombres maliciosos como .env, id_rsa o ejecutables
                         base_stem, ext = os.path.splitext(safe_name)
-                        if ext.lower() not in ALLOWED_ASSET_EXTS:
+                        if ext.lower() not in allowed_asset_exts:
                             safe_name = f"{safe_name}.bin"
                         if safe_name.startswith("."):
                             safe_name = f"sanitized_{safe_name.lstrip('.')}"
@@ -421,7 +417,7 @@ class AnyDocGovernedOrchestrator:
             document_model_summary=doc_model_summary,
             extracted_structure=structure_data,
             extracted_assets=assets_data,
-            metadata={"fingerprint": fingerprint},
+            metadata={"fingerprint": fingerprint, "backend": self.adapter.backend_type},
         )
 
         if verified:
@@ -450,3 +446,9 @@ class AnyDocGovernedOrchestrator:
         )
         self._execution_history.append(result)
         return result
+
+
+# Alias canónico de compatibilidad para AnyDocGovernedOrchestrator
+AnyDocOrchestrator = AnyDocGovernedOrchestrator
+
+__all__ = ["AnyDocGovernedOrchestrator", "AnyDocOrchestrator"]

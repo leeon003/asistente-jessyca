@@ -45,6 +45,12 @@ class VADTimeoutError(VADError):
     pass
 
 
+class SileroVADUnavailableError(VADError):
+    """Error emitido cuando el runtime de ONNX o el modelo de Silero VAD no están disponibles."""
+
+    pass
+
+
 class WakeWordError(VoiceError):
     """Error emitido durante la detección de la palabra de activación."""
 
@@ -65,6 +71,12 @@ class STTTimeoutError(STTError):
 
 class STTModelUnavailableError(STTError):
     """Error emitido cuando el modelo de Faster-Whisper no está disponible."""
+
+    pass
+
+
+class STTAudioFormatError(STTError):
+    """Error emitido cuando el contenedor o formato de audio PCM es inválido o no soportado."""
 
     pass
 

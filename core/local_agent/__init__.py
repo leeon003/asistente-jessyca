@@ -31,6 +31,10 @@ from core.local_agent.local_agent_models import (
 from core.local_agent.multimodal_interface import (
     MultimodalProcessor,
 )
+from core.local_agent.response_synthesizer import (
+    ResponseSynthesizer,
+    get_response_synthesizer,
+)
 from core.local_agent.voice_interface import (
     LocalVoiceInterface,
 )
@@ -53,6 +57,8 @@ __all__ = [
     "ConversationContextManager",
     "MultimodalProcessor",
     "LocalVoiceInterface",
+    "ResponseSynthesizer",
+    "get_response_synthesizer",
     "JessycaLocalAgent",
     "get_jessyca_local_agent",
 ]

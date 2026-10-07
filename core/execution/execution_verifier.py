@@ -631,6 +631,40 @@ class FileCopiedVerificationStrategy:
         )
 
 
+class FolderExistsVerificationStrategy:
+    """Verifica la existencia o creación efectiva de una carpeta en el sistema de archivos."""
+
+    def verify(
+        self,
+        action: str,
+        target: str,
+        parameters: dict[str, Any] | None = None,
+        timeout_seconds: float = 1.0,
+    ) -> ExecutionEvidence:
+        path = (
+            target
+            or (parameters.get("path") if parameters else None)
+            or (parameters.get("ruta") if parameters else None)
+            or (parameters.get("folder") if parameters else None)
+            or (parameters.get("directorio") if parameters else None)
+        )
+        if not path:
+            return ExecutionEvidence(
+                verification_type="folder_exists",
+                target=target,
+                is_verified=False,
+                details={"error": "Ruta de carpeta no especificada"},
+            )
+
+        exists = os.path.exists(path) and os.path.isdir(path)
+        return ExecutionEvidence(
+            verification_type="folder_exists",
+            target=str(path),
+            is_verified=exists,
+            details={"path": str(path), "is_dir": exists},
+        )
+
+
 class ArchifyDiagramVerificationStrategy:
     """Verifica de forma determinista la validez y seguridad del artefacto de diagrama Archify generado."""
 
@@ -831,6 +865,7 @@ class ExecutionVerifier:
         self._file_deleted_strat = FileDeletedVerificationStrategy()
         self._file_moved_strat = FileMovedVerificationStrategy()
         self._file_copied_strat = FileCopiedVerificationStrategy()
+        self._folder_exists_strat = FolderExistsVerificationStrategy()
         self._archify_strat = ArchifyDiagramVerificationStrategy()
         self._state_changed_strat = StateChangedVerificationStrategy()
 
@@ -843,6 +878,8 @@ class ExecutionVerifier:
             return self._process_term_strat
         if any(k in act for k in ("delete", "eliminar", "borrar", "remove", "unlink", "destruir")) or act == "rm" or act.startswith("rm_") or act.endswith("_rm"):
             return self._file_deleted_strat
+        if any(k in act for k in ("folder", "carpeta", "directorio", "mkdir")):
+            return self._folder_exists_strat
         if any(k in act for k in ("move", "mover", "rename", "renombrar", "trasladar")):
             return self._file_moved_strat
         if any(k in act for k in ("copy", "copiar", "duplicar")):

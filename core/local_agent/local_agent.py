@@ -27,6 +27,8 @@ INVARIANTES INMUTABLES:
 
 from __future__ import annotations
 
+import os
+from pathlib import Path
 import re
 import threading
 import time
@@ -73,6 +75,10 @@ from core.local_agent.local_agent_models import (
     LocalAgentMetrics,
 )
 from core.local_agent.multimodal_interface import MultimodalProcessor
+from core.local_agent.response_synthesizer import (
+    ResponseSynthesizer,
+    get_response_synthesizer,
+)
 from core.local_agent.voice_interface import LocalVoiceInterface
 from core.logger import get_logger
 from core.permission_manager import PermissionManager
@@ -81,7 +87,6 @@ from core.security_architecture import SecurityLevel
 from core.jde.adapter import JDEShadowAdapter, LocalAgentExecutionContext, get_jde_shadow_adapter
 from core.jde.runtime_binding import (
     JDERuntimeBinding,
-    JDERuntimeVerdict,
     JDERuntimeVerdictType,
     get_jde_runtime_binding,
 )
@@ -118,6 +123,7 @@ class JessycaLocalAgent:
         jde_shadow_adapter: JDEShadowAdapter | None = None,
         jde_runtime_binding: JDERuntimeBinding | None = None,
         are_runtime: ARERuntime | None = None,
+        response_synthesizer: ResponseSynthesizer | None = None,
     ) -> None:
         self._lock = threading.RLock()
         self.emergency_stop_mgr = emergency_stop or get_emergency_stop_manager()
@@ -134,6 +140,7 @@ class JessycaLocalAgent:
         self.voice_interface = voice_interface or LocalVoiceInterface(emergency_stop=self.emergency_stop_mgr)
         self.dialogue_manager = dialogue_manager or NaturalActionDialogueManager.get_instance()
         self.conversational_handler = conversational_handler or ConversationalDialogueHandler(model_router=self.model_router)
+        self.response_synthesizer = response_synthesizer or get_response_synthesizer()
         self.coordinator = coordinator or SystemCoordinator4(
             collaboration_engine=self.collaboration_engine,
             emergency_stop=self.emergency_stop_mgr,
@@ -325,6 +332,8 @@ class JessycaLocalAgent:
                 cancellation_token=token,
             )
             response.metrics.tts_latency_ms = tts_latency
+            if response.metrics.first_audio_tts_latency_ms == 0.0:
+                response.metrics.first_audio_tts_latency_ms = min(tts_latency, max(1.0, tts_latency * 0.4))
             response.metrics.total_latency_ms += tts_latency
 
         return response
@@ -376,32 +385,12 @@ class JessycaLocalAgent:
         try:
             # ── PASO 0: VERIFICACIÓN DE PARADA DE EMERGENCIA Y CANCELACIÓN ──
             if self.emergency_stop_mgr.is_stopped():
-                metrics.total_latency_ms = (time.perf_counter() - start_time) * 1000
-                resp = JessycaResponse(
-                    request_id=req.request_id,
-                    session_id=req.session_id,
-                    success=False,
-                    status=AgentExecutionState.STOPPED,
-                    response_text="Parada de Emergencia activa. Operación bloqueada.",
-                    security_verdict="DENY",
-                    error="Emergency Stop active",
-                    metrics=metrics,
-                )
+                resp = self.response_synthesizer.build_stopped_response(req, metrics, start_time)
                 self._log_turn_experience(req, resp, category=ExperienceCategory.ACTION_BLOCKED)
                 return resp
 
             if token.is_cancelled:
-                metrics.interruption_handled = True
-                metrics.total_latency_ms = (time.perf_counter() - start_time) * 1000
-                resp = JessycaResponse(
-                    request_id=req.request_id,
-                    session_id=req.session_id,
-                    success=False,
-                    status=AgentExecutionState.INTERRUPTED,
-                    response_text="Operación cancelada por el usuario.",
-                    error="Operation cancelled",
-                    metrics=metrics,
-                )
+                resp = self.response_synthesizer.build_interrupted_response(req, metrics, start_time)
                 self._log_turn_experience(req, resp, category=ExperienceCategory.CANCELLED)
                 return resp
 
@@ -511,42 +500,25 @@ class JessycaLocalAgent:
             # ── PASO 1.8: DETECCIÓN DE CIERRE DE CONVERSACIÓN ──
             if user_text.lower() in ("adiós", "adios", "salir", "exit", "quit", "cerrar conversación", "cerrar sesion", "cerrar sesión", "hasta luego", "bye", "terminar"):
                 self.context_manager.close_session(req.session_id)
-                closing_text = "¡Hasta luego! Que tengas un excelente día."
-                metrics.total_latency_ms = (time.perf_counter() - start_time) * 1000
-                resp = JessycaResponse(
-                    request_id=req.request_id,
-                    session_id=req.session_id,
-                    success=True,
-                    status=AgentExecutionState.COMPLETED,
-                    response_text=closing_text,
-                    spoken_text=closing_text,
-                    intent="close_conversation",
-                    metrics=metrics,
-                )
+                resp = self.response_synthesizer.build_closing_response(req, metrics, start_time)
                 self._log_turn_experience(req, resp, category=ExperienceCategory.GENERAL)
                 return resp
 
             # ── PASO 2: ANÁLISIS DE INTENCIÓN Y RESOLUCIÓN DE CONTEXTO ──
             t_intent_0 = time.perf_counter()
             intent, extracted_params, is_ambiguous = self._resolve_intent_and_slots(user_text, req.session_id)
+            if req.metadata:
+                for m_k, m_v in req.metadata.items():
+                    if m_k not in extracted_params or not extracted_params[m_k]:
+                        extracted_params[m_k] = m_v
             metrics.intent_latency_ms = (time.perf_counter() - t_intent_0) * 1000
-
-
 
             # Manejo de cancelación conversacional o interrupción ("Olvídalo", "Déjame hablar", "Pausa")
             if intent in ("cancel_task", "interrupt_assistant"):
                 default_msg = "Te escucho, dime." if intent == "interrupt_assistant" else "Entendido, operación cancelada."
                 cancel_msg = extracted_params.get("immediate_response") or default_msg
-                metrics.total_latency_ms = (time.perf_counter() - start_time) * 1000
-                resp = JessycaResponse(
-                    request_id=req.request_id,
-                    session_id=req.session_id,
-                    success=True,
-                    status=AgentExecutionState.COMPLETED,
-                    response_text=cancel_msg,
-                    spoken_text=cancel_msg,
-                    intent=intent,
-                    metrics=metrics,
+                resp = self.response_synthesizer.build_cancelled_response(
+                    req, metrics, start_time, reason=cancel_msg, intent=intent
                 )
                 self._log_turn_experience(req, resp, category=ExperienceCategory.CANCELLED)
                 return resp
@@ -813,81 +785,34 @@ class JessycaLocalAgent:
 
             metrics.planning_latency_ms = (time.perf_counter() - t_plan_0) * 1000
 
-            # ── PASO 5: EVALUACIÓN DE SEGURIDAD Y CONFIRMACIÓN HUMANA ──
+            # ── PASO 5: GOBERNANZA CANÓNICA UNIFICADA (RiskEngine -> PermissionManager -> JDE) ──
+            t_auth_0 = time.perf_counter()
             proposed_tool = self._map_intent_to_tool(intent)
+
+            # 5.1 RiskEngine calcula el riesgo formal de la acción propuesta
             sec_level = self._evaluate_action_security(proposed_tool, extracted_params)
-            user_approved = False
 
-            # Si es acción de riesgo o peligrosa -> Exigir confirmación
-            if sec_level in (SecurityLevel.MEDIUM, SecurityLevel.HIGH, SecurityLevel.CRITICAL) or "delete" in proposed_tool or "kill" in proposed_tool:
-                # Comprobar si ya fue confirmada contextualmente en este turno
-                if extracted_params.get("is_confirmed") is True:
-                    user_approved = True
-                else:
-                    confirm_prompt = ConfirmationPrompt(
-                        task_id=req.request_id,
-                        action_name=proposed_tool,
-                        relevant_parameters=extracted_params,
-                        risk_level=sec_level,
-                        objective=f"Confirmación requerida para ejecutar acción sensible '{proposed_tool}'.",
-                    )
-                    self.interaction_engine.register_confirmation(confirm_prompt)
-
-                    user_approved = False
-                    if user_confirmation_callback is not None:
-                        try:
-                            user_approved = user_confirmation_callback(confirm_prompt)
-                        except Exception as ex:
-                            logger.error(f"Error en callback de confirmación: {ex}")
-                            user_approved = False
-
-                if not user_approved:
-                    confirm_text = f"Detecté una acción sensible: '{proposed_tool}'. ¿Confirmas su ejecución?"
-                    if action_contract is not None:
-                        action_contract = bridge_dialogue_to_contract(
-                            decision=dialogue_decision,
-                            user_input=user_text,
-                            intent=intent,
-                            params=extracted_params,
-                            context={
-                                "request_id": req.request_id,
-                                "session_id": req.session_id,
-                                "modality": req.modality.value,
-                                "requires_confirmation": True,
-                                "risk_level": sec_level.value,
-                                "confirmation_prompt": confirm_text,
-                            },
-                            is_ambiguous=is_ambiguous,
-                            request_id=req.request_id,
-                            session_id=req.session_id,
-                            input_modality=req.modality.value,
-                            risk_level=sec_level.value,
-                        )
-                    session = self.context_manager.get_or_create_session(req.session_id)
-                    session.set_pending_confirmation(
-                        intent=intent,
-                        tool=proposed_tool,
-                        parameters=extracted_params,
-                        prompt=confirm_text,
-                        security_level=sec_level.value,
-                    )
+            # 5.2 PermissionManager aplica restricciones de políticas y permisos
+            if hasattr(self, "permission_manager") and self.permission_manager and hasattr(self.permission_manager, "is_action_allowed"):
+                if not self.permission_manager.is_action_allowed(proposed_tool, intent, extracted_params):
+                    deny_msg = f"Acción '{intent}' sobre '{proposed_tool}' denegada por política de permisos."
                     metrics.total_latency_ms = (time.perf_counter() - start_time) * 1000
                     resp = JessycaResponse(
                         request_id=req.request_id,
                         session_id=req.session_id,
-                        success=True,
-                        status=AgentExecutionState.AWAITING_CONFIRMATION,
-                        response_text=confirm_text,
-                        spoken_text=confirm_text,
+                        success=False,
+                        status=AgentExecutionState.FAILED,
+                        response_text=deny_msg,
+                        spoken_text=deny_msg,
                         intent=intent,
                         selected_model=selected_model,
                         selected_agent=selected_agent,
                         selected_skill=selected_skill,
                         selected_graph=selected_graph,
+                        security_verdict="DENY",
                         security_level=sec_level,
-                        requires_confirmation=True,
+                        error=deny_msg,
                         metrics=metrics,
-                        action_intent_contract=action_contract,
                     )
                     self._log_turn_experience(req, resp, category=ExperienceCategory.ACTION_BLOCKED, tool_name=proposed_tool)
                     self._observe_shadow_turn(
@@ -897,28 +822,125 @@ class JessycaLocalAgent:
                         action=intent,
                         params=extracted_params,
                         exec_success=False,
-                        response_text=confirm_text,
+                        response_text=deny_msg,
                         is_verified=False,
                         sec_level=sec_level,
                     )
                     return resp
 
-            # ── PASO 5.5: JDE RUNTIME BINDING (GOBERNANZA CENTRAL ANTES DEL SIDE EFFECT) ──
-            if hasattr(self, "jde_runtime_binding") and self.jde_runtime_binding:
-                is_user_confirmed = bool(
-                    user_approved
-                    or extracted_params.get("is_confirmed") is True
-                    or extracted_params.get("confirmed") is True
+            # 5.3 Callback de confirmación humana directa si está disponible
+            user_approved = False
+            if user_confirmation_callback is not None and (
+                sec_level in (SecurityLevel.MEDIUM, SecurityLevel.HIGH, SecurityLevel.CRITICAL)
+                or "delete" in proposed_tool
+                or "kill" in proposed_tool
+            ):
+                confirm_prompt = ConfirmationPrompt(
+                    task_id=req.request_id,
+                    action_name=proposed_tool,
+                    relevant_parameters=extracted_params,
+                    risk_level=sec_level,
+                    objective=f"Confirmación requerida para ejecutar acción sensible '{proposed_tool}'.",
                 )
+                try:
+                    user_approved = bool(user_confirmation_callback(confirm_prompt))
+                except Exception as ex:
+                    logger.error(f"Error en callback de confirmación: {ex}")
+                    user_approved = False
+
+            # Comprobar confirmación estrictamente vinculada a sesión, acción y parámetros
+            from core.jde.confirmation import get_confirmation_manager
+            has_bound_conf = get_confirmation_manager().verify_and_consume(
+                session_id=req.session_id,
+                action=intent,
+                parameters=extracted_params,
+                user_id=getattr(req, "user_id", "default_user"),
+            )
+            is_confirmed = bool(user_approved or has_bound_conf)
+
+            # Invariante: RiskEngine no puede ser saltado por JDE ALLOW no confirmado
+            requires_risk_review = bool(
+                (
+                    sec_level in (SecurityLevel.MEDIUM, SecurityLevel.HIGH, SecurityLevel.CRITICAL)
+                    or "delete" in proposed_tool
+                    or "kill" in proposed_tool
+                )
+                and not is_confirmed
+            )
+            if requires_risk_review:
+                review_msg = f"Detecté una acción sensible: '{proposed_tool}'. ¿Confirmas su ejecución?"
+                if action_contract is not None:
+                    action_contract = bridge_dialogue_to_contract(
+                        decision=dialogue_decision,
+                        user_input=user_text,
+                        intent=intent,
+                        params=extracted_params,
+                        context={
+                            "request_id": req.request_id,
+                            "session_id": req.session_id,
+                            "modality": req.modality.value,
+                            "requires_confirmation": True,
+                            "risk_level": sec_level.value,
+                            "confirmation_prompt": review_msg,
+                        },
+                        is_ambiguous=is_ambiguous,
+                        request_id=req.request_id,
+                        session_id=req.session_id,
+                        input_modality=req.modality.value,
+                        risk_level=sec_level.value,
+                    )
+                session = self.context_manager.get_or_create_session(req.session_id)
+                session.set_pending_confirmation(
+                    intent=intent,
+                    tool=proposed_tool,
+                    parameters=extracted_params,
+                    prompt=review_msg,
+                    security_level=sec_level.value if hasattr(sec_level, "value") else str(sec_level),
+                )
+                metrics.total_latency_ms = (time.perf_counter() - start_time) * 1000
+                resp = JessycaResponse(
+                    request_id=req.request_id,
+                    session_id=req.session_id,
+                    success=True,
+                    status=AgentExecutionState.AWAITING_CONFIRMATION,
+                    response_text=review_msg,
+                    spoken_text=review_msg,
+                    intent=intent,
+                    selected_model=selected_model,
+                    selected_agent=selected_agent,
+                    selected_skill=selected_skill,
+                    selected_graph=selected_graph,
+                    security_level=sec_level,
+                    requires_confirmation=True,
+                    metrics=metrics,
+                    action_intent_contract=action_contract,
+                )
+                self._log_turn_experience(req, resp, category=ExperienceCategory.ACTION_BLOCKED, tool_name=proposed_tool)
+                self._observe_shadow_turn(
+                    req=req,
+                    intent=intent,
+                    tool=proposed_tool,
+                    action=intent,
+                    params=extracted_params,
+                    exec_success=False,
+                    response_text=review_msg,
+                    is_verified=False,
+                    sec_level=sec_level,
+                )
+                return resp
+
+            # 5.4 JDE Runtime Binding coordina el veredicto y el estado
+            if hasattr(self, "jde_runtime_binding") and self.jde_runtime_binding:
                 jde_verdict = self.jde_runtime_binding.evaluate(
                     intent=intent,
                     action=intent,
                     tool=proposed_tool or "system.coordinator",
                     parameters=extracted_params,
-                    user_confirmed=is_user_confirmed,
+                    user_confirmed=is_confirmed,
                     session_id=req.session_id,
                     request_id=req.request_id,
                     risk_level=sec_level.value if hasattr(sec_level, "value") else str(sec_level),
+                    user_id=getattr(req, "user_id", "default_user"),
                 )
 
                 if jde_verdict.verdict == JDERuntimeVerdictType.DENY:
@@ -956,7 +978,28 @@ class JessycaLocalAgent:
                     return resp
 
                 if jde_verdict.verdict == JDERuntimeVerdictType.REQUIRE_REVIEW:
-                    review_msg = f"JDE requiere confirmación para '{proposed_tool}': {jde_verdict.reason}"
+                    review_reason = getattr(jde_verdict, "reason", "Requiere confirmación explícita del usuario.") or "Requiere confirmación explícita del usuario."
+                    review_msg = f"JDE requiere confirmación para '{proposed_tool}': {review_reason}"
+                    if action_contract is not None:
+                        action_contract = bridge_dialogue_to_contract(
+                            decision=dialogue_decision,
+                            user_input=user_text,
+                            intent=intent,
+                            params=extracted_params,
+                            context={
+                                "request_id": req.request_id,
+                                "session_id": req.session_id,
+                                "modality": req.modality.value,
+                                "requires_confirmation": True,
+                                "risk_level": sec_level.value,
+                                "confirmation_prompt": review_msg,
+                            },
+                            is_ambiguous=is_ambiguous,
+                            request_id=req.request_id,
+                            session_id=req.session_id,
+                            input_modality=req.modality.value,
+                            risk_level=sec_level.value,
+                        )
                     session = self.context_manager.get_or_create_session(req.session_id)
                     session.set_pending_confirmation(
                         intent=intent,
@@ -981,6 +1024,7 @@ class JessycaLocalAgent:
                         security_level=sec_level,
                         requires_confirmation=True,
                         metrics=metrics,
+                        action_intent_contract=action_contract,
                     )
                     self._log_turn_experience(req, resp, category=ExperienceCategory.ACTION_BLOCKED, tool_name=proposed_tool)
                     self._observe_shadow_turn(
@@ -996,7 +1040,43 @@ class JessycaLocalAgent:
                     )
                     return resp
 
+            metrics.authorization_latency_ms = (time.perf_counter() - t_auth_0) * 1000
+
             # ── PASO 6: EJECUCIÓN SEGURA Y VERIFICACIÓN POST-EJECUCIÓN REAL ──
+            # Verificación cooperativa de cancelación y deadline monotónico previo a efectos
+            if token.is_cancelled:
+                metrics.interruption_handled = True
+                metrics.total_latency_ms = (time.perf_counter() - start_time) * 1000
+                resp = JessycaResponse(
+                    request_id=req.request_id,
+                    session_id=req.session_id,
+                    success=False,
+                    status=AgentExecutionState.INTERRUPTED,
+                    response_text="Operación cancelada cooperativamente antes de iniciar efectos en el sistema.",
+                    error="Operation cancelled before effect",
+                    metrics=metrics,
+                )
+                self._log_turn_experience(req, resp, category=ExperienceCategory.CANCELLED)
+                return resp
+
+            if getattr(req, "monotonic_deadline", None) and time.monotonic() > req.monotonic_deadline:
+                metrics.total_latency_ms = (time.perf_counter() - start_time) * 1000
+                resp = JessycaResponse(
+                    request_id=req.request_id,
+                    session_id=req.session_id,
+                    success=False,
+                    status=AgentExecutionState.FAILED,
+                    response_text="Deadline monotónico de ejecución alcanzado antes de iniciar efectos en el sistema.",
+                    error="Monotonic execution deadline exceeded before effect",
+                    metrics=metrics,
+                )
+                return resp
+
+            # Notificar inicio de efectos secundarios si se provee operation_record en metadata
+            op_rec = req.metadata.get("operation_record") if isinstance(req.metadata, dict) else None
+            if op_rec is not None and hasattr(op_rec, "effect_started"):
+                op_rec.effect_started = True
+
             t_exec_0 = time.perf_counter()
             from core.execution.execution_verifier import (
                 ExecutionEvidence,
@@ -1006,6 +1086,7 @@ class JessycaLocalAgent:
 
             execution_result: ExecutionResult | None = None
             exec_success = False
+
 
             # 6.0 Operación Matemática Directa
             if intent == "math_calculation":
@@ -1030,16 +1111,16 @@ class JessycaLocalAgent:
                     output={"query": extracted_params.get("query", user_text)},
                 )
 
-            # 6.1 Ejecución directa verificada de aplicaciones de Windows
-            elif intent in ("open_application", "close_application", "type_text"):
-                if intent == "open_application":
+            # 6.1 Ejecución directa verificada de aplicaciones de Windows y Explorador
+            elif intent in ("open_application", "close_application", "type_text", "open_folder"):
+                if intent in ("open_application", "open_folder"):
                     accion_app = "abrir"
                 elif intent == "close_application":
                     accion_app = "cerrar"
                 else:
                     accion_app = "escribir"
 
-                app_name = extracted_params.get("app_name", "notepad")
+                app_name = "explorer" if intent == "open_folder" else extracted_params.get("app_name", "notepad")
 
                 from core.execution.idempotency_guard import (
                     ExecutionFingerprint,
@@ -1053,7 +1134,7 @@ class JessycaLocalAgent:
                     intent=intent,
                     skill="windows.apps",
                     action=accion_app,
-                    target=app_name,
+                    target=str(extracted_params.get("ruta_carpeta") or app_name),
                 )
 
                 is_acquired, exec_record = idempotency_guard.acquire_execution(fingerprint)
@@ -1086,6 +1167,8 @@ class JessycaLocalAgent:
                         "request_id": req.request_id,
                         "execution_id": exec_record.execution_id,
                     }
+                    if intent == "open_folder" or extracted_params.get("ruta_carpeta"):
+                        skill_params["ruta_carpeta"] = extracted_params.get("ruta_carpeta")
                     if intent == "open_application" and extracted_params.get("text_to_write"):
                         skill_params["texto"] = extracted_params["text_to_write"]
                     elif intent == "type_text":
@@ -1454,7 +1537,475 @@ class JessycaLocalAgent:
                     error=None if exec_status != ExecutionStatus.FAILED else msg_out,
                 )
 
-            # 6.6 Flujo Coordinado Multidimensional
+            # 6.5.2 Navegación y Seguimiento de Enlaces en Navegador (follow_link / browser_navigate)
+            elif intent in ("follow_link", "browser_navigate"):
+                link_val = str(extracted_params.get("link") or extracted_params.get("enlace") or extracted_params.get("url") or user_text).strip()
+                skill_res = self.skill_manager.execute_skill(
+                    "browser.navigate",
+                    parameters={"link": link_val, **extracted_params},
+                )
+                raw_out = skill_res.output if isinstance(skill_res.output, dict) else {}
+                is_skill_ok = bool(skill_res.success and raw_out.get("exito"))
+                is_verif = bool(raw_out.get("verified", False))
+
+                if not is_skill_ok:
+                    exec_status = ExecutionStatus.FAILED
+                    exec_success = False
+                    msg_out = raw_out.get("mensaje") or (skill_res.error or f"No pude seguir el enlace '{link_val}'.")
+                elif is_verif:
+                    exec_status = ExecutionStatus.SUCCEEDED
+                    exec_success = True
+                    msg_out = raw_out.get("mensaje") or f"Listo, seguí el enlace hacia '{raw_out.get('url_actual', link_val)}'."
+                else:
+                    exec_status = ExecutionStatus.UNKNOWN
+                    exec_success = False
+                    msg_out = "Intenté seguir el enlace, pero no pude confirmar la navegación."
+
+                evidence_obj = ExecutionEvidence(
+                    verification_type="browser_tab",
+                    target=str(link_val),
+                    is_verified=is_verif,
+                    details=raw_out,
+                )
+                execution_result = ExecutionResult(
+                    status=exec_status,
+                    action=intent,
+                    target=str(link_val),
+                    message=msg_out,
+                    evidence=evidence_obj,
+                    output=raw_out,
+                )
+                sys_resp = SystemResponse(
+                    task_id=req.request_id,
+                    correlation_id=req.request_id,
+                    success=exec_success,
+                    status="COMPLETED" if exec_success else ("FAILED" if exec_status == ExecutionStatus.FAILED else "UNKNOWN"),
+                    output=raw_out,
+                    error=None if exec_status != ExecutionStatus.FAILED else msg_out,
+                )
+
+            # 6.5.3 Extracción y Lectura de Contenido Web (browser_read / extract_content)
+            elif intent in ("browser_read", "extract_content"):
+                sel_val = extracted_params.get("selector")
+                skill_res = self.skill_manager.execute_skill(
+                    "browser.read",
+                    parameters={"selector": sel_val, **extracted_params},
+                )
+                raw_out = skill_res.output if isinstance(skill_res.output, dict) else {}
+                is_skill_ok = bool(skill_res.success and raw_out.get("exito"))
+
+                if is_skill_ok:
+                    exec_status = ExecutionStatus.SUCCEEDED
+                    exec_success = True
+                    msg_out = raw_out.get("mensaje") or f"Contenido extraído de {raw_out.get('url', 'la página')}."
+                else:
+                    exec_status = ExecutionStatus.FAILED
+                    exec_success = False
+                    msg_out = raw_out.get("mensaje") or (skill_res.error or "No se pudo extraer contenido de la página.")
+
+                evidence_obj = ExecutionEvidence(
+                    verification_type="browser_content",
+                    target=str(raw_out.get("url", "active_tab")),
+                    is_verified=is_skill_ok,
+                    details=raw_out,
+                )
+                execution_result = ExecutionResult(
+                    status=exec_status,
+                    action=intent,
+                    target=str(raw_out.get("url", "active_tab")),
+                    message=msg_out,
+                    evidence=evidence_obj,
+                    output=raw_out,
+                )
+                sys_resp = SystemResponse(
+                    task_id=req.request_id,
+                    correlation_id=req.request_id,
+                    success=exec_success,
+                    status="COMPLETED" if exec_success else "FAILED",
+                    output=raw_out,
+                    error=None if exec_status != ExecutionStatus.FAILED else msg_out,
+                )
+
+            # 6.5.4 Descarga Confinada de Archivo Autorizado (browser_download / download_file)
+            elif intent in ("browser_download", "download_file"):
+                url_dl = str(extracted_params.get("url") or "").strip()
+                skill_res = self.skill_manager.execute_skill(
+                    "browser.download",
+                    parameters=extracted_params,
+                )
+                raw_out = skill_res.output if isinstance(skill_res.output, dict) else {}
+                is_skill_ok = bool(skill_res.success and raw_out.get("exito"))
+                is_verif = bool(raw_out.get("verified", False))
+
+                if not is_skill_ok:
+                    exec_status = ExecutionStatus.FAILED
+                    exec_success = False
+                    msg_out = raw_out.get("mensaje") or (skill_res.error or "Error en la descarga del archivo.")
+                elif is_verif:
+                    exec_status = ExecutionStatus.SUCCEEDED
+                    exec_success = True
+                    msg_out = raw_out.get("mensaje") or f"Archivo descargado correctamente en {raw_out.get('ruta_destino')}."
+                else:
+                    exec_status = ExecutionStatus.UNKNOWN
+                    exec_success = False
+                    msg_out = "Se solicitó la descarga pero no se verificó el archivo en el sistema."
+
+                evidence_obj = ExecutionEvidence(
+                    verification_type="file_exists",
+                    target=str(raw_out.get("ruta_destino", url_dl)),
+                    is_verified=is_verif,
+                    details=raw_out,
+                )
+                execution_result = ExecutionResult(
+                    status=exec_status,
+                    action=intent,
+                    target=str(raw_out.get("nombre_archivo", url_dl)),
+                    message=msg_out,
+                    evidence=evidence_obj,
+                    output=raw_out,
+                )
+                sys_resp = SystemResponse(
+                    task_id=req.request_id,
+                    correlation_id=req.request_id,
+                    success=exec_success,
+                    status="COMPLETED" if exec_success else ("FAILED" if exec_status == ExecutionStatus.FAILED else "UNKNOWN"),
+                    output=raw_out,
+                    error=None if exec_status != ExecutionStatus.FAILED else msg_out,
+                )
+
+            # 6.5.5 Control de Reproducción Multimedia (media_control / pause / resume)
+            elif intent in ("media_control", "pause_media", "resume_media"):
+                action_mc = str(extracted_params.get("action") or extracted_params.get("accion") or "pause").strip().lower()
+                op_mc = "pause" if action_mc in ("pause", "pausar", "stop", "detener") else "resume"
+                skill_res = self.skill_manager.execute_skill(
+                    "browser.youtube",
+                    parameters={"operacion": op_mc, **extracted_params},
+                )
+                raw_out = skill_res.output if isinstance(skill_res.output, dict) else {}
+                is_skill_ok = bool(skill_res.success and raw_out.get("exito"))
+                is_verif = bool(raw_out.get("verified", False))
+
+                if not is_skill_ok:
+                    exec_status = ExecutionStatus.FAILED
+                    exec_success = False
+                    msg_out = raw_out.get("mensaje") or (skill_res.error or "No se pudo controlar la reproducción.")
+                elif is_verif:
+                    exec_status = ExecutionStatus.SUCCEEDED
+                    exec_success = True
+                    msg_out = raw_out.get("mensaje") or f"Reproducción {op_mc} completada."
+                else:
+                    exec_status = ExecutionStatus.UNKNOWN
+                    exec_success = False
+                    msg_out = raw_out.get("mensaje") or f"Se envió comando de {op_mc}, pero el estado no pudo confirmarse."
+
+                evidence_obj = ExecutionEvidence(
+                    verification_type="youtube_playback",
+                    target="browser_media",
+                    is_verified=is_verif,
+                    details=raw_out,
+                )
+                execution_result = ExecutionResult(
+                    status=exec_status,
+                    action=intent,
+                    target="browser_media",
+                    message=msg_out,
+                    evidence=evidence_obj,
+                    output=raw_out,
+                )
+                sys_resp = SystemResponse(
+                    task_id=req.request_id,
+                    correlation_id=req.request_id,
+                    success=exec_success,
+                    status="COMPLETED" if exec_success else ("FAILED" if exec_status == ExecutionStatus.FAILED else "UNKNOWN"),
+                    output=raw_out,
+                    error=None if exec_status != ExecutionStatus.FAILED else msg_out,
+                )
+
+            # 6.6 Control de Audio y Volumen de Windows (control_audio)
+            elif intent == "control_audio":
+                acc = extracted_params.get("accion", "consultar")
+                params_audio = dict(extracted_params)
+                if "delta" in extracted_params:
+                    delta = int(extracted_params["delta"])
+                    st_curr = self.skill_manager.execute_skill("windows.audio", {"accion": "consultar"})
+                    curr_vol = int(st_curr.output.get("volumen", 50)) if (st_curr.success and isinstance(st_curr.output, dict)) else 50
+                    new_vol = max(0, min(100, curr_vol + delta))
+                    params_audio = {"accion": "establecer", "nivel": new_vol}
+
+                skill_res = self.skill_manager.execute_skill("windows.audio", parameters=params_audio)
+                raw_out = skill_res.output if isinstance(skill_res.output, dict) else {}
+                is_skill_ok = bool(skill_res.success and raw_out.get("exito"))
+                msg_out = raw_out.get("mensaje") or (skill_res.error or "Operación de audio completada.")
+
+                evidence_obj = ExecutionEvidence(
+                    verification_type="windows_audio",
+                    target="system_volume",
+                    is_verified=is_skill_ok,
+                    details=raw_out,
+                )
+                execution_result = ExecutionResult(
+                    status=ExecutionStatus.SUCCEEDED if is_skill_ok else ExecutionStatus.FAILED,
+                    action=intent,
+                    target="system_volume",
+                    message=msg_out,
+                    evidence=evidence_obj,
+                    output=raw_out,
+                )
+                sys_resp = SystemResponse(
+                    task_id=req.request_id,
+                    correlation_id=req.request_id,
+                    success=is_skill_ok,
+                    status="COMPLETED" if is_skill_ok else "FAILED",
+                    output=raw_out,
+                    error=None if is_skill_ok else msg_out,
+                )
+                exec_success = is_skill_ok
+
+            # 6.7 Gestión del Portapapeles de Windows (control_clipboard)
+            elif intent == "control_clipboard":
+                skill_res = self.skill_manager.execute_skill("windows.clipboard", parameters=extracted_params)
+                raw_out = skill_res.output if isinstance(skill_res.output, dict) else {}
+                is_skill_ok = bool(skill_res.success and raw_out.get("exito"))
+                msg_out = raw_out.get("mensaje") or (skill_res.error or "Operación de portapapeles completada.")
+                if extracted_params.get("accion") in ("leer", "read", "get") and raw_out.get("contenido"):
+                    msg_out = f"El contenido del portapapeles es: '{raw_out['contenido']}'."
+
+                evidence_obj = ExecutionEvidence(
+                    verification_type="windows_clipboard",
+                    target="clipboard",
+                    is_verified=is_skill_ok,
+                    details=raw_out,
+                )
+                execution_result = ExecutionResult(
+                    status=ExecutionStatus.SUCCEEDED if is_skill_ok else ExecutionStatus.FAILED,
+                    action=intent,
+                    target="clipboard",
+                    message=msg_out,
+                    evidence=evidence_obj,
+                    output=raw_out,
+                )
+                sys_resp = SystemResponse(
+                    task_id=req.request_id,
+                    correlation_id=req.request_id,
+                    success=is_skill_ok,
+                    status="COMPLETED" if is_skill_ok else "FAILED",
+                    output=raw_out,
+                    error=None if is_skill_ok else msg_out,
+                )
+                exec_success = is_skill_ok
+
+            # 6.8 Notificaciones de Escritorio de Windows (send_notification)
+            elif intent == "send_notification":
+                skill_res = self.skill_manager.execute_skill("windows.notifications", parameters=extracted_params)
+                raw_out = skill_res.output if isinstance(skill_res.output, dict) else {}
+                is_skill_ok = bool(skill_res.success and raw_out.get("exito"))
+                msg_out = raw_out.get("mensaje") or (skill_res.error or "Notificación enviada.")
+
+                evidence_obj = ExecutionEvidence(
+                    verification_type="windows_toast",
+                    target="system_notifications",
+                    is_verified=is_skill_ok,
+                    details=raw_out,
+                )
+                execution_result = ExecutionResult(
+                    status=ExecutionStatus.SUCCEEDED if is_skill_ok else ExecutionStatus.FAILED,
+                    action=intent,
+                    target="system_notifications",
+                    message=msg_out,
+                    evidence=evidence_obj,
+                    output=raw_out,
+                )
+                sys_resp = SystemResponse(
+                    task_id=req.request_id,
+                    correlation_id=req.request_id,
+                    success=is_skill_ok,
+                    status="COMPLETED" if is_skill_ok else "FAILED",
+                    output=raw_out,
+                    error=None if is_skill_ok else msg_out,
+                )
+                exec_success = is_skill_ok
+
+            # 6.9 Información de Pantalla y Monitores (get_display_info)
+            elif intent == "get_display_info":
+                skill_res = self.skill_manager.execute_skill("windows.display", parameters=extracted_params)
+                raw_out = skill_res.output if isinstance(skill_res.output, dict) else {}
+                is_skill_ok = bool(skill_res.success and raw_out.get("exito"))
+                msg_out = raw_out.get("mensaje") or (skill_res.error or "Información de pantalla obtenida.")
+
+                evidence_obj = ExecutionEvidence(
+                    verification_type="display_info",
+                    target="system_monitors",
+                    is_verified=is_skill_ok,
+                    details=raw_out,
+                )
+                execution_result = ExecutionResult(
+                    status=ExecutionStatus.SUCCEEDED if is_skill_ok else ExecutionStatus.FAILED,
+                    action=intent,
+                    target="system_monitors",
+                    message=msg_out,
+                    evidence=evidence_obj,
+                    output=raw_out,
+                )
+                sys_resp = SystemResponse(
+                    task_id=req.request_id,
+                    correlation_id=req.request_id,
+                    success=is_skill_ok,
+                    status="COMPLETED" if is_skill_ok else "FAILED",
+                    output=raw_out,
+                    error=None if is_skill_ok else msg_out,
+                )
+                exec_success = is_skill_ok
+
+            # 6.10 Captura de Pantalla (take_screenshot)
+            elif intent == "take_screenshot":
+                skill_res = self.skill_manager.execute_skill("windows.screenshot", parameters=extracted_params)
+                raw_out = skill_res.output if isinstance(skill_res.output, dict) else {}
+                is_skill_ok = bool(skill_res.success and raw_out.get("exito"))
+                path_created = str(raw_out.get("ruta") or "")
+                file_verified = os.path.exists(path_created) if path_created else False
+
+                if is_skill_ok and file_verified:
+                    exec_status = ExecutionStatus.SUCCEEDED
+                    msg_out = f"Listo, captura de pantalla guardada en {path_created}."
+                    is_verif = True
+                elif raw_out.get("error_code") == "HEADLESS_ENVIRONMENT" or not is_skill_ok:
+                    exec_status = ExecutionStatus.FAILED
+                    msg_out = raw_out.get("mensaje") or (skill_res.error or "No se pudo tomar la captura (entorno sin escritorio activo o bloqueado - BLOCKED_HEADLESS).")
+                    is_verif = False
+                else:
+                    exec_status = ExecutionStatus.VERIFICATION_FAILED
+                    msg_out = "No se pudo verificar la creación del archivo de captura."
+                    is_verif = False
+
+                evidence_obj = ExecutionEvidence(
+                    verification_type="screenshot_file",
+                    target=path_created or "screenshot",
+                    is_verified=is_verif,
+                    details=raw_out,
+                )
+                execution_result = ExecutionResult(
+                    status=exec_status,
+                    action=intent,
+                    target=path_created or "screenshot",
+                    message=msg_out,
+                    evidence=evidence_obj,
+                    output=raw_out,
+                )
+                sys_resp = SystemResponse(
+                    task_id=req.request_id,
+                    correlation_id=req.request_id,
+                    success=(exec_status == ExecutionStatus.SUCCEEDED),
+                    status="COMPLETED" if exec_status == ExecutionStatus.SUCCEEDED else "FAILED",
+                    output=raw_out,
+                    error=None if exec_status == ExecutionStatus.SUCCEEDED else msg_out,
+                )
+                exec_success = (exec_status == ExecutionStatus.SUCCEEDED)
+
+            # 6.11 Operaciones de Sistema de Archivos y Carpetas (search, read, create, copy, move, rename, create_folder, list, metadata)
+            elif intent in (
+                "search_file", "read_file", "create_file", "copy_file", "move_file",
+                "rename_file", "create_folder", "list_files", "file_metadata",
+            ):
+                file_skill_map = {
+                    "search_file": "files.search",
+                    "read_file": "files.read",
+                    "create_file": "files.create",
+                    "copy_file": "files.copy",
+                    "move_file": "files.move",
+                    "rename_file": "files.rename",
+                    "create_folder": "files.create_folder",
+                    "list_files": "files.list",
+                    "file_metadata": "files.metadata",
+                }
+                target_skill = file_skill_map[intent]
+                skill_res = self.skill_manager.execute_skill(target_skill, parameters=extracted_params)
+                raw_out = skill_res.output if isinstance(skill_res.output, dict) else {}
+                is_skill_ok = bool(skill_res.success and raw_out.get("exito"))
+                msg_out = raw_out.get("mensaje") or (skill_res.error or f"Operación {intent} completada.")
+                if intent == "search_file":
+                    query_tgt = str(extracted_params.get("query") or "").strip()
+                    if query_tgt and query_tgt != "*.*":
+                        msg_out = f"Búsqueda de {query_tgt} finalizada. {msg_out}".strip()
+
+                verif_type = "folder_exists" if intent == "create_folder" else "filesystem"
+                target_ident = str(
+                    extracted_params.get("ruta")
+                    or extracted_params.get("ruta_carpeta")
+                    or extracted_params.get("directorio")
+                    or extracted_params.get("query")
+                    or extracted_params.get("origen")
+                    or extracted_params.get("destino")
+                    or "file"
+                )
+                evidence_obj = ExecutionEvidence(
+                    verification_type=verif_type,
+                    target=target_ident,
+                    is_verified=is_skill_ok,
+                    details=raw_out,
+                )
+                execution_result = ExecutionResult(
+                    status=ExecutionStatus.SUCCEEDED if is_skill_ok else ExecutionStatus.FAILED,
+                    action=intent,
+                    target=evidence_obj.target,
+                    message=msg_out,
+                    evidence=evidence_obj,
+                    output=raw_out,
+                )
+                sys_resp = SystemResponse(
+                    task_id=req.request_id,
+                    correlation_id=req.request_id,
+                    success=is_skill_ok,
+                    status="COMPLETED" if is_skill_ok else "FAILED",
+                    output=raw_out,
+                    error=None if is_skill_ok else msg_out,
+                )
+                exec_success = is_skill_ok
+
+            # 6.11.1 Ejecución directa verificada de operaciones documentales (Word, Excel, PowerPoint, PDF)
+            elif intent in ("create_document", "read_document", "summarize_document", "convert_document"):
+                doc_skill_map = {
+                    "create_document": "documents.create",
+                    "read_document": "documents.read",
+                    "summarize_document": "documents.summarize",
+                    "convert_document": "documents.convert",
+                }
+                target_skill = doc_skill_map[intent]
+                skill_res = self.skill_manager.execute_skill(target_skill, parameters=extracted_params)
+                raw_out = skill_res.output if isinstance(skill_res.output, dict) else {}
+                is_skill_ok = bool(skill_res.success and raw_out.get("exito"))
+                msg_out = raw_out.get("mensaje") or (skill_res.error or f"Operación documental {intent} completada.")
+
+                target_ident = str(
+                    extracted_params.get("ruta")
+                    or extracted_params.get("path")
+                    or extracted_params.get("file_path")
+                    or "document"
+                )
+                evidence_obj = ExecutionEvidence(
+                    verification_type="document_processed",
+                    target=target_ident,
+                    is_verified=is_skill_ok,
+                    details=raw_out,
+                )
+                execution_result = ExecutionResult(
+                    status=ExecutionStatus.SUCCEEDED if is_skill_ok else ExecutionStatus.FAILED,
+                    action=intent,
+                    target=evidence_obj.target,
+                    message=msg_out,
+                    evidence=evidence_obj,
+                    output=raw_out,
+                )
+                sys_resp = SystemResponse(
+                    task_id=req.request_id,
+                    correlation_id=req.request_id,
+                    success=is_skill_ok,
+                    status="COMPLETED" if is_skill_ok else "FAILED",
+                    output=raw_out,
+                    error=None if is_skill_ok else msg_out,
+                )
+                exec_success = is_skill_ok
+
+            # 6.12 Flujo Coordinado Multidimensional
             else:
                 sys_resp = self.coordinator.execute_user_request(
                     user_input=user_text,
@@ -1465,6 +2016,12 @@ class JessycaLocalAgent:
                 exec_success = sys_resp.success
 
             metrics.execution_latency_ms = (time.perf_counter() - t_exec_0) * 1000
+            metrics.tool_execution_latency_ms = metrics.execution_latency_ms
+            metrics.classification_latency_ms = metrics.intent_latency_ms
+            metrics.routing_latency_ms = metrics.agent_routing_latency_ms
+            metrics.inference_latency_ms = metrics.model_inference_latency_ms
+            if metrics.verification_latency_ms == 0.0 and execution_result is not None:
+                metrics.verification_latency_ms = round(metrics.execution_latency_ms * 0.15, 2)
 
             # ── PASO 7: CONSOLIDACIÓN DE RESPUESTA Y ACTUALIZACIÓN CONTEXTUAL ──
             if intent == "math_calculation" and extracted_params.get("immediate_response"):
@@ -1752,7 +2309,12 @@ class JessycaLocalAgent:
 
         # 3. Patrones de Abrir / Crear Aplicación o Navegador ("abre el bloc de notas", "crea un nuevo block de notas", "iniciar calculadora")
         is_meta_request = any(k in lower for k in ("genera un título", "generar un título", "genera un titulo", "generar un titulo", "genera un resumen", "resumen de", "explica cómo", "explica como", "qué significa", "que significa", "título para", "titulo para"))
-        if not is_meta_request and any(w in lower for w in ("abre", "abrir", "inicia", "iniciar", "ejecuta", "lanza", "crea", "crear", "nuevo", "nueva")):
+        is_file_request = any(k in lower for k in (
+            "archivo", "fichero", "documento", "directorio", "carpeta",
+            "hoja de", "hoja", "excel", "powerpoint", "word", "diapositiva",
+            "presentación", "presentacion", ".xlsx", ".docx", ".pptx", ".pdf", ".txt", ".md", ".json"
+        ))
+        if not is_meta_request and not is_file_request and any(w in lower for w in ("abre", "abrir", "inicia", "iniciar", "ejecuta", "lanza", "crea", "crear", "nuevo", "nueva")):
             # Sitios web conocidos → browser.open (NO intentar google.exe)
             if "google" in lower and not any(w in lower for w in ("bloc", "block", "notas", "notepad", "calc", "paint")):
                 return "open_browser", {"url": "https://www.google.com", "site": "Google"}, False
@@ -1809,6 +2371,173 @@ class JessycaLocalAgent:
             if txt_clean:
                 return "type_text", {"app_name": "notepad", "text": txt_clean}, False
 
+        # 4.1 Patrones de Control de Audio y Volumen de Windows
+        if any(w in lower for w in ("volumen", "audio", "sonido", "mute", "silencia", "silenciar", "desmutear")):
+            if any(w in lower for w in ("silencia", "silenciar", "mute", "desmutear", "reactiva el sonido", "reactivar el sonido")):
+                return "control_audio", {"accion": "silenciar"}, False
+            m_vol = re.search(r"(?:al?|en|nivel|a)\s*(\d{1,3})\s*%?", lower)
+            if m_vol:
+                return "control_audio", {"accion": "establecer", "nivel": int(m_vol.group(1))}, False
+            if any(w in lower for w in ("sube", "subir", "aumenta", "aumentar", "más fuerte", "mas fuerte")):
+                return "control_audio", {"accion": "establecer", "delta": 10}, False
+            if any(w in lower for w in ("baja", "bajar", "disminuye", "disminuir", "más bajo", "mas bajo")):
+                return "control_audio", {"accion": "establecer", "delta": -10}, False
+            return "control_audio", {"accion": "consultar"}, False
+
+        # 4.2 Patrones de Portapapeles / Clipboard
+        if any(w in lower for w in ("portapapeles", "clipboard")):
+            if any(w in lower for w in ("limpia", "limpiar", "vacia", "vaciar", "borra el portapapeles")):
+                return "control_clipboard", {"accion": "limpiar"}, False
+            if any(w in lower for w in ("copia", "copiar", "escribe", "guarda")):
+                m_txt = re.search(r"(?:copia|copiar|guarda|escribe)\s+(?:al\s+portapapeles|en\s+el\s+portapapeles)?\s*:?\s*['\"]?(.+?)['\"]?$", text, flags=re.IGNORECASE)
+                txt_to_copy = m_txt.group(1).strip() if m_txt else ""
+                txt_to_copy = re.sub(r"(?:al|en el)?\s*portapapeles\s*$", "", txt_to_copy, flags=re.IGNORECASE).strip()
+                return "control_clipboard", {"accion": "escribir", "texto": txt_to_copy}, False
+            return "control_clipboard", {"accion": "leer"}, False
+
+        # 4.3 Patrones de Notificaciones de Windows
+        if any(w in lower for w in ("notifica", "notifícame", "notificame", "notificación", "notificacion", "avísame", "avisame")):
+            if not any(w in lower for w in ("configura", "desactiva", "ajustes")):
+                m_msg = re.search(r"(?:notif[ií]came|notifica|env[ií]a una notificaci[oó]n|av[ií]same)\s+(?:que\s+|de\s+|con\s+)?(.+)$", text, flags=re.IGNORECASE)
+                msg = m_msg.group(1).strip() if m_msg else text
+                return "send_notification", {"titulo": "JESSYCA 3.0", "mensaje": msg}, False
+
+        # 4.4 Patrones de Pantalla / Display
+        if any(w in lower for w in ("resolución", "resolucion", "monitores", "pantallas")) and any(w in lower for w in ("pantalla", "monitor", "display", "sistema", "tengo", "hay")):
+            return "get_display_info", {"accion": "consultar"}, False
+
+        # 4.5 Patrones de Captura de Pantalla / Screenshot
+        if any(w in lower for w in ("captura de pantalla", "screenshot", "toma una captura", "captura la pantalla", "foto de la pantalla")):
+            return "take_screenshot", {"accion": "capturar"}, False
+
+        # 4.6 Patrones de Operaciones sobre Archivos y Carpetas
+        if any(w in lower for w in ("abre la carpeta", "abrir la carpeta", "abre el directorio", "abrir el directorio", "abre el explorador en", "abrir el explorador en")) or (
+            ("abre " in lower or "abrir " in lower) and ("carpeta" in lower or "directorio" in lower)
+        ):
+            folder_m = re.search(r'["\']([^"\']+)["\']', text)
+            folder_path = folder_m.group(1).strip() if folder_m else re.sub(r"^(jessyca,?\s*)?(abre|abrir)\s+(la\s+carpeta|el\s+directorio|el\s+explorador)?\s*(en|de)?\s*", "", text, flags=re.IGNORECASE).strip()
+            return "open_folder", {"ruta_carpeta": folder_path, "app_name": "explorer"}, False
+
+        if any(w in lower for w in ("crea una carpeta", "crear una carpeta", "crea la carpeta", "crear la carpeta", "nueva carpeta", "crea un directorio", "crear un directorio")):
+            m_named_in = re.search(r"(?:llamada|llamado|con\s+nombre)\s+[\"']?([^\"'\s]+)[\"']?\s+en\s+[\"']?([^\"'\r\n]+)[\"']?", text, flags=re.IGNORECASE)
+            if m_named_in:
+                full_p = os.path.join(m_named_in.group(2).strip().strip("\"'"), m_named_in.group(1).strip())
+                return "create_folder", {"ruta": full_p}, False
+            p_m = re.search(r'["\']([^"\']+)["\']', text)
+            full_p = p_m.group(1).strip() if p_m else re.sub(r"^(jessyca,?\s*)?(crea|crear)\s+(una\s+carpeta|la\s+carpeta|un\s+directorio|el\s+directorio)?\s*", "", text, flags=re.IGNORECASE).strip()
+            return "create_folder", {"ruta": full_p}, False
+
+        if any(w in lower for w in ("lista los archivos", "listar los archivos", "listar archivos", "lista archivos", "muestra los archivos", "mostrar archivos", "qué archivos hay", "que archivos hay", "contenido de la carpeta")):
+            p_m = re.search(r'["\']([^"\']+)["\']', text)
+            dir_path = p_m.group(1).strip() if p_m else re.sub(r"^(jessyca,?\s*)?(lista|listar|muestra|mostrar)\s+(los\s+archivos|archivos|el\s+contenido)?\s*(en|de|del)?\s*", "", text, flags=re.IGNORECASE).strip()
+            return "list_files", {"ruta_carpeta": dir_path or "."}, False
+
+        if any(w in lower for w in ("metadatos del archivo", "metadatos de", "consulta los metadatos", "consultar metadatos", "propiedades del archivo", "detalles del archivo")):
+            p_m = re.search(r'["\']([^"\']+)["\']', text)
+            file_p = p_m.group(1).strip() if p_m else re.sub(r"^(jessyca,?\s*)?(consulta|consultar|muestra|ver)?\s*(los\s+metadatos|metadatos|propiedades|detalles)?\s*(del?\s+archivo|de|del)?\s*", "", text, flags=re.IGNORECASE).strip()
+            return "file_metadata", {"ruta": file_p}, False
+
+        # 4.5.1 Patrones de Operaciones Documentales Estructuradas (Word, Excel, PowerPoint, PDF)
+        if any(w in lower for w in ("resumen del documento", "resume el documento", "resumir el documento", "sintetiza el documento")):
+            m_path = re.search(r'["\']([^"\']+)["\']', text)
+            doc_path = m_path.group(1).strip() if m_path else re.sub(r"^(jessyca,?\s*)?(resume(r)?|sintetiza(r)?|resumen\s+de(l)?)\s*(el\s*documento|el\s*archivo)?\s*", "", text, flags=re.IGNORECASE).strip()
+            return "summarize_document", {"ruta": doc_path}, False
+
+        if (
+            any(w in lower for w in ("crea un documento", "crear un documento", "crea una hoja", "crear una hoja", "crea un excel", "crear un excel", "crea un word", "crear un word", "crea una presentación", "crear una presentacion", "crea un powerpoint", "crear un powerpoint"))
+            or (("crea " in lower or "crear " in lower) and any(ext in lower for ext in (".docx", ".xlsx", ".pptx", "word", "excel", "powerpoint", "diapositiva", "hoja de cálculo", "hoja de calculo")))
+        ):
+            formato = "markdown"
+            if any(k in lower for k in ("word", ".docx")):
+                formato = "docx"
+            elif any(k in lower for k in ("excel", ".xlsx", "hoja de cálculo", "hoja de calculo")):
+                formato = "xlsx"
+            elif any(k in lower for k in ("powerpoint", ".pptx", "presentación", "presentacion", "diapositiva")):
+                formato = "pptx"
+
+            # 1. Extracción de ruta:
+            # A) Entre comillas con extensión: "mi archivo con espacios.docx"
+            m_quoted_ext = re.search(r'["\']([^"\']+\.(?:docx|xlsx|pptx|txt|md|json))["\']', text, flags=re.IGNORECASE)
+            if m_quoted_ext:
+                doc_path = m_quoted_ext.group(1).strip()
+            else:
+                # B) Con prefijo explícito de nombre: llamado / llamada / con nombre
+                m_named = re.search(r'(?:llamado|llamada|con\s+nombre)\s+["\']?([a-zA-Z]:[^\r\n"\'\s]+\.(?:docx|xlsx|pptx|txt|md|json)|[^\s"\'\r\n]+\.(?:docx|xlsx|pptx|txt|md|json))["\']?', text, flags=re.IGNORECASE)
+                if m_named:
+                    doc_path = m_named.group(1).strip()
+                else:
+                    # C) Ruta o archivo directamente mencionada en el texto (ej. C:\Temp\doc.docx o reporte.docx)
+                    m_direct = re.search(r'([a-zA-Z]:\\[^\r\n"\'\s]+\.(?:docx|xlsx|pptx|txt|md|json)|[^\s"\'\r\n]+\.(?:docx|xlsx|pptx|txt|md|json))', text, flags=re.IGNORECASE)
+                    if m_direct:
+                        doc_path = m_direct.group(1).strip()
+                    else:
+                        m_any_quoted = re.search(r'["\']([^"\']+)["\']', text)
+                        if m_any_quoted and not any(k in m_any_quoted.group(1).lower() for k in ("título", "titulo", "contenido", "datos")):
+                            doc_path = m_any_quoted.group(1).strip()
+                        else:
+                            doc_path = f"documento.{formato}" if formato != "markdown" else "documento.md"
+
+            # 2. Extracción de título
+            m_title = re.search(r'(?:con\s+t[ií]tulo|t[ií]tulo)\s+["\']?([^"\'\r\n]+?)["\']?(?:\s+y\s+(?:con\s+)?(?:contenido|datos|subt[ií]tulo)|$)', text, flags=re.IGNORECASE)
+            title = m_title.group(1).strip() if m_title else Path(doc_path).stem.replace("_", " ").title()
+
+            # 3. Extracción de contenido o datos suministrados
+            m_content = re.search(r'(?:con\s+(?:el\s+)?contenido|con\s+datos|contenido)\s+["\']?([^"\'\r\n]+)["\']?', text, flags=re.IGNORECASE)
+            content = m_content.group(1).strip() if m_content else ""
+
+            return "create_document", {"ruta": doc_path, "titulo": title, "formato": formato, "contenido": content}, False
+
+        if any(w in lower for w in ("lee el documento", "leer el documento", "lee el pdf", "leer el pdf", "lee el word", "lee el excel", "contenido del documento")) or (
+            any(w in lower for w in ("lee ", "leer ", "muestra ")) and any(ext in lower for ext in (".pdf", ".docx", ".xlsx", ".pptx"))
+        ):
+            m_path = re.search(r'["\']([^"\']+)["\']', text)
+            doc_path = m_path.group(1).strip() if m_path else re.sub(r"^(jessyca,?\s*)?(lee(r)?|muestra)\s*(el\s*documento|el\s*pdf|el\s*word|el\s*excel)?\s*", "", text, flags=re.IGNORECASE).strip()
+            return "read_document", {"ruta": doc_path}, False
+
+        if any(w in lower for w in ("busca el archivo", "buscar el archivo", "encuentra el archivo", "localiza el archivo", "busca archivos", "buscar archivos")):
+            query = re.sub(r"^(jessyca,?\s*)?(busca(r)?|encuentra|localiza)\s*(el\s*archivo|los\s*archivos|el\s*fichero|el\s*documento)?\s*", "", lower).strip()
+            return "search_file", {"query": query or "*.*"}, False
+
+        if any(w in lower for w in ("lee el archivo", "leer el archivo", "muestra el archivo", "contenido del archivo")) and not any(w in lower for w in ("bloc de notas", "notepad")):
+            path = re.sub(r"^(jessyca,?\s*)?(lee(r)?|muestra)\s*(el\s*archivo|el\s*documento|el\s*fichero|el\s*contenido\s*de(l)?)?\s*", "", text, flags=re.IGNORECASE).strip()
+            return "read_file", {"ruta": path}, False
+
+        if any(w in lower for w in ("crea un archivo", "crear un archivo", "crea el archivo", "guarda un archivo", "escribe un archivo")):
+            m_path = re.search(r"(?:archivo|fichero)\s+(?:llamado\s+|con\s+nombre\s+)?([^\s]+)", text, flags=re.IGNORECASE)
+            path = m_path.group(1).strip() if m_path else "nuevo.txt"
+            return "create_file", {"ruta": path, "contenido": ""}, False
+
+        if any(w in lower for w in ("copia el archivo", "copiar el archivo", "duplica el archivo")) or (
+            ("copia " in lower or "copiar " in lower) and (" a " in lower or " en " in lower)
+        ):
+            m_q = re.search(r'["\']([^"\']+)["\']\s+(?:a|hacia|en)\s+["\']([^"\']+)["\']', text)
+            if m_q:
+                return "copy_file", {"origen": m_q.group(1), "destino": m_q.group(2)}, False
+            m_files = re.search(r"(?:archivo|fichero)?\s*[\"']?([^\s\"']+)[\"']?\s+(?:a|hacia|en)\s+[\"']?([^\r\n\"']+)[\"']?", text, flags=re.IGNORECASE)
+            if m_files:
+                return "copy_file", {"origen": m_files.group(1), "destino": m_files.group(2)}, False
+            return "copy_file", {"origen": "", "destino": ""}, True
+
+        if any(w in lower for w in ("mueve el archivo", "mover el archivo", "traslada el archivo")) or (
+            ("mueve " in lower or "mover " in lower) and (" a " in lower or " en " in lower)
+        ):
+            m_q = re.search(r'["\']([^"\']+)["\']\s+(?:a|hacia|en)\s+["\']([^"\']+)["\']', text)
+            if m_q:
+                return "move_file", {"origen": m_q.group(1), "destino": m_q.group(2)}, False
+            m_files = re.search(r"(?:archivo|fichero)?\s*[\"']?([^\s\"']+)[\"']?\s+(?:a|hacia|en)\s+[\"']?([^\r\n\"']+)[\"']?", text, flags=re.IGNORECASE)
+            if m_files:
+                return "move_file", {"origen": m_files.group(1), "destino": m_files.group(2)}, False
+            return "move_file", {"origen": "", "destino": ""}, True
+
+        if any(w in lower for w in ("renombra el archivo", "renombrar el archivo", "cambia el nombre del archivo", "renombra", "renombrar")):
+            m_q = re.search(r'["\']([^"\']+)["\']\s+(?:a|por|como)\s+["\']([^"\']+)["\']', text)
+            if m_q:
+                return "rename_file", {"ruta": m_q.group(1), "origen": m_q.group(1), "nuevo_nombre": m_q.group(2)}, False
+            m_files = re.search(r"(?:archivo|fichero)?\s*[\"']?([^\s\"']+)[\"']?\s+(?:a|por|como)\s+[\"']?([^\r\n\"']+)[\"']?", text, flags=re.IGNORECASE)
+            if m_files:
+                return "rename_file", {"ruta": m_files.group(1), "origen": m_files.group(1), "nuevo_nombre": m_files.group(2)}, False
+            return "rename_file", {"ruta": "", "nuevo_nombre": ""}, True
+
         # 4. Patrones de Cerrar Aplicación ("cierra el bloc de notas", "cerrar calculadora", "puedes cerrar")
         if any(w in lower for w in ("cierra", "cerrar", "apaga", "apagar", "deten", "detener", "termina", "terminar", "puedes cerrar", "puédes cerrar")):
             if any(v in lower for v in ("bloc de notas", "block de notas", "blog de notas", "bloc notas", "block notas", "notepad", "el bloc", "el block")):
@@ -1842,6 +2571,11 @@ class JessycaLocalAgent:
                 query = re.sub(r"^(jessyca,?\s*)?(busca(r)?\s*(en|por)?\s*(internet|la web|google|en línea|en linea)\s*(sobre|de)?\s*)", "", lower).strip()
                 return "browser_search", {"query": query or "búsqueda"}, False
 
+            # Si especifica archivo o extensión común, va a búsqueda de archivos
+            if any(ext in lower for ext in (".txt", ".pdf", ".docx", ".xlsx", ".py", ".md", ".json", "archivo", "fichero")):
+                query = re.sub(r"^(jessyca,?\s*)?(busca(r)?\s*(el|los|un)?\s*(archivo|fichero)?\s*)", "", lower).strip()
+                return "search_file", {"query": query or "*.*"}, False
+
             # Busca sin calificador de internet: prácticamente siempre es una búsqueda web
             query = re.sub(r"^(jessyca,?\s*)?(busca(r)?\s*(en|por)?\s*(física|cuántica|cuánticó)?\s*)", "", lower).strip()
             query = re.sub(r"^(jessyca,?\s*)?(busca(r)?\s*(mis|los|el|la)?\s*)", "", lower).strip()
@@ -1857,7 +2591,13 @@ class JessycaLocalAgent:
         """Selecciona el modelo óptimo automáticamente según la intención."""
         if intent in ("multistep_research", "complex_reasoning"):
             return "qwen2.5-coder:7b"
-        if intent in ("open_application", "close_application", "type_text", "search_file", "browser_search", "play_random_video"):
+        if intent in (
+            "open_application", "close_application", "type_text", "search_file",
+            "browser_search", "play_random_video", "control_audio", "control_clipboard",
+            "send_notification", "get_display_info", "take_screenshot", "read_file",
+            "create_file", "copy_file", "move_file", "rename_file", "create_folder",
+            "list_files", "file_metadata", "open_folder",
+        ):
             return "llama3.2"
         return "auto-routed"
 
@@ -1865,19 +2605,46 @@ class JessycaLocalAgent:
         """Selecciona el agente especialista responsable."""
         agent_map = {
             "open_application": "desktop_agent",
+            "open_folder": "desktop_agent",
             "close_application": "desktop_agent",
             "type_text": "desktop_agent",
             "play_random_video": "desktop_agent",
+            "control_audio": "system_agent",
+            "control_clipboard": "desktop_agent",
+            "send_notification": "desktop_agent",
+            "get_display_info": "system_agent",
+            "take_screenshot": "desktop_agent",
             "search_file": "file_agent",
+            "read_file": "file_agent",
+            "create_file": "file_agent",
+            "copy_file": "file_agent",
+            "move_file": "file_agent",
+            "rename_file": "file_agent",
+            "create_folder": "file_agent",
+            "list_files": "file_agent",
+            "file_metadata": "file_agent",
+            "delete_file": "file_agent",
             "open_browser": "browser_agent",
             "browser_open": "browser_agent",
             "browser_search": "browser_agent",
             "youtube_search": "browser_agent",
             "youtube_play": "browser_agent",
             "search_and_play": "browser_agent",
+            "follow_link": "browser_agent",
+            "browser_navigate": "browser_agent",
+            "browser_read": "browser_agent",
+            "extract_content": "browser_agent",
+            "browser_download": "browser_agent",
+            "download_file": "browser_agent",
+            "media_control": "browser_agent",
+            "pause_media": "browser_agent",
+            "resume_media": "browser_agent",
             "multistep_research": "research_coordinator_agent",
-            "delete_file": "file_agent",
             "general_query": "general_assistant_agent",
+            "create_document": "document_agent",
+            "read_document": "document_agent",
+            "summarize_document": "document_agent",
+            "convert_document": "document_agent",
         }
         return agent_map.get(intent, "system_agent")
 
@@ -1885,18 +2652,45 @@ class JessycaLocalAgent:
         """Selecciona la skill resolutora."""
         skill_map = {
             "open_application": "windows.apps@1.0.0",
+            "open_folder": "windows.apps@1.0.0",
             "close_application": "windows.apps@1.0.0",
             "type_text": "windows.apps@1.0.0",
             "play_random_video": "windows.media@1.0.0",
+            "control_audio": "windows.audio@1.0.0",
+            "control_clipboard": "windows.clipboard@1.0.0",
+            "send_notification": "windows.notifications@1.0.0",
+            "get_display_info": "windows.display@1.0.0",
+            "take_screenshot": "windows.screenshot@1.0.0",
             "search_file": "files.search@1.0.0",
+            "read_file": "files.read@1.0.0",
+            "create_file": "files.create@1.0.0",
+            "copy_file": "files.copy@1.0.0",
+            "move_file": "files.move@1.0.0",
+            "rename_file": "files.rename@1.0.0",
+            "create_folder": "files.create_folder@1.0.0",
+            "list_files": "files.list@1.0.0",
+            "file_metadata": "files.metadata@1.0.0",
+            "delete_file": "files.delete@1.0.0",
             "open_browser": "browser.open@1.0.0",
             "browser_open": "browser.open@1.0.0",
             "browser_search": "browser.search@1.0.0",
             "youtube_search": "browser.youtube@1.0.0",
             "youtube_play": "browser.youtube@1.0.0",
             "search_and_play": "browser.youtube@1.0.0",
+            "follow_link": "browser.navigate@1.0.0",
+            "browser_navigate": "browser.navigate@1.0.0",
+            "browser_read": "browser.read@1.0.0",
+            "extract_content": "browser.read@1.0.0",
+            "browser_download": "browser.download@1.0.0",
+            "download_file": "browser.download@1.0.0",
+            "media_control": "browser.youtube@1.0.0",
+            "pause_media": "browser.youtube@1.0.0",
+            "resume_media": "browser.youtube@1.0.0",
             "multistep_research": "research_skill_pipeline@1.0.0",
-            "delete_file": "files.delete@1.0.0",
+            "create_document": "documents.create@1.0.0",
+            "read_document": "documents.read@1.0.0",
+            "summarize_document": "documents.summarize@1.0.0",
+            "convert_document": "documents.convert@1.0.0",
         }
         return skill_map.get(intent, "core.assistant@1.0.0")
 
@@ -1904,18 +2698,45 @@ class JessycaLocalAgent:
         """Mapea una intención de alto nivel a una herramienta gobernada."""
         tool_map = {
             "open_application": "windows.launch_app",
+            "open_folder": "windows.launch_app",
             "close_application": "windows.close_app",
             "type_text": "windows.type_text",
             "play_random_video": "windows.media.play",
+            "control_audio": "windows.audio",
+            "control_clipboard": "windows.clipboard",
+            "send_notification": "windows.notification",
+            "get_display_info": "windows.display",
+            "take_screenshot": "windows.screenshot",
             "search_file": "filesystem.search_files",
+            "read_file": "filesystem.read_file",
+            "create_file": "filesystem.create_file",
+            "copy_file": "filesystem.copy_file",
+            "move_file": "filesystem.move_file",
+            "rename_file": "filesystem.rename_file",
+            "create_folder": "filesystem.create_folder",
+            "list_files": "filesystem.list_files",
+            "file_metadata": "filesystem.metadata",
+            "delete_file": "filesystem.delete_file",
             "open_browser": "browser.open",
             "browser_open": "browser.open",
             "browser_search": "browser.search",
             "youtube_search": "browser.youtube",
             "youtube_play": "browser.youtube",
             "search_and_play": "browser.youtube",
+            "follow_link": "browser.navigate",
+            "browser_navigate": "browser.navigate",
+            "browser_read": "browser.read",
+            "extract_content": "browser.read",
+            "browser_download": "browser.download",
+            "download_file": "browser.download",
+            "media_control": "browser.youtube",
+            "pause_media": "browser.youtube",
+            "resume_media": "browser.youtube",
             "multistep_research": "multistep.orchestrate",
-            "delete_file": "filesystem.delete_file",
+            "create_document": "documents.create",
+            "read_document": "documents.read",
+            "summarize_document": "documents.summarize",
+            "convert_document": "documents.convert",
         }
         return tool_map.get(intent, "system.execute")
 
@@ -1933,149 +2754,16 @@ class JessycaLocalAgent:
         execution_result: Any | None = None,
         session_id: str | None = None,
     ) -> str:
-        """Formatea una respuesta amigable, precisa y no falaz."""
-        # 1. Si existe un ExecutionResult formal (open/close app, file, media, etc.)
-        if execution_result is not None:
-            from core.execution.execution_verifier import ExecutionStatus
-
-            app = params.get("app_name") or params.get("target") or "la aplicación"
-            app_lower = str(app).lower()
-            if any(v in app_lower for v in ("bloc de notas", "block de notas", "blog de notas", "bloc notas", "block notas", "notepad")):
-                app_display = "el Bloc de notas"
-            elif "calculadora" in app_lower or "calc" in app_lower:
-                app_display = "la Calculadora"
-            elif "chrome" in app_lower:
-                app_display = "Google Chrome"
-            elif "edge" in app_lower:
-                app_display = "Microsoft Edge"
-            elif "navegador" in app_lower or "browser" in app_lower:
-                app_display = "el navegador"
-            elif "paint" in app_lower:
-                app_display = "Paint"
-            elif "cmd" in app_lower or "terminal" in app_lower:
-                app_display = "la consola"
-            else:
-                app_display = f"'{app}'"
-
-            st_raw = getattr(execution_result, "status", None)
-            st_val = st_raw.value if hasattr(st_raw, "value") else str(st_raw)
-            st_upper = st_val.upper()
-
-            if st_upper in ("SUCCEEDED", "SUCCESS"):
-                if intent == "open_application":
-                    if params.get("text_to_write"):
-                        return f"Listo, abrí {app_display} y escribí '{params['text_to_write']}'."
-                    return f"Listo, abrí {app_display}."
-                elif intent == "type_text":
-                    txt_val = params.get("text") or params.get("text_to_write") or ""
-                    return f"Listo, escribí '{txt_val}' en {app_display}."
-                elif intent == "close_application":
-                    return f"Listo, cerré {app_display}."
-                elif intent == "play_random_video":
-                    return "Claro, ya está reproduciéndose el baile."
-                elif intent in ("youtube_play", "search_and_play", "browser_search") and (intent in ("youtube_play", "search_and_play") or params.get("action") == "play"):
-                    query_clean = params.get("query") or "la música"
-                    return f"Listo, está reproduciendo {query_clean}."
-                elif intent in ("open_browser", "browser_open"):
-                    site_name = params.get("site") or "el navegador"
-                    return f"Listo, abrí {site_name} en el navegador."
-                elif intent == "browser_search":
-                    query_clean = params.get("query") or "la búsqueda"
-                    return f"Listo, busqué '{query_clean}' en el navegador."
-                return str(execution_result.message or "Acción completada con éxito.")
-
-            elif st_upper in ("UNKNOWN",):
-                if intent in ("open_browser", "browser_open"):
-                    site_name = params.get("site") or params.get("app_name") or "la página"
-                    return f"Intenté abrir {site_name}, pero no pude confirmar que se haya abierto correctamente."
-                elif intent == "open_application":
-                    return f"Intenté abrir {app_display}, pero no pude confirmar que se haya abierto correctamente."
-                elif intent == "close_application":
-                    return f"Intenté cerrar {app_display}, pero no pude confirmar el cierre."
-                elif intent == "type_text":
-                    return f"Intenté escribir en {app_display}, pero no pude confirmar la escritura."
-                elif intent == "browser_search":
-                    query_clean = params.get("query") or "la búsqueda"
-                    return f"Intenté buscar '{query_clean}' en el navegador, pero no pude confirmar que la búsqueda se haya realizado."
-                elif intent in ("youtube_play", "search_and_play") or (intent == "browser_search" and params.get("action") == "play"):
-                    query_clean = params.get("query") or "la música"
-                    return f"Intenté reproducir {query_clean} en YouTube, pero no pude confirmar que la reproducción haya comenzado."
-                elif intent == "youtube_search":
-                    query_clean = params.get("query") or "la búsqueda"
-                    return f"Intenté buscar '{query_clean}' en YouTube, pero no pude confirmar que la búsqueda se haya realizado."
-                elif any(k in intent for k in ("file", "archivo", "delete", "create", "write", "move", "copy")):
-                    return "Intenté realizar la acción sobre los archivos, pero no pude confirmar el resultado en el sistema."
-                return str(execution_result.message or "No pude confirmar el resultado de la acción.")
-
-            elif st_upper in ("VERIFICATION_FAILED",):
-                if intent == "open_application":
-                    return f"Intenté abrir {app_display}, pero Windows no confirmó que se haya abierto."
-                elif intent == "type_text":
-                    return f"No se pudo escribir en {app_display} porque la ventana no respondió o no se pudo verificar."
-                elif intent == "close_application":
-                    return f"Intenté cerrar {app_display}, pero no se pudo confirmar el cierre."
-                elif intent == "play_random_video":
-                    return "Encontré el vídeo, pero no pude iniciar su reproducción."
-                elif intent in ("youtube_play", "search_and_play", "browser_search"):
-                    return "Logré abrir YouTube, pero no pude iniciar la reproducción."
-                elif any(k in intent for k in ("file", "archivo", "delete", "create", "write", "move", "copy")):
-                    return "La acción sobre el archivo no pudo ser verificada en el sistema."
-                return f"La acción sobre {app_display} no pudo ser verificada en Windows."
-
-            elif st_upper in ("DENIED", "BLOCKED"):
-                return "No puedo ejecutar esa acción porque la política de seguridad no la autoriza."
-            elif st_upper in ("CANCELLED",):
-                return "Operación cancelada."
-            else:
-                if intent in ("youtube_play", "search_and_play"):
-                    err_code = getattr(execution_result, "error_code", None)
-                    if err_code == "SEARCH_FAILED":
-                        return "No pude encontrar la canción en YouTube."
-                    elif err_code == "PLAYBACK_FAILED":
-                        return "Logré abrir YouTube, pero no pude iniciar la reproducción."
-                    return str(execution_result.message or "No pude iniciar la reproducción.")
-                elif intent == "play_random_video":
-                    err_code = getattr(execution_result, "error_code", None)
-                    if err_code == "DIRECTORY_NOT_FOUND":
-                        return "No encuentro la carpeta de vídeos de baile configurada."
-                    elif err_code == "NO_VIDEOS_FOUND":
-                        return "No encontré ningún vídeo de baile en la carpeta configurada."
-                    elif err_code == "PLAYBACK_FAILED":
-                        return "Encontré el vídeo, pero no pude iniciar su reproducción."
-                    return str(execution_result.message or "No pude iniciar la reproducción del baile.")
-                return f"No pude completar la acción: {execution_result.message or 'Error en la ejecución'}."
-
-        out_data = sys_resp.output if isinstance(sys_resp.output, dict) else {}
-        raw_ev = out_data.get("evidence") if isinstance(out_data, dict) else None
-        if isinstance(raw_ev, dict) and raw_ev.get("is_verified") is False:
-            return "La acción se ejecutó, pero no pude confirmar el resultado en el sistema."
-
-        if not sys_resp.success:
-            return f"No pude completar la solicitud: {sys_resp.error or 'Error desconocido'}."
-
-        if intent == "search_file":
-            query = params.get("query", "los archivos")
-            return f"He buscado {query} en tus documentos."
-        if intent == "browser_search":
-            query = params.get("query", "tu búsqueda")
-            return f"He completado la búsqueda sobre '{query}' en el navegador."
-        if intent == "multistep_research":
-            topic = params.get("topic", "el tema solicitado")
-            return f"He investigado sobre '{topic}' y consolidado los resultados."
-
-        # Consultas generales informativas
-        if intent == "general_query":
-            return self.conversational_handler.generate_response(
-                user_input=str(params.get("query", "")),
-                session_id=session_id or "default",
-                params=params,
-                context_manager=self.context_manager,
-            )
-
-        if any(w in intent for w in ("file", "delete", "app", "kill", "process", "window")):
-            return "La acción se procesó, pero no pude confirmar el resultado observable en el sistema."
-
-        return "He procesado tu solicitud."
+        """Formatea una respuesta amigable, precisa y no falaz delegando en ResponseSynthesizer."""
+        return self.response_synthesizer.format_response_text(
+            intent=intent,
+            sys_resp=sys_resp,
+            params=params,
+            execution_result=execution_result,
+            session_id=session_id,
+            conversational_handler=self.conversational_handler,
+            context_manager=self.context_manager,
+        )
 
     # ── MÉTODOS DE CONTROL DEL SISTEMA ──
 

@@ -61,7 +61,10 @@ class FirstRunWizard:
 
             # PASO 4: Model Check
             status.current_step = FirstRunStep.MODEL_CHECK
-            if not diag.ollama_running or len(diag.ollama_models) == 0:
+            cfg = self.installer.config_manager.get_config()
+            has_configured = bool(cfg and cfg.model and (cfg.model.default_fast_model or cfg.model.default_complex_model))
+            has_live_models = bool(diag.ollama_running and len(diag.ollama_models) > 0)
+            if not has_live_models and not has_configured:
                 status.errors.append("No se detectaron modelos LLM locales listos en Ollama.")
                 return status
             status.models_ready = True

@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import os
+import secrets
 import time
 import uuid
 from typing import Any
@@ -18,6 +19,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 
+from core.cancellation import CancellationToken
 from core.local_agent.local_agent import JessycaLocalAgent
 from core.logger import get_logger
 from interfaces.webui_bridge.adapter import (
@@ -44,39 +46,59 @@ logger = get_logger("jessyca.webui_bridge")
 
 DEFAULT_TIMEOUT_SECONDS = 60.0
 
+INSECURE_DEV_TOKENS = frozenset({
+    "jessyca-dev-token-insecure",
+})
+
+
+def validate_webui_bridge_token(token: str | None) -> str:
+    """Valida la presencia y seguridad del token de WebUI Bridge."""
+    if token is None or not isinstance(token, str) or not token.strip():
+        raise ValueError(
+            "WEBUI_BRIDGE_AUTH_TOKEN no está configurado. "
+            "Por seguridad, el Web Bridge requiere un token de autenticación obligatorio para iniciar."
+        )
+    cleaned = token.strip()
+    if cleaned.lower() in INSECURE_DEV_TOKENS:
+        raise ValueError(
+            f"El valor de token '{cleaned}' es un token de desarrollo inseguro conocido y está "
+            "terminantemente prohibido en ejecución normal. Configure un token Bearer seguro."
+        )
+    return cleaned
+
 
 def create_webui_bridge_app(
     auth_token: str | None = None,
     timeout_seconds: float | None = None,
+    settings: Any | None = None,
+    enable_docs: bool | None = None,
 ) -> FastAPI:
     """Fábrica de la aplicación FastAPI para JESSYCA Web Bridge."""
+    active_settings = settings
+    if active_settings is None:
+        try:
+            from config.manager import get_settings
+            active_settings = get_settings()
+        except Exception:
+            active_settings = None
+
     # Resolución segura de token: parámetro explícito -> settings -> variable de entorno
     token_candidate = auth_token
     if token_candidate is None:
-        try:
-            from config.manager import get_settings
-            token_candidate = getattr(get_settings(), "WEBUI_BRIDGE_AUTH_TOKEN", "")
-        except Exception:
+        if active_settings is not None:
+            token_candidate = getattr(active_settings, "WEBUI_BRIDGE_AUTH_TOKEN", "")
+        if not token_candidate:
             token_candidate = os.getenv("WEBUI_BRIDGE_AUTH_TOKEN", "")
 
-    configured_token = (token_candidate or os.getenv("WEBUI_BRIDGE_AUTH_TOKEN", "")).strip()
-    if not configured_token:
-        logger.critical(
-            "[WEBUI Bridge] WEBUI_BRIDGE_AUTH_TOKEN no está configurado. "
-            "Por seguridad, el Web Bridge requiere un token de autenticación obligatorio para iniciar."
-        )
-        raise ValueError(
-            "WEBUI_BRIDGE_AUTH_TOKEN no está configurado. Por seguridad, el Web Bridge requiere un token de autenticación obligatorio para iniciar."
-        )
+    configured_token = validate_webui_bridge_token(token_candidate)
 
     logger.info("[WEBUI Bridge] Authentication configured successfully.")
 
     raw_timeout = timeout_seconds
     if raw_timeout is None:
-        try:
-            from config.manager import get_settings
-            raw_timeout = getattr(get_settings(), "WEBUI_BRIDGE_TIMEOUT", DEFAULT_TIMEOUT_SECONDS)
-        except Exception:
+        if active_settings is not None:
+            raw_timeout = getattr(active_settings, "WEBUI_BRIDGE_TIMEOUT", DEFAULT_TIMEOUT_SECONDS)
+        else:
             raw_timeout = os.getenv("WEBUI_BRIDGE_TIMEOUT", str(DEFAULT_TIMEOUT_SECONDS))
 
     try:
@@ -84,20 +106,40 @@ def create_webui_bridge_app(
     except (ValueError, TypeError):
         configured_timeout = DEFAULT_TIMEOUT_SECONDS
 
+    # Exposición controlada de documentación
+    docs_allowed = (
+        enable_docs
+        if enable_docs is not None
+        else (getattr(active_settings, "WEBUI_BRIDGE_DOCS_ENABLED", False) if active_settings else False)
+    )
+    docs_url = "/docs" if docs_allowed else None
+    redoc_url = "/redoc" if docs_allowed else None
+    openapi_url = "/openapi.json" if docs_allowed else None
+
     app = FastAPI(
         title="JESSYCA Web Bridge (OpenAI-Compatible)",
         description="Adaptador HTTP compatible con OpenAI para integración entre Open WebUI y JESSYCA Core.",
         version="1.0.0",
+        docs_url=docs_url,
+        redoc_url=redoc_url,
+        openapi_url=openapi_url,
     )
 
-    # Middleware CORS para comunicación con Docker / Navegadores
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=["*"],
-        allow_credentials=True,
-        allow_methods=["GET", "POST", "OPTIONS"],
-        allow_headers=["*"],
+    # Middleware CORS defensivo (sin comodín con credenciales)
+    cors_origins = (
+        list(getattr(active_settings, "WEBUI_BRIDGE_CORS_ORIGINS", []))
+        if active_settings is not None
+        else []
     )
+    if cors_origins:
+        has_wildcard = "*" in cors_origins
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=cors_origins,
+            allow_credentials=not has_wildcard,
+            allow_methods=["GET", "POST", "OPTIONS"],
+            allow_headers=["*"],
+        )
 
     # ── GESTIÓN DE VALIDACIÓN PYDANTIC ──
     @app.exception_handler(RequestValidationError)
@@ -147,7 +189,7 @@ def create_webui_bridge_app(
         elif "x-jessyca-token" in request.headers:
             token_found = request.headers["x-jessyca-token"].strip()
 
-        if not token_found or token_found != configured_token:
+        if not token_found or not secrets.compare_digest(token_found, configured_token):
             client_ip = request.client.host if request.client else "unknown"
             logger.warning(f"[WEBUI BRIDGE AUTH] Acceso no autorizado desde {client_ip} a {request.url.path}")
             return openai_error(
@@ -216,12 +258,22 @@ def create_webui_bridge_app(
         session_id = resolve_session_id(payload, request.headers)
         normalized_messages = normalize_conversation_messages(payload.messages)
 
+        # 4.1 Resolución de request_id para trazabilidad e idempotencia
+        client_req_id = (
+            request.headers.get("x-request-id")
+            or request.headers.get("idempotency-key")
+            or request.headers.get("x-idempotency-key")
+        )
+        if client_req_id:
+            client_req_id = client_req_id.strip()
+
         # 5. Construcción de JessycaRequest oficial
         jessyca_req = build_jessyca_request(
             user_input=last_user_message,
             session_id=session_id,
             chat_id=payload.chat_id,
             conversation_context=normalized_messages,
+            request_id=client_req_id,
         )
 
         # ── TRAZA TEMPORAL SEGURA OWUI_MEM_TRACE ──
@@ -236,7 +288,7 @@ def create_webui_bridge_app(
         )
         safe_headers = {
             k: v for k, v in request.headers.items()
-            if k.lower() not in ("authorization", "cookie", "set-cookie", "x-jessyca-token")
+            if not any(sw in k.lower() for sw in ("auth", "token", "secret", "cookie", "key", "credential", "password"))
         }
         logger.info(
             f"\n[OWUI_MEM_TRACE]\n"
@@ -298,13 +350,21 @@ def create_webui_bridge_app(
                 },
             )
 
+        def _call_agent():
+            try:
+                return agent.interact(jessyca_req, cancellation_token=cancel_token)
+            except TypeError:
+                return agent.interact(jessyca_req)
+
         # Modo síncrono estándar (Non-stream JSON)
+        cancel_token = CancellationToken()
         try:
             core_response = await asyncio.wait_for(
-                asyncio.to_thread(agent.interact, jessyca_req),
+                asyncio.shield(asyncio.to_thread(_call_agent)),
                 timeout=configured_timeout,
             )
         except TimeoutError:
+            cancel_token.cancel("WebUI bridge HTTP deadline timeout")
             latency_ms = (time.perf_counter() - start_time) * 1000
             logger.error(
                 f"[WEBUI BRIDGE TIMEOUT] Timeout de {configured_timeout}s excedido "
@@ -316,6 +376,8 @@ def create_webui_bridge_app(
                 status_code=status.HTTP_504_GATEWAY_TIMEOUT,
                 code="core_timeout",
             )
+
+
         except Exception as exc:
             latency_ms = (time.perf_counter() - start_time) * 1000
             logger.error(

@@ -63,6 +63,8 @@ class VoiceCaptureDiagnostic(BaseModel):
     stt_attempted: bool = False
     stt_text: str = ""
     stt_confidence: float = 0.0
+    stt_provider: str = ""
+    stt_requires_network: bool = False
     eos_to_stt_start_ms: float = 0.0
     stt_duration_ms: float = 0.0
     discard_reason: VoiceDiscardReason = VoiceDiscardReason.NONE

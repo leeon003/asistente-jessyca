@@ -174,7 +174,7 @@ _HIGH_RISK_PATTERNS = re.compile(
     r"(delete|remove|rmdir|unlink|drop|truncate|wipe|destroy|format|"
     r"kill|terminate|stop_process|shutdown|reboot|restart_system|"
     r"sudo|admin|reg_edit|system_config|modify_system|execute_arbitrary|"
-    r"cmd|powershell|bash|sh|terminal|execute_command|exec_command)",
+    r"\b(cmd|powershell|bash|sh)\b|terminal|execute_command|exec_command)",
     re.IGNORECASE,
 )
 

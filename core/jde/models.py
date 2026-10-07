@@ -69,6 +69,8 @@ class DecisionRequest(BaseModel):
     verification_requirements: list[VerificationRequirement] = Field(default_factory=list)
     fallback: FallbackSpec | None = None
     timeout: float = 30.0
+    session_id: str = "default_session"
+    user_id: str = "default_user"
     metadata: dict[str, Any] = Field(default_factory=dict)
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 

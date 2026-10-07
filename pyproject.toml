@@ -31,7 +31,11 @@ dependencies = [
     "rich>=13.0.0",
     "fastapi>=0.104.0",
     "uvicorn[standard]>=0.24.0",
+    "requests>=2.28.0",
 ]
+
+[project.scripts]
+jessyca = "main:main"
 
 [project.optional-dependencies]
 dev = [
@@ -41,6 +45,24 @@ dev = [
     "ruff>=0.1.0",
     "mypy>=1.5.0",
 ]
+vad = [
+    "onnxruntime>=1.16.0,<=1.23.2",
+]
+browser = [
+    "playwright>=1.40.0,<=1.50.0",
+]
+docling = [
+    "docling>=2.0.0,<=2.133.0",
+]
+uiautomation = [
+    "uiautomation>=2.0.18,<=2.0.29",
+]
+pywinauto = [
+    "pywinauto>=0.6.8,<=0.6.9",
+]
+wakeword = [
+    "openwakeword>=0.6.0,<=0.6.0",
+]
 
 [tool.pytest.ini_options]
 minversion = "7.0"
@@ -49,6 +71,9 @@ testpaths = ["tests"]
 pythonpath = ["."]
 filterwarnings = [
     "ignore::DeprecationWarning",
+]
+markers = [
+    "asyncio: mark test as an asyncio test",
 ]
 
 [tool.ruff]
@@ -91,3 +116,11 @@ module = [
     "winreg.*",
 ]
 ignore_missing_imports = true
+
+[tool.setuptools]
+py-modules = ["main"]
+
+[tool.setuptools.packages.find]
+include = ["core*", "config*", "services*", "tools*", "utils*", "server*", "interfaces*", "skills*"]
+exclude = ["data*", "logs*", "Documentos*", "lab*", "reports*", "sandbox*", "scratch*", "benchmarks*", "tests*"]
+

@@ -40,6 +40,14 @@ class ChatRequest(BaseModel):
         default=None,
         description="Identificador opcional del dispositivo Android emisor.",
     )
+    request_id: str | None = Field(
+        default=None,
+        description="Identificador único opcional / Idempotency Key de la petición.",
+    )
+    idempotency_key: str | None = Field(
+        default=None,
+        description="Clave de idempotencia alternativa para deduplicación atómica.",
+    )
 
     @field_validator("message")
     @classmethod
@@ -64,7 +72,26 @@ class ChatResponse(BaseModel):
     status: str = "COMPLETED"
     intent: str = "unknown"
     action_contract: dict[str, Any] | None = None
+    operation_id: str | None = None
     error: str | None = None
+
+
+class OperationStatusResponse(BaseModel):
+    """Modelo estructurado para consulta y cancelación de operaciones en segundo plano."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    success: bool
+    operation_id: str
+    session_id: str
+    status: str
+    effect_started: bool = False
+    created_at: float
+    started_at: float | None = None
+    completed_at: float | None = None
+    result: dict[str, Any] | None = None
+    error: str | None = None
+    message: str | None = None
 
 
 class ErrorResponse(BaseModel):
@@ -75,3 +102,7 @@ class ErrorResponse(BaseModel):
     success: bool = False
     error: str
     detail: str | None = None
+    operation_id: str | None = None
+    status: str | None = None
+    poll_url: str | None = None
+

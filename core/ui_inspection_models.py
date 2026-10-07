@@ -87,6 +87,23 @@ class UIElementBounds:
         }
 
 
+class ObservationProvenance(StrEnum):
+    """Procedencia de la observación visual o de sistema."""
+
+    REAL_PHYSICAL = "REAL_PHYSICAL"
+    SYNTHETIC_TEST = "SYNTHETIC_TEST"
+    UNAVAILABLE = "UNAVAILABLE"
+
+
+class ObservationStatus(StrEnum):
+    """Estado técnico de la observación de interfaz."""
+
+    SUCCESS = "SUCCESS"
+    NO_ELEMENTS_FOUND = "NO_ELEMENTS_FOUND"
+    BACKEND_UNAVAILABLE = "BACKEND_UNAVAILABLE"
+    INSPECTION_ERROR = "INSPECTION_ERROR"
+
+
 @dataclass(frozen=True)
 class WindowInfo:
     """Información inmutable de una ventana principal de la interfaz gráfica."""
@@ -101,6 +118,17 @@ class WindowInfo:
     is_maximized: bool
     is_visible: bool
     timestamp: datetime
+    provenance: ObservationProvenance = ObservationProvenance.REAL_PHYSICAL
+
+    @property
+    def is_synthetic(self) -> bool:
+        """Indica si la ventana proviene de simulación o mock."""
+        return self.provenance == ObservationProvenance.SYNTHETIC_TEST
+
+    @property
+    def is_available(self) -> bool:
+        """Indica si los datos provienen de una observación real disponible."""
+        return self.provenance != ObservationProvenance.UNAVAILABLE
 
     def to_dict(self) -> dict[str, Any]:
         """Convierte la información de ventana a diccionario estructurado."""
@@ -115,6 +143,9 @@ class WindowInfo:
             "is_maximized": self.is_maximized,
             "is_visible": self.is_visible,
             "timestamp": self.timestamp.isoformat(),
+            "provenance": str(self.provenance),
+            "is_synthetic": self.is_synthetic,
+            "is_available": self.is_available,
         }
 
 
@@ -210,12 +241,34 @@ class UIElementInfo:
             "children": [c.to_dict() for c in self.children],
         }
 
+    @classmethod
+    def empty_placeholder(cls, name: str = "") -> UIElementInfo:
+        """Crea un nodo de elemento UI vacío como marcador de posición formal."""
+        return cls(
+            automation_id="",
+            name=name,
+            control_type=UIControlType.UNKNOWN,
+            class_name="",
+            bounds=UIElementBounds(0, 0, 0, 0),
+            is_enabled=False,
+            is_offscreen=True,
+            has_keyboard_focus=False,
+            process_id=0,
+            framework_id="",
+            children=(),
+        )
+
 
 @dataclass(frozen=True)
 class UIElementTree:
     """Jerarquía inmutable de elementos UI."""
 
     root: UIElementInfo
+
+    @classmethod
+    def empty(cls, name: str = "") -> UIElementTree:
+        """Crea un árbol visual vacío sin inventar elementos falsos."""
+        return cls(root=UIElementInfo.empty_placeholder(name=name))
 
     def to_dict(self) -> dict[str, Any]:
         """Convierte el árbol completo a diccionario estructurado."""
@@ -233,6 +286,9 @@ class UIInspectionMetadata:
     processing_time_ms: float
     backend_name: str
     timestamp: datetime
+    provenance: ObservationProvenance = ObservationProvenance.REAL_PHYSICAL
+    status: ObservationStatus = ObservationStatus.SUCCESS
+    error_message: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Convierte los metadatos a diccionario seguro para auditoría."""
@@ -242,6 +298,9 @@ class UIInspectionMetadata:
             "processing_time_ms": round(self.processing_time_ms, 2),
             "backend_name": self.backend_name,
             "timestamp": self.timestamp.isoformat(),
+            "provenance": str(self.provenance),
+            "status": str(self.status),
+            "error_message": self.error_message,
         }
 
 
@@ -254,6 +313,19 @@ class UIInspectionResult:
     metadata: UIInspectionMetadata
     truncated: bool = False
 
+    @property
+    def is_synthetic(self) -> bool:
+        """Indica si el resultado proviene de una simulación o mock de pruebas."""
+        return self.metadata.provenance == ObservationProvenance.SYNTHETIC_TEST
+
+    @property
+    def is_available(self) -> bool:
+        """Indica si la inspección se completó exitosamente sin fallos de backend."""
+        return self.metadata.status not in (
+            ObservationStatus.BACKEND_UNAVAILABLE,
+            ObservationStatus.INSPECTION_ERROR,
+        )
+
     def to_dict(self) -> dict[str, Any]:
         """Convierte el resultado de inspección UI a diccionario estructurado."""
         return {
@@ -261,6 +333,8 @@ class UIInspectionResult:
             "elements_count": len(self.elements_flat),
             "metadata": self.metadata.to_dict(),
             "truncated": self.truncated,
+            "is_synthetic": self.is_synthetic,
+            "is_available": self.is_available,
         }
 
 

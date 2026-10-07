@@ -11,8 +11,11 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Protocol
 
+from core.exceptions import UIBackendUnavailableError, UIInspectionError
 from core.logger import get_logger
 from core.ui_inspection_models import (
+    ObservationProvenance,
+    ObservationStatus,
     UIControlType,
     UIElementBounds,
     UIElementInfo,
@@ -123,6 +126,8 @@ class FakeUIInspectionBackend:
             processing_time_ms=3.5,
             backend_name="FakeUIInspectionBackend",
             timestamp=datetime.now(UTC),
+            provenance=ObservationProvenance.SYNTHETIC_TEST,
+            status=ObservationStatus.SUCCESS,
         )
 
         return UIInspectionResult(
@@ -145,6 +150,7 @@ class FakeUIInspectionBackend:
             is_maximized=False,
             is_visible=True,
             timestamp=datetime.now(UTC),
+            provenance=ObservationProvenance.SYNTHETIC_TEST,
         )
 
     def list_windows(self) -> tuple[WindowInfo, ...]:
@@ -161,26 +167,34 @@ class FakeUIInspectionBackend:
             is_maximized=False,
             is_visible=True,
             timestamp=datetime.now(UTC),
+            provenance=ObservationProvenance.SYNTHETIC_TEST,
         )
         return (win1, win2)
 
 
 class WindowsUIAutomationBackend:
-    """Backend nativo desacoplado para inspección UI de Windows mediante UI Automation."""
+    """Backend nativo desacoplado para inspección UI de Windows mediante UI Automation.
+
+    En entornos de producción o consultas reales, nunca inventa ventanas o elementos falsos.
+    Si la dependencia falta o la API falla, devuelve errores tipados o estados técnicos explícitos.
+    """
 
     def get_active_window(self) -> WindowInfo:
         """Obtiene la información inmutable de la ventana activa usando APIs de Win32 o uiautomation."""
         try:
             import uiautomation as auto  # type: ignore
-        except ImportError:
-            logger.debug("[UI BACKEND] uiautomation no disponible para ventana activa. Delegando a FakeUIInspectionBackend.")
-            return FakeUIInspectionBackend().get_active_window()
+        except ImportError as err:
+            logger.warning("[UI BACKEND] Dependencia 'uiautomation' no disponible para consultar ventana activa.")
+            raise UIBackendUnavailableError("Dependencia 'uiautomation' no disponible para consultar ventana activa.") from err
 
         try:
             win = auto.GetForegroundControl()
+            if not win:
+                raise UIInspectionError("No se pudo obtener el control de la ventana activa en primer plano.")
+            # Multi-monitor support: preserve negative coordinates for secondary monitors
             rect = win.BoundingRectangle
-            x = max(0, rect.left) if rect else 0
-            y = max(0, rect.top) if rect else 0
+            x = rect.left if rect else 0
+            y = rect.top if rect else 0
             w = max(1, rect.width()) if rect else 1
             h = max(1, rect.height()) if rect else 1
 
@@ -195,28 +209,34 @@ class WindowsUIAutomationBackend:
                 is_maximized=False,
                 is_visible=True,
                 timestamp=datetime.now(UTC),
+                provenance=ObservationProvenance.REAL_PHYSICAL,
             )
+        except UIInspectionError:
+            raise
         except Exception as e:
-            logger.warning(f"[UI BACKEND FAIL-SAFE] Fallo al consultar ventana activa nativa ({e}). Delegando a FakeUIInspectionBackend.")
-            return FakeUIInspectionBackend().get_active_window()
+            logger.warning(f"[UI BACKEND FAIL-SAFE] Fallo al consultar ventana activa nativa: {e}")
+            raise UIInspectionError(f"Fallo al consultar ventana activa nativa: {e}") from e
 
     def list_windows(self) -> tuple[WindowInfo, ...]:
         """Lista todas las ventanas visibles principales usando APIs nativas."""
         try:
             import uiautomation as auto  # type: ignore
-        except ImportError:
-            logger.debug("[UI BACKEND] uiautomation no disponible para listar ventanas. Delegando a FakeUIInspectionBackend.")
-            return FakeUIInspectionBackend().list_windows()
+        except ImportError as err:
+            logger.warning("[UI BACKEND] Dependencia 'uiautomation' no disponible para listar ventanas.")
+            raise UIBackendUnavailableError("Dependencia 'uiautomation' no disponible para listar ventanas.") from err
 
         try:
             root = auto.GetRootControl()
+            if not root:
+                return ()
             wins: list[WindowInfo] = []
 
             for child in root.GetChildren():
                 if child.ControlTypeName == "Window" and not child.IsOffscreen:
                     rect = child.BoundingRectangle
-                    x = max(0, rect.left) if rect else 0
-                    y = max(0, rect.top) if rect else 0
+                    # Multi-monitor support: preserve negative coordinates for secondary monitors
+                    x = rect.left if rect else 0
+                    y = rect.top if rect else 0
                     w = max(1, rect.width()) if rect else 1
                     h = max(1, rect.height()) if rect else 1
 
@@ -232,37 +252,85 @@ class WindowsUIAutomationBackend:
                             is_maximized=False,
                             is_visible=True,
                             timestamp=datetime.now(UTC),
+                            provenance=ObservationProvenance.REAL_PHYSICAL,
                         )
                     )
 
-            return tuple(wins) if wins else FakeUIInspectionBackend().list_windows()
+            return tuple(wins)
         except Exception as e:
-            logger.warning(f"[UI BACKEND FAIL-SAFE] Fallo al listar ventanas nativas ({e}). Delegando a FakeUIInspectionBackend.")
-            return FakeUIInspectionBackend().list_windows()
+            logger.warning(f"[UI BACKEND FAIL-SAFE] Fallo al listar ventanas nativas: {e}")
+            raise UIInspectionError(f"Fallo al listar ventanas nativas: {e}") from e
 
     def inspect_ui(self, request: UIElementRequest) -> UIInspectionResult:
-        """Inspecciona los elementos visuales utilizando Windows UI Automation con fallback limpio."""
+        """Inspecciona los elementos visuales utilizando Windows UI Automation con estado y procedencia explícitos."""
+        start_t = datetime.now(UTC)
         try:
             import uiautomation as auto  # type: ignore
         except ImportError:
-            logger.warning("[UI BACKEND] uiautomation no está disponible. Delegando a FakeUIInspectionBackend.")
-            return FakeUIInspectionBackend().inspect_ui(request)
+            logger.warning("[UI BACKEND] uiautomation no está disponible en el entorno.")
+            return UIInspectionResult(
+                tree=UIElementTree.empty(name="Backend Unavailable"),
+                elements_flat=(),
+                metadata=UIInspectionMetadata(
+                    element_count=0,
+                    max_depth_reached=0,
+                    processing_time_ms=0.0,
+                    backend_name="WindowsUIAutomationBackend",
+                    timestamp=datetime.now(UTC),
+                    provenance=ObservationProvenance.UNAVAILABLE,
+                    status=ObservationStatus.BACKEND_UNAVAILABLE,
+                    error_message="Dependencia 'uiautomation' no disponible en el entorno.",
+                ),
+                truncated=False,
+            )
 
         try:
-            start_t = datetime.now(UTC)
             root_ctrl = auto.GetRootControl()
+            if not root_ctrl:
+                return UIInspectionResult(
+                    tree=UIElementTree.empty(name="Root Not Found"),
+                    elements_flat=(),
+                    metadata=UIInspectionMetadata(
+                        element_count=0,
+                        max_depth_reached=0,
+                        processing_time_ms=(datetime.now(UTC) - start_t).total_seconds() * 1000,
+                        backend_name="WindowsUIAutomationBackend",
+                        timestamp=datetime.now(UTC),
+                        provenance=ObservationProvenance.REAL_PHYSICAL,
+                        status=ObservationStatus.NO_ELEMENTS_FOUND,
+                        error_message="No se pudo obtener el control raíz del escritorio de Windows.",
+                    ),
+                    truncated=False,
+                )
 
             if request.window_title:
                 win_ctrl = auto.WindowControl(searchDepth=2, Name=request.window_title)
-                if win_ctrl.Exists(maxSearchSeconds=1):
-                    root_ctrl = win_ctrl
+                if not win_ctrl.Exists(maxSearchSeconds=1):
+                    proc_ms = (datetime.now(UTC) - start_t).total_seconds() * 1000
+                    return UIInspectionResult(
+                        tree=UIElementTree.empty(name=request.window_title),
+                        elements_flat=(),
+                        metadata=UIInspectionMetadata(
+                            element_count=0,
+                            max_depth_reached=0,
+                            processing_time_ms=proc_ms,
+                            backend_name="WindowsUIAutomationBackend",
+                            timestamp=datetime.now(UTC),
+                            provenance=ObservationProvenance.REAL_PHYSICAL,
+                            status=ObservationStatus.NO_ELEMENTS_FOUND,
+                            error_message=f"Ventana '{request.window_title}' no encontrada en el escritorio.",
+                        ),
+                        truncated=False,
+                    )
+                root_ctrl = win_ctrl
 
             elements_flat: list[UIElementInfo] = []
 
             def build_info(ctrl: auto.Control, depth: int) -> UIElementInfo:
                 rect = ctrl.BoundingRectangle
-                x = max(0, rect.left) if rect else 0
-                y = max(0, rect.top) if rect else 0
+                # Multi-monitor support: preserve negative coordinates for secondary monitors
+                x = rect.left if rect else 0
+                y = rect.top if rect else 0
                 w = max(1, rect.width()) if rect else 1
                 h = max(1, rect.height()) if rect else 1
 
@@ -295,12 +363,15 @@ class WindowsUIAutomationBackend:
             root_info = build_info(root_ctrl, 1)
             proc_ms = (datetime.now(UTC) - start_t).total_seconds() * 1000
 
+            status = ObservationStatus.SUCCESS if elements_flat else ObservationStatus.NO_ELEMENTS_FOUND
             metadata = UIInspectionMetadata(
                 element_count=len(elements_flat),
                 max_depth_reached=request.max_depth,
                 processing_time_ms=proc_ms,
                 backend_name="WindowsUIAutomationBackend",
                 timestamp=datetime.now(UTC),
+                provenance=ObservationProvenance.REAL_PHYSICAL,
+                status=status,
             )
 
             return UIInspectionResult(
@@ -310,5 +381,54 @@ class WindowsUIAutomationBackend:
                 truncated=len(elements_flat) >= request.max_elements,
             )
         except Exception as e:
-            logger.warning(f"[UI BACKEND FAIL-SAFE] Fallo durante la inspección nativa UI ({e}). Delegando a FakeUIInspectionBackend.")
-            return FakeUIInspectionBackend().inspect_ui(request)
+            logger.warning(f"[UI BACKEND FAIL-SAFE] Fallo durante la inspección nativa UI ({e}).")
+            proc_ms = (datetime.now(UTC) - start_t).total_seconds() * 1000
+            return UIInspectionResult(
+                tree=UIElementTree.empty(name="Inspection Error"),
+                elements_flat=(),
+                metadata=UIInspectionMetadata(
+                    element_count=0,
+                    max_depth_reached=0,
+                    processing_time_ms=proc_ms,
+                    backend_name="WindowsUIAutomationBackend",
+                    timestamp=datetime.now(UTC),
+                    provenance=ObservationProvenance.UNAVAILABLE,
+                    status=ObservationStatus.INSPECTION_ERROR,
+                    error_message=f"Fallo durante la inspección nativa UI: {e}",
+                ),
+                truncated=False,
+            )
+
+
+def get_ui_backend(mode: str | None = None) -> IUIInspectionBackend:
+    """Fábrica de backend de inspección UI con selección explícita real vs test/demo/pywinauto."""
+    if mode:
+        m = mode.strip().lower()
+        if m in ("fake", "test", "synthetic", "demo", "mock"):
+            return FakeUIInspectionBackend()
+        if m in ("pywinauto", "pwa"):
+            from tools.desktop.pywinauto_backend import PyWinAutoInspectionBackend
+            return PyWinAutoInspectionBackend()
+        if m in ("real", "production", "prod", "uia", "windows", "uiautomation"):
+            return WindowsUIAutomationBackend()
+
+    import os
+    env_mode = os.getenv("JESSYCA_UI_BACKEND_MODE", "").strip().lower()
+    if env_mode in ("fake", "test", "synthetic", "demo", "mock"):
+        return FakeUIInspectionBackend()
+    if env_mode in ("pywinauto", "pwa"):
+        from tools.desktop.pywinauto_backend import PyWinAutoInspectionBackend
+        return PyWinAutoInspectionBackend()
+
+    try:
+        from config.manager import get_settings
+        settings = get_settings()
+        if getattr(settings, "ENVIRONMENT", "").lower() in ("test", "demo"):
+            return FakeUIInspectionBackend()
+        if getattr(settings, "PYWINAUTO_ENABLED", False) and getattr(settings, "UI_INSPECTION_BACKEND", "").lower() == "pywinauto":
+            from tools.desktop.pywinauto_backend import PyWinAutoInspectionBackend
+            return PyWinAutoInspectionBackend(backend_type=getattr(settings, "PYWINAUTO_BACKEND", "uia"))
+    except Exception:
+        pass
+
+    return WindowsUIAutomationBackend()

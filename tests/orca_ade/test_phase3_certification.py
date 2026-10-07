@@ -44,6 +44,20 @@ from core.orca_ade.models import (
 from core.orca_ade.orchestrator import OrcaGovernedOrchestrator
 from core.security import RiskLevel
 from lab.orca_ade.worktree_manager import RealGitWorktreeManager
+from typing import Any
+
+
+def _controlled_test_executor(contract: OrcaTaskContract) -> dict[str, Any]:
+    full_ws = contract.workspace
+    os.makedirs(full_ws, exist_ok=True)
+    f_path = os.path.join(full_ws, "code_patch.py")
+    with open(f_path, "w", encoding="utf-8") as f:
+        f.write("# controlled test execution\n")
+    return {
+        "changed_files": [f_path],
+        "tests": {"passed": True, "exit_code": 0},
+        "evidence": [{"type": "FILE_MODIFIED", "path": f_path, "verified_on_disk": True, "synthetic": False}],
+    }
 
 
 # =============================================================================
@@ -101,7 +115,7 @@ class TestJdeAuthorityCertification:
     """Certifica ALLOW, DENY, CONFLICT y detección de MANIPULACIÓN post-decisión."""
 
     def test_jde_allow_path(self) -> None:
-        orchestrator = OrcaGovernedOrchestrator()
+        orchestrator = OrcaGovernedOrchestrator(executor=_controlled_test_executor)
         result = orchestrator.dispatch_task(
             objective="Legitimate certified analysis",
             workspace="ws_jde_allow",
@@ -414,7 +428,7 @@ class TestExecutionVerifierCertification:
     """Valida CLAIMED_SUCCESS, VERIFIED_SUCCESS y VERIFICATION_FAILED."""
 
     def test_claimed_success_without_full_verification(self) -> None:
-        orchestrator = OrcaGovernedOrchestrator()
+        orchestrator = OrcaGovernedOrchestrator(executor=_controlled_test_executor)
         result = orchestrator.dispatch_task(
             objective="Patch with pending review",
             workspace="ws_claimed_success",
@@ -426,7 +440,7 @@ class TestExecutionVerifierCertification:
         assert result.verified is False
 
     def test_verified_success_upon_approval(self) -> None:
-        orchestrator = OrcaGovernedOrchestrator()
+        orchestrator = OrcaGovernedOrchestrator(executor=_controlled_test_executor)
         initial_result = orchestrator.dispatch_task(
             objective="Patch requiring formal gate",
             workspace="ws_verified_success",
@@ -436,7 +450,10 @@ class TestExecutionVerifierCertification:
         )
         assert initial_result.status == "CLAIMED_SUCCESS"
 
-        approved_result = orchestrator.approve_review(initial_result.task_id)
+        approved_result = orchestrator.approve_review(
+            initial_result.task_id,
+            verification_evidence=[{"type": "PHYSICAL_CHECK", "verified_on_disk": True, "synthetic": False}],
+        )
         assert approved_result.status == "VERIFIED_SUCCESS"
         assert approved_result.verified is True
 
@@ -462,7 +479,7 @@ class TestReviewGateCertification:
     """Verifica que el agente no pueda auto-aprobarse ni puentear la revisión."""
 
     def test_review_gate_enforcement(self) -> None:
-        orchestrator = OrcaGovernedOrchestrator()
+        orchestrator = OrcaGovernedOrchestrator(executor=_controlled_test_executor)
         result = orchestrator.dispatch_task(
             objective="Autonomous agent code change",
             workspace="ws_review_gate",
@@ -473,8 +490,11 @@ class TestReviewGateCertification:
         assert result.status == "CLAIMED_SUCCESS"
         assert result.verified is False
 
-        # Solo mediante llamada externa de autoridad se aprueba
-        final_res = orchestrator.approve_review(result.task_id)
+        # Solo mediante llamada externa de autoridad con evidencia se aprueba y verifica
+        final_res = orchestrator.approve_review(
+            result.task_id,
+            verification_evidence=[{"type": "PHYSICAL_CHECK", "verified_on_disk": True, "synthetic": False}],
+        )
         assert final_res.status == "VERIFIED_SUCCESS"
         assert final_res.verified is True
 
@@ -487,7 +507,7 @@ class TestIdempotencyCertification:
     """Verifica CACHE_HIT ante tareas idénticas y re-ejecución ante mutación de huella."""
 
     def test_idempotent_caching_and_mutation(self) -> None:
-        orchestrator = OrcaGovernedOrchestrator()
+        orchestrator = OrcaGovernedOrchestrator(executor=_controlled_test_executor)
 
         # Primer despacho: ejecución completa
         res1 = orchestrator.dispatch_task(
@@ -531,7 +551,7 @@ class TestConcurrencyCertification:
 
     @pytest.mark.parametrize("agent_count", [1, 2, 5, 10])
     def test_concurrent_agents_safety_and_cleanup(self, agent_count: int) -> None:
-        orchestrator = OrcaGovernedOrchestrator()
+        orchestrator = OrcaGovernedOrchestrator(executor=_controlled_test_executor)
 
         def _dispatch(idx: int) -> OrcaResultContract:
             return orchestrator.dispatch_task(
@@ -632,7 +652,7 @@ class TestPhase3E2EComprehensiveCertification:
     """Ejecuta los 15 escenarios E2E finales y genera reports/orca_ade_phase3_e2e.json."""
 
     def test_run_all_15_phase3_e2e_scenarios(self) -> None:
-        orchestrator = OrcaGovernedOrchestrator()
+        orchestrator = OrcaGovernedOrchestrator(executor=_controlled_test_executor)
         e2e_results: list[dict] = []
 
         scenarios = [
@@ -669,9 +689,12 @@ class TestPhase3E2EComprehensiveCertification:
                 simulate_verification_failure=sim_vf,
             )
 
-            # Para E14, aprobar explícitamente mediante Review Gate
+            # Para E14, probar ciclo de aprobación formal con evidencia
             if sc_id == "E14":
-                res = orchestrator.approve_review(res.task_id)
+                res = orchestrator.approve_review(
+                    res.task_id,
+                    verification_evidence=[{"type": "PHYSICAL_CHECK", "verified_on_disk": True, "synthetic": False}],
+                )
                 expected_st = "VERIFIED_SUCCESS"
 
             passed = (res.status == expected_st)

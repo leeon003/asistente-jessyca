@@ -29,9 +29,14 @@ from services.voice.barge_in_controller import BargeInController
 from services.voice.continuous_voice_session import (
     ContinuousVoiceSession,
 )
-from services.voice.stt_service import ISTTService, MockSTTService, TranscriptResult
+from services.voice.stt_service import (
+    ISTTService,
+    MockSTTService,
+    TranscriptResult,
+    get_stt_service,
+)
 from services.voice.tts_service import ITTSService, MockTTSService
-from services.voice.vad_service import EnergyVADService, IVADService
+from services.voice.vad_service import EnergyVADService, IVADService, get_vad_service
 from services.voice.voice_pipeline import (
     EMERGENCY_VOICE_PHRASES,
     STOP_VOICE_PHRASES,
@@ -60,9 +65,9 @@ class LocalVoiceInterface:
     ) -> None:
         self.emergency_stop = emergency_stop or get_emergency_stop_manager()
         self.audio_source = audio_source or SyntheticAudioSource()
-        self.vad_service = vad_service or EnergyVADService()
+        self.vad_service = vad_service or get_vad_service()
         self.wake_word_service = wake_word_service or KeywordWakeWordService()
-        self.stt_service = stt_service or MockSTTService()
+        self.stt_service = stt_service or get_stt_service()
         self.tts_service = tts_service or MockTTSService()
         self.barge_in = barge_in_controller or BargeInController(
             tts_service=self.tts_service,
@@ -144,9 +149,12 @@ class LocalVoiceInterface:
             session.on_listening_started()
 
         # 2. VAD: Detección de actividad vocal
+        t_capture_0 = time.perf_counter()
         audio_chunk = self.audio_source.read_chunk()
         session.pre_roll_buffer.append(audio_chunk.data)
         vad_state = self.vad_service.process_chunk(audio_chunk)
+        metrics.capture_latency_ms = (time.perf_counter() - t_capture_0) * 1000
+        metrics.speech_end_ms = time.time() * 1000
 
         # 3. STT: Transcripción del audio a texto
         session.on_processing_started()

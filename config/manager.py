@@ -6,6 +6,8 @@ para los parámetros del sistema y permitir recarga dinámica de variables.
 
 from __future__ import annotations
 
+from typing import Any
+
 from config.settings import AppSettings
 from core.exceptions import ConfigurationError
 from core.logger import get_logger
@@ -54,6 +56,10 @@ class ConfigManager:
             return self.load_settings()
         return self._settings
 
+    def get_effective_summary(self) -> dict[str, Any]:
+        """Obtiene el resumen estructurado de la configuración efectiva sanitizada."""
+        return self.get_settings().get_effective_summary()
+
     def reload(self) -> AppSettings:
         """Fuerza la recarga de los valores de configuración."""
         logger.info("Recargando configuración...")
@@ -63,3 +69,8 @@ class ConfigManager:
 def get_settings() -> AppSettings:
     """Función de conveniencia para acceder a la configuración global."""
     return ConfigManager().get_settings()
+
+
+def get_effective_summary() -> dict[str, Any]:
+    """Función de conveniencia para obtener el resumen de configuración efectiva sanitizado."""
+    return ConfigManager().get_effective_summary()

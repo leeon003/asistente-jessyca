@@ -11,10 +11,15 @@ NO ejecuta código no confiable, NO ejecuta herramientas de sistema.
 
 from __future__ import annotations
 
+import os
 import threading
+import time
+from collections.abc import Generator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import ClassVar
 
+from core.llm.exceptions import InferenceError, ProviderTimeoutError
 from core.llm.model_profile import ModelProfile
 from core.logger import get_logger
 
@@ -58,6 +63,8 @@ class VRAMGovernor:
         total_vram_mb: int = DEFAULT_TOTAL_VRAM_MB,
         reserved_system_mb: int = DEFAULT_RESERVED_SYSTEM_VRAM_MB,
         vram_limit_mb: float | None = None,
+        max_concurrent_inferences: int = 1,
+        max_inference_queue_size: int = 10,
     ) -> None:
         self._lock = threading.RLock()
         if vram_limit_mb is not None:
@@ -69,6 +76,14 @@ class VRAMGovernor:
         self.reserved_system_mb = reserved_system_mb
         self.usable_budget_mb = max(0, self.total_vram_mb - reserved_system_mb)
         self._loaded_models: dict[str, ModelUsageRecord] = {}
+
+        # Gobernador de concurrencia y cola acotada para inferencias en GPU
+        self.max_concurrent_inferences = max(1, int(os.getenv("GPU_MAX_CONCURRENT_INFERENCES", max_concurrent_inferences)))
+        self.max_inference_queue_size = max(1, int(os.getenv("GPU_MAX_INFERENCE_QUEUE_SIZE", max_inference_queue_size)))
+        self._inference_semaphore = threading.Semaphore(self.max_concurrent_inferences)
+        self._active_inferences = 0
+        self._queued_inferences = 0
+        self._queue_lock = threading.Lock()
 
     def can_allocate(self, mb: float) -> bool:
         """Determina si una cantidad de MB puede ser asignada dentro del límite de VRAM."""
@@ -189,3 +204,55 @@ class VRAMGovernor:
         """Limpia el estado interno del gobernador."""
         with self._lock:
             self._loaded_models.clear()
+            self._active_inferences = 0
+        with self._queue_lock:
+            self._queued_inferences = 0
+
+    @contextmanager
+    def acquire_inference_slot(
+        self,
+        model_name: str | None = None,
+        timeout_seconds: float = 30.0,
+    ) -> Generator[None, None, None]:
+        """Adquiere un slot acotado de inferencia GPU respetando el límite de concurrencia y cola acotada."""
+        with self._queue_lock:
+            if self._queued_inferences >= self.max_inference_queue_size:
+                raise InferenceError(
+                    f"Cola de inferencias GPU llena ({self._queued_inferences}/{self.max_inference_queue_size}). "
+                    "Capacidad máxima alcanzada; intente nuevamente más tarde."
+                )
+            self._queued_inferences += 1
+
+        slot_acquired = False
+        try:
+            slot_acquired = self._inference_semaphore.acquire(timeout=max(0.01, timeout_seconds))
+            if not slot_acquired:
+                raise ProviderTimeoutError(
+                    provider_name="gpu_governor",
+                    timeout_seconds=timeout_seconds,
+                )
+            with self._queue_lock:
+                self._queued_inferences = max(0, self._queued_inferences - 1)
+            with self._lock:
+                self._active_inferences += 1
+                if model_name:
+                    self.touch_model(model_name, time.time())
+            yield
+        finally:
+            if not slot_acquired:
+                with self._queue_lock:
+                    self._queued_inferences = max(0, self._queued_inferences - 1)
+            else:
+                with self._lock:
+                    self._active_inferences = max(0, self._active_inferences - 1)
+                self._inference_semaphore.release()
+
+    def get_inference_concurrency_stats(self) -> dict[str, int]:
+        """Retorna estadísticas actuales de concurrencia y cola de inferencias GPU."""
+        with self._lock, self._queue_lock:
+            return {
+                "active_inferences": self._active_inferences,
+                "queued_inferences": self._queued_inferences,
+                "max_concurrent": self.max_concurrent_inferences,
+                "max_queued": self.max_inference_queue_size,
+            }

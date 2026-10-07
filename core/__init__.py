@@ -637,71 +637,74 @@ __all__ = [
     "RouteDecision",
 ]
 
-from skills.apps_skill import WindowsAppsSkill
-from skills.base_skill import BaseSkill
-from skills.browser_search_skill import BrowserSearchSkill
-from skills.browser_skills import (
-    BrowserDownloadSkill,
-    BrowserNavigateSkill,
-    BrowserOpenSkill,
-    BrowserReadSkill,
-)
-from skills.documents_skills import (
-    DocumentsConvertSkill,
-    DocumentsCreateSkill,
-    DocumentsReadSkill,
-    DocumentsSummarizeSkill,
-)
-from skills.file_search_skill import FilesSearchSkill
-from skills.files_skills import (
-    FilesCopySkill,
-    FilesCreateSkill,
-    FilesMoveSkill,
-    FilesOrganizeSkill,
-    FilesReadSkill,
-    FilesRenameSkill,
-)
-from skills.screenshot_skill import WindowsScreenshotSkill
-from skills.windows_skills import (
-    WindowsAudioSkill,
-    WindowsClipboardSkill,
-    WindowsDisplaySkill,
-    WindowsNotificationsSkill,
-)
-from skills.skill_models import (
-    SkillCapability,
-    SkillContext,
-    SkillDefinition,
-    SkillManifest,
-    SkillPermission,
-    SkillResult,
-    SkillStatus,
-)
-from skills.skill_validator import (
-    SkillValidationError,
-    SkillValidator,
-)
-from skills.skill_registry import (
-    SkillRegistry,
-    get_skill_registry,
-)
-from skills.skill_router import (
-    SkillRouteDecision,
-    SkillRouter,
-    get_skill_router,
-)
-from skills.skill_runtime import (
-    SkillRuntime,
-)
-from skills.skill_manager import (
-    SkillManager,
-    get_skill_manager,
-)
-from skills.skill_sandbox import (
-    SkillSandboxExecutionResult,
-    SkillSecuritySandbox,
-    UntrustedDataWrapper,
-)
+try:
+    from skills.apps_skill import WindowsAppsSkill
+    from skills.base_skill import BaseSkill
+    from skills.browser_search_skill import BrowserSearchSkill
+    from skills.browser_skills import (
+        BrowserDownloadSkill,
+        BrowserNavigateSkill,
+        BrowserOpenSkill,
+        BrowserReadSkill,
+    )
+    from skills.documents_skills import (
+        DocumentsConvertSkill,
+        DocumentsCreateSkill,
+        DocumentsReadSkill,
+        DocumentsSummarizeSkill,
+    )
+    from skills.file_search_skill import FilesSearchSkill
+    from skills.files_skills import (
+        FilesCopySkill,
+        FilesCreateSkill,
+        FilesMoveSkill,
+        FilesOrganizeSkill,
+        FilesReadSkill,
+        FilesRenameSkill,
+    )
+    from skills.screenshot_skill import WindowsScreenshotSkill
+    from skills.windows_skills import (
+        WindowsAudioSkill,
+        WindowsClipboardSkill,
+        WindowsDisplaySkill,
+        WindowsNotificationsSkill,
+    )
+    from skills.skill_models import (
+        SkillCapability,
+        SkillContext,
+        SkillDefinition,
+        SkillManifest,
+        SkillPermission,
+        SkillResult,
+        SkillStatus,
+    )
+    from skills.skill_validator import (
+        SkillValidationError,
+        SkillValidator,
+    )
+    from skills.skill_registry import (
+        SkillRegistry,
+        get_skill_registry,
+    )
+    from skills.skill_router import (
+        SkillRouteDecision,
+        SkillRouter,
+        get_skill_router,
+    )
+    from skills.skill_runtime import (
+        SkillRuntime,
+    )
+    from skills.skill_manager import (
+        SkillManager,
+        get_skill_manager,
+    )
+    from skills.skill_sandbox import (
+        SkillSandboxExecutionResult,
+        SkillSecuritySandbox,
+        UntrustedDataWrapper,
+    )
+except ImportError:
+    pass
 
 from core.plugins_v2 import (
     PluginEcosystemManager,

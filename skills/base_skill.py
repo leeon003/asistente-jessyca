@@ -12,7 +12,6 @@ import uuid
 from abc import ABC, abstractmethod
 from typing import Any
 
-from core.security_architecture import SecurityLevel
 from skills.skill_models import (
     SkillContext,
     SkillDefinition,
@@ -40,6 +39,7 @@ class BaseSkill(ABC):
         self.nivel_riesgo = nivel_riesgo
 
         # Mapeo de nivel de riesgo numérico a SecurityLevel
+        from core.security_architecture import SecurityLevel
         risk_map = {
             1: SecurityLevel.SAFE,
             2: SecurityLevel.LOW,

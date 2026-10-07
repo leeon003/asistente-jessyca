@@ -20,8 +20,23 @@ from core.orca_ade.models import (
     ProposalActionType,
     validate_agent_permissions,
 )
+from core.orca_ade.code_assistant import (
+    PatchApplicationResult,
+    PatchProposal,
+    ProblemDiagnosis,
+    ProjectBoundaryValidator,
+    ProjectCodeAssistant,
+    ProjectFileMetadata,
+    ProjectInspectionReport,
+    RealCodeAssistantExecutor,
+    TestExecutionResult,
+)
 from core.orca_ade.orchestrator import OrcaGovernedOrchestrator
 from core.orca_ade.shadow import OrcaAdeShadowEvaluator, ShadowEvaluationRecord
+from core.orca_ade.workflow import (
+    CodeAssistantWorkflow,
+    ProgrammingAssistanceSessionReport,
+)
 
 __all__ = [
     "OrcaAdeAdapter",
@@ -40,4 +55,15 @@ __all__ = [
     "validate_agent_permissions",
     "CommandSecurityGuard",
     "NetworkSecurityGuard",
+    "ProjectBoundaryValidator",
+    "ProjectCodeAssistant",
+    "ProjectFileMetadata",
+    "ProjectInspectionReport",
+    "TestExecutionResult",
+    "ProblemDiagnosis",
+    "PatchProposal",
+    "PatchApplicationResult",
+    "RealCodeAssistantExecutor",
+    "CodeAssistantWorkflow",
+    "ProgrammingAssistanceSessionReport",
 ]

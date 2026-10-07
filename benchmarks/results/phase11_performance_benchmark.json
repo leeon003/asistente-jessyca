@@ -1,0 +1,145 @@
+{
+  "timestamp_iso": "2026-10-04T18:48:06Z",
+  "total_benchmark_duration_seconds": 59.73,
+  "hardware_environment": {
+    "os": "Windows 10 (build 10.0.26200)",
+    "python_version": "3.11.9",
+    "cpu": {
+      "model": "AMD64 Family 25 Model 33 Stepping 2, AuthenticAMD",
+      "logical_cores": 24,
+      "physical_cores": 12
+    },
+    "ram": {
+      "total_gb": 31.93,
+      "available_gb": 12.28
+    },
+    "gpu": {
+      "available": true,
+      "name": "NVIDIA GeForce RTX 3060",
+      "total_vram_mb": 12288,
+      "free_vram_mb": 8103,
+      "driver_version": "591.86"
+    }
+  },
+  "models_environment": {
+    "ollama": {
+      "endpoint": "http://localhost:11434",
+      "is_online": false,
+      "installed_models": [],
+      "note": "Daemon local no activo. Resultados de LLM directo marcados como PENDING_HARDWARE_DAEMON."
+    },
+    "nemotron_remote": {
+      "configured": false,
+      "enabled": false
+    }
+  },
+  "scenarios": {
+    "1_comandos_simples": {
+      "scenario_name": "1_comandos_simples",
+      "iterations": 6,
+      "cold_start_latency_ms": 2495.69,
+      "warm_start_p50_ms": 4249.75,
+      "warm_start_p95_ms": 4977.98,
+      "avg_latency_ms": 2960.96,
+      "min_latency_ms": 800.74,
+      "max_latency_ms": 4977.98,
+      "memory_rss_delta_mb": 33.72,
+      "success_rate": 0.833,
+      "verified_rate": 0.833,
+      "granular_phases_avg_ms": {
+        "intent_classification": 0.56,
+        "agent_routing": 0.0,
+        "authorization": 0.1,
+        "tool_execution": 1411.93,
+        "verification": 211.79
+      }
+    },
+    "2_conversacion": {
+      "scenario_name": "2_conversacion",
+      "iterations": 6,
+      "cold_start_latency_ms": 4296.99,
+      "warm_start_p50_ms": 4259.7,
+      "warm_start_p95_ms": 4285.12,
+      "avg_latency_ms": 2915.03,
+      "min_latency_ms": 183.23,
+      "max_latency_ms": 4296.99,
+      "memory_rss_delta_mb": 2.5,
+      "success_rate": 1.0,
+      "verified_rate": 1.0,
+      "granular_phases_avg_ms": {
+        "intent_classification": 0.13,
+        "agent_routing": 0.0,
+        "authorization": 0.0,
+        "tool_execution": 0.0,
+        "verification": 0.0
+      }
+    },
+    "3_documentos": {
+      "scenario_name": "3_documentos",
+      "iterations": 6,
+      "cold_start_latency_ms": 192.07,
+      "warm_start_p50_ms": 189.89,
+      "warm_start_p95_ms": 193.17,
+      "avg_latency_ms": 129.37,
+      "min_latency_ms": 4.89,
+      "max_latency_ms": 193.17,
+      "memory_rss_delta_mb": 0.97,
+      "success_rate": 1.0,
+      "verified_rate": 1.0,
+      "granular_phases_avg_ms": {
+        "intent_classification": 0.29,
+        "agent_routing": 0.0,
+        "authorization": 0.1,
+        "tool_execution": 2.46,
+        "verification": 0.0
+      }
+    },
+    "4_objetivo_multipaso": {
+      "scenario_name": "4_objetivo_multipaso",
+      "iterations": 6,
+      "cold_start_latency_ms": 4979.94,
+      "warm_start_p50_ms": 4969.69,
+      "warm_start_p95_ms": 4978.25,
+      "avg_latency_ms": 3425.94,
+      "min_latency_ms": 305.81,
+      "max_latency_ms": 4979.94,
+      "memory_rss_delta_mb": -1.06,
+      "success_rate": 0.333,
+      "verified_rate": 0.333,
+      "granular_phases_avg_ms": {
+        "intent_classification": 0.24,
+        "agent_routing": 0.0,
+        "authorization": 0.09,
+        "tool_execution": 3191.4,
+        "verification": 478.71
+      }
+    }
+  },
+  "optimizations_demonstrated": {
+    "health_check_ttl": {
+      "cycles": 500,
+      "baseline_no_ttl_total_ms": 1.39,
+      "optimized_with_ttl_total_ms": 0.22,
+      "baseline_avg_call_ms": 0.0028,
+      "optimized_avg_call_ms": 0.0004,
+      "speedup_factor": "6.3x"
+    },
+    "gpu_concurrency_governor": {
+      "total_acquisitions": 100,
+      "total_governor_overhead_ms": 0.35,
+      "overhead_per_acquisition_ms": 0.0035,
+      "concurrency_limit": 1,
+      "bounded_queue_limit": 5
+    },
+    "http_session_reuse": {
+      "nemotron_session_pooling": true,
+      "ollama_session_pooling": true,
+      "clean_teardown_certified": true
+    },
+    "retry_regression_fix": {
+      "max_retries_0_respected": true,
+      "distinguishes_zero_from_none": true,
+      "tool_errors_not_retried_as_inference": true
+    }
+  }
+}

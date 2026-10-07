@@ -23,6 +23,9 @@ class VerificationStatus(StrEnum):
     CONFIDENCE_FAILED = "CONFIDENCE_FAILED"
     ABORTED_BY_EMERGENCY_STOP = "ABORTED_BY_EMERGENCY_STOP"
     CANCELLED = "CANCELLED"
+    UNVERIFIED = "UNVERIFIED"
+    BACKEND_UNAVAILABLE = "BACKEND_UNAVAILABLE"
+    SYNTHETIC_REJECTED = "SYNTHETIC_REJECTED"
 
 
 @dataclass(frozen=True)
@@ -58,6 +61,8 @@ class ObservedState:
     observed_state_hash: str | None
     observed_confidence: float
     timestamp: datetime
+    provenance: str = "REAL_PHYSICAL"
+    is_synthetic: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         """Convierte el estado observado a diccionario estructurado con privacidad de texto."""
@@ -68,6 +73,8 @@ class ObservedState:
             "observed_state_hash": self.observed_state_hash,
             "observed_confidence": round(self.observed_confidence, 2),
             "timestamp": self.timestamp.isoformat(),
+            "provenance": self.provenance,
+            "is_synthetic": self.is_synthetic,
         }
 
 
@@ -81,6 +88,7 @@ class ActionVerificationRequest:
     poll_interval_seconds: float = 0.1
     timeout_seconds: float = 5.0
     min_confidence: float = 0.70
+    require_real_evidence: bool | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Convierte la solicitud de verificación a diccionario estructurado."""
@@ -91,6 +99,7 @@ class ActionVerificationRequest:
             "poll_interval_seconds": self.poll_interval_seconds,
             "timeout_seconds": self.timeout_seconds,
             "min_confidence": self.min_confidence,
+            "require_real_evidence": self.require_real_evidence,
         }
 
 
@@ -106,6 +115,8 @@ class VerificationResult:
     processing_time_ms: float
     reason: str
     timestamp: datetime
+    provenance: str = "REAL_PHYSICAL"
+    is_synthetic: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         """Convierte el resultado de verificación a diccionario estructurado seguro para auditoría."""
@@ -118,4 +129,6 @@ class VerificationResult:
             "processing_time_ms": round(self.processing_time_ms, 2),
             "reason": self.reason,
             "timestamp": self.timestamp.isoformat(),
+            "provenance": self.provenance,
+            "is_synthetic": self.is_synthetic,
         }

@@ -43,6 +43,15 @@ from core.execution.post_execution_verifier import (
     VerificationReport,
     VerificationReportStatus,
 )
+from core.execution.operation_manager import (
+    ConcurrencyLimitError,
+    IdempotencyConflictError,
+    OperationManager,
+    OperationRecord,
+    OperationStatus,
+    SessionIsolationError,
+    get_operation_manager,
+)
 from core.execution.verification_event_adapter import (
     ActionVerificationAdapter,
     VerificationStatus,
@@ -53,6 +62,7 @@ __all__ = [
     "ActionPipelineResult",
     "ActionPipelineStatus",
     "ActionVerificationAdapter",
+    "ConcurrencyLimitError",
     "ConfirmationBridgeStatus",
     "DispatchResult",
     "DispatchStatus",
@@ -72,9 +82,14 @@ __all__ = [
     "FileMovedVerificationStrategy",
     "GateDecisionType",
     "IVerificationStrategy",
+    "IdempotencyConflictError",
+    "OperationManager",
+    "OperationRecord",
+    "OperationStatus",
     "PostExecutionVerifier",
     "ProcessExistsVerificationStrategy",
     "ProcessTerminatedVerificationStrategy",
+    "SessionIsolationError",
     "StateChangedVerificationStrategy",
     "VerificationReport",
     "VerificationReportStatus",
@@ -82,6 +97,8 @@ __all__ = [
     "get_action_pipeline",
     "get_execution_verifier",
     "get_idempotency_guard",
+    "get_operation_manager",
 ]
+
 
 

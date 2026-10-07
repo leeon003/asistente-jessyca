@@ -243,3 +243,78 @@ class EnergyVADService:
             energy=energy,
             duration_ms=chunk_duration * 1000.0,
         )
+
+    def close(self) -> None:
+        """Libera buffers o estado en memoria."""
+        self.reset()
+
+    def health(self) -> dict[str, Any]:
+        """Comprueba el estado operativo del servicio Energy VAD."""
+        return {
+            "status": "HEALTHY",
+            "backend": "energy",
+            "energy_threshold": self.energy_threshold,
+            "start_threshold": self.start_threshold,
+            "end_threshold": self.end_threshold,
+            "adaptive_eos_enabled": self.adaptive_eos_enabled,
+            "in_speech": self._in_speech,
+        }
+
+    def capabilities(self) -> dict[str, Any]:
+        """Declara las capacidades formales del servicio Energy VAD."""
+        return {
+            "backend": "energy",
+            "requires_network": False,
+            "device": "cpu",
+            "stateful": True,
+            "streaming": True,
+            "hysteresis": True,
+            "adaptive_eos": True,
+            "speaker_recognition": False,
+            "echo_cancellation": False,
+        }
+
+
+def get_vad_service(
+    backend: str | None = None,
+    fallback_to_energy: bool = True,
+    **kwargs: Any,
+) -> IVADService:
+    """Fábrica gobernada para instanciar el servicio de VAD correspondiente.
+
+    Respeta:
+    1. Si backend es None: lee VAD_BACKEND / SILERO_VAD_ENABLED de AppSettings (default: 'energy').
+    2. Si backend == 'silero': importa e inicializa SileroVADService de forma perezosa.
+       Si la inicialización falla (ej. onnxruntime no instalado o modelo no encontrado),
+       registra advertencia y recurre a EnergyVADService si fallback_to_energy es True.
+    3. Si backend == 'energy': retorna EnergyVADService(**kwargs).
+    """
+    selected_backend = backend
+    if not selected_backend:
+        try:
+            from config.manager import get_settings
+
+            settings = get_settings()
+            if getattr(settings, "SILERO_VAD_ENABLED", False):
+                selected_backend = "silero"
+            else:
+                selected_backend = getattr(settings, "VAD_BACKEND", "energy").lower()
+        except Exception:
+            selected_backend = "energy"
+
+    if selected_backend == "silero":
+        try:
+            from services.voice.silero_vad_service import SileroVADService
+
+            return SileroVADService(**kwargs)
+        except Exception as e:
+            logger.warning(
+                f"[VAD FACTORY] Fallo al inicializar SileroVADService: {e}. "
+                f"Fallback a EnergyVADService={fallback_to_energy}."
+            )
+            if not fallback_to_energy:
+                raise
+            return EnergyVADService(**kwargs)
+
+    return EnergyVADService(**kwargs)
+

@@ -15,6 +15,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 DEFAULT_ENVIRONMENT = "development"
 DEFAULT_LOG_LEVEL = "INFO"
 DEFAULT_MCP_SERVER_NAME = "jessyca-windows-mcp"
+VALID_MODEL_ROUTER_MODES = ("static", "shadow", "controlled", "experimental")
 
 
 class EnvironmentMode(StrEnum):
@@ -107,28 +108,6 @@ class AppSettings(BaseSettings):
     MCP_DEMO_TRANSPORT: str = Field(
         default="streamable-http",
         description="Mecanismo de transporte MCP para modo DEMO interactivo (streamable-http, sse, http).",
-    )
-
-    # Configuración del Router Inteligente (Fase 3 / Fase 4 Shadow / Fase 5 Controlled)
-    MODEL_ROUTER_ENABLED: bool = Field(
-        default=False,
-        description="Flag maestro de activación del Model Router (False=desactivado/comportamiento anterior, True=enrutamiento controlado activo).",
-    )
-    MODEL_ROUTER_MODE: str = Field(
-        default="shadow",
-        description="Modo de operación del router de modelos (static, shadow, experimental).",
-    )
-    ROUTER_CONFIDENCE_THRESHOLD: float = Field(
-        default=0.80,
-        description="Umbral mínimo de confianza para aplicar recomendación de modelo complejo.",
-    )
-    ROUTER_SHADOW_LOG_FILE: Path = Field(
-        default=Path("logs/router_shadow.jsonl"),
-        description="Ruta del archivo de registro estructurado para decisiones en modo shadow.",
-    )
-    NEMOTRON_ENABLED: bool = Field(
-        default=False,
-        description="Flag de habilitación para el provider remoto NVIDIA Nemotron 3 Ultra (False por defecto).",
     )
     MCP_EXTERNAL_TRANSPORT: str = Field(
         default="stdio",
@@ -318,6 +297,13 @@ class AppSettings(BaseSettings):
             "www.google.com",
             "github.com",
             "microsoft.com",
+            "127.0.0.1",
+            "localhost",
+            "wikipedia.org",
+            "es.wikipedia.org",
+            "duckduckgo.com",
+            "example.com",
+            "httpbin.org",
         },
         description="Dominios web autorizados por defecto para la navegación del agente.",
     )
@@ -960,6 +946,22 @@ class AppSettings(BaseSettings):
         default=2500,
         description="Tiempo de silencio continuo en milisegundos para marcar el fin del turno de voz.",
     )
+    VOICE_STT_PROVIDER: str = Field(
+        default="faster-whisper",
+        description="Proveedor de transcripción STT ('faster-whisper', 'google' o 'mock').",
+    )
+    VOICE_FASTER_WHISPER_MODEL: str = Field(
+        default="base",
+        description="Tamaño del modelo faster-whisper ('tiny', 'base', 'small', 'medium', 'large-v3').",
+    )
+    VOICE_FASTER_WHISPER_DEVICE: str = Field(
+        default="auto",
+        description="Dispositivo de inferencia para faster-whisper ('auto', 'cpu', 'cuda').",
+    )
+    VOICE_FASTER_WHISPER_COMPUTE_TYPE: str = Field(
+        default="default",
+        description="Tipo de cuantización y cómputo para faster-whisper ('default', 'int8', 'float16').",
+    )
     VOICE_STT_LANGUAGE: str = Field(
         default="es",
         description="Idioma predeterminado para el reconocimiento de voz (STT).",
@@ -1033,6 +1035,148 @@ class AppSettings(BaseSettings):
         description="Ventana de enfriamiento inicial en ms al comenzar TTS para ignorar transitorios de altavoz.",
     )
 
+    # Configuración de Detección de Actividad de Voz (VAD) - Integración I1 Silero VAD
+    VAD_BACKEND: str = Field(
+        default="energy",
+        description="Backend VAD activo ('energy' o 'silero'). Conserva 'energy' por defecto.",
+    )
+    SILERO_VAD_ENABLED: bool = Field(
+        default=False,
+        description="Habilita el backend Silero VAD opcional basado en ONNX (desactivado por defecto).",
+    )
+    SILERO_VAD_MODEL_PATH: Path | None = Field(
+        default=None,
+        description="Ruta personalizada al modelo ONNX de Silero VAD (opcional).",
+    )
+    SILERO_VAD_THRESHOLD: float = Field(
+        default=0.50,
+        description="Umbral de probabilidad de voz para inicio de habla en Silero VAD (0.0 a 1.0).",
+    )
+    SILERO_VAD_NEG_THRESHOLD: float = Field(
+        default=0.35,
+        description="Umbral de probabilidad de voz para fin de habla en Silero VAD (histeresis).",
+    )
+    SILERO_VAD_SAMPLE_RATE: int = Field(
+        default=16000,
+        description="Frecuencia de muestreo requerida por Silero VAD en Hz (16000).",
+    )
+    SILERO_VAD_WINDOW_SIZE: int = Field(
+        default=512,
+        description="Tamaño de ventana en muestras para Silero VAD (512 muestras = 32ms a 16kHz).",
+    )
+
+    # Configuración de Palabra de Activación (Wake Word) - Integración I5 openWakeWord
+    WAKE_WORD_BACKEND: str = Field(
+        default="manual",
+        description="Backend activo de detección de palabra de activación ('manual' / 'push_to_talk' o 'openwakeword'). Conserva 'manual' por defecto.",
+    )
+    OPENWAKEWORD_ENABLED: bool = Field(
+        default=False,
+        description="Habilita el backend openWakeWord acústico opcional (desactivado por defecto).",
+    )
+    OPENWAKEWORD_MODEL_PATH: Path | None = Field(
+        default=None,
+        description="Ruta personalizada al modelo ONNX/TFLite de wake word local entrenado para la palabra clave (ej. 'jessyca').",
+    )
+    OPENWAKEWORD_THRESHOLD: float = Field(
+        default=0.60,
+        description="Umbral de confianza acústica para activación [0.0 - 1.0].",
+    )
+    OPENWAKEWORD_COOLDOWN_SECONDS: float = Field(
+        default=2.0,
+        description="Período de enfriamiento en segundos tras activación para prevenir disparos en ráfaga.",
+    )
+    OPENWAKEWORD_BUFFER_SECONDS: float = Field(
+        default=1.5,
+        description="Ventana de buffer de audio temporal en segundos para inferencia acústica.",
+    )
+    OPENWAKEWORD_TARGET_SAMPLE_RATE: int = Field(
+        default=16000,
+        description="Frecuencia de muestreo requerida por openWakeWord en Hz (16000).",
+    )
+    OPENWAKEWORD_FALLBACK_TO_MANUAL: bool = Field(
+        default=True,
+        description="Realiza fallback transparente a modo manual/push-to-talk si el modelo acústico no está disponible.",
+    )
+
+    # Configuración de Navegación y Playwright (Integración I2)
+    BROWSER_BACKEND: str = Field(
+        default="playwright",
+        description="Backend de navegador activo ('playwright', 'windows', 'fake'). Playwright activo por defecto.",
+    )
+    PLAYWRIGHT_ENABLED: bool = Field(
+        default=True,
+        description="Habilita el backend Playwright nativo para BrowserSessionManager.",
+    )
+    PLAYWRIGHT_HEADLESS: bool = Field(
+        default=True,
+        description="Ejecución en modo headless para Playwright.",
+    )
+    PLAYWRIGHT_CHANNEL: str = Field(
+        default="msedge",
+        description="Canal de navegador para Playwright ('msedge', 'chrome', 'chromium'). Conserva 'msedge'.",
+    )
+    PLAYWRIGHT_USER_DATA_DIR: Path | None = Field(
+        default=None,
+        description="Ruta a perfil de automatización separado para Playwright (aislado de perfiles personales).",
+    )
+    PLAYWRIGHT_TIMEOUT_MS: int = Field(
+        default=15000,
+        description="Tiempo de espera máximo en milisegundos para operaciones de Playwright.",
+    )
+
+    # Configuración de Procesamiento Documental y Docling (Integración I3)
+    ANYDOC_BACKEND: str = Field(
+        default="anydoc",
+        description="Backend documental activo ('anydoc', 'docling'). Conserva 'anydoc' por defecto.",
+    )
+    DOCLING_ENABLED: bool = Field(
+        default=False,
+        description="Habilita el backend Docling opcional para AnyDoc (desactivado por defecto).",
+    )
+    DOCLING_OCR_ENABLED: bool = Field(
+        default=True,
+        description="Habilita OCR local offline mediante RapidOCR en Docling si el documento lo requiere.",
+    )
+    DOCLING_MAX_PAGES: int = Field(
+        default=50,
+        description="Límite máximo de páginas a procesar por documento en Docling.",
+    )
+    DOCLING_TIMEOUT_SECONDS: float = Field(
+        default=60.0,
+        description="Tiempo máximo de espera en segundos para procesamiento de documentos en Docling.",
+    )
+    DOCLING_CONCURRENCY_LIMIT: int = Field(
+        default=1,
+        description="Límite de operaciones concurrentes en Docling para evitar saturación de CPU/memoria.",
+    )
+    DOCLING_FALLBACK_TO_ANYDOC: bool = Field(
+        default=True,
+        description="Realiza fallback explícito al backend AnyDoc si Docling no está disponible o falla.",
+    )
+
+    # Configuración de Inspección y Automatización UI (Fase I4)
+    UI_INSPECTION_BACKEND: str = Field(
+        default="uiautomation",
+        description="Backend activo de inspección visual UI ('uiautomation', 'pywinauto', 'fake').",
+    )
+    PYWINAUTO_ENABLED: bool = Field(
+        default=False,
+        description="Habilita pywinauto como adaptador opcional para inspección/automatización (desactivado por defecto).",
+    )
+    PYWINAUTO_BACKEND: str = Field(
+        default="uia",
+        description="Backend tecnológico interno de pywinauto ('uia' o 'win32').",
+    )
+    PYWINAUTO_ACTION_TIMEOUT: float = Field(
+        default=5.0,
+        description="Tiempo de espera máximo en segundos para acciones gobernadas ejecutadas vía pywinauto.",
+    )
+    PYWINAUTO_FALLBACK_TO_UIA: bool = Field(
+        default=True,
+        description="Realiza fallback automático a uiautomation si pywinauto no está disponible o falla.",
+    )
+
     # Configuración de Context Builder & Memory Retrieval (Subetapa 10.2)
     CONTEXT_ENABLED: bool = Field(
         default=True,
@@ -1101,20 +1245,29 @@ class AppSettings(BaseSettings):
         description="Habilita el servidor Mobile API para comunicación con cliente Android.",
     )
     MOBILE_API_HOST: str = Field(
-        default="0.0.0.0",
-        description="Host de escucha para Mobile API (0.0.0.0 para acceso LAN).",
+        default="127.0.0.1",
+        description="Host de escucha para Mobile API (127.0.0.1 loopback por defecto; configurar a 0.0.0.0 o IP de red para acceso LAN explícito).",
     )
     MOBILE_API_PORT: int = Field(
         default=8765,
         description="Puerto TCP de escucha para Mobile API.",
     )
     MOBILE_API_AUTH_TOKEN: str = Field(
-        default="jessyca-dev-token-insecure",
-        description="Token de autenticación para cliente móvil (X-Jessyca-Token). En producción, configurar vía variable de entorno.",
+        default="",
+        description="Token de autenticación obligatorio para cliente móvil (X-Jessyca-Token). Prohibido valor vacío o desarrollo en ejecución normal.",
     )
-    MOBILE_API_TIMEOUT: int = Field(
-        default=30,
+    MOBILE_API_TIMEOUT: float = Field(
+        default=30.0,
+        ge=0.01,
         description="Timeout máximo en segundos para procesamiento de solicitudes móviles.",
+    )
+    MOBILE_API_CORS_ORIGINS: list[str] = Field(
+        default_factory=list,
+        description="Lista de orígenes permitidos para CORS en Mobile API. Vacío por defecto (CORS restrictivo/desactivado).",
+    )
+    MOBILE_API_DOCS_ENABLED: bool = Field(
+        default=False,
+        description="Determina si se exponen /docs y /openapi.json en Mobile API (falso por defecto en entornos de red).",
     )
 
     # Configuración de Web Bridge (OpenAI-Compatible Bridge para Open WebUI)
@@ -1123,8 +1276,8 @@ class AppSettings(BaseSettings):
         description="Habilita el servidor Web Bridge OpenAI-Compatible para Open WebUI.",
     )
     WEBUI_BRIDGE_HOST: str = Field(
-        default="0.0.0.0",
-        description="Host de escucha para Web Bridge.",
+        default="127.0.0.1",
+        description="Host de escucha para Web Bridge (127.0.0.1 loopback por defecto).",
     )
     WEBUI_BRIDGE_PORT: int = Field(
         default=8088,
@@ -1138,6 +1291,14 @@ class AppSettings(BaseSettings):
         default=60.0,
         description="Timeout máximo en segundos para procesamiento de solicitudes de Web Bridge.",
     )
+    WEBUI_BRIDGE_CORS_ORIGINS: list[str] = Field(
+        default_factory=list,
+        description="Lista de orígenes permitidos para CORS en WebUI Bridge. Vacío por defecto.",
+    )
+    WEBUI_BRIDGE_DOCS_ENABLED: bool = Field(
+        default=False,
+        description="Determina si se exponen /docs y /openapi.json en WebUI Bridge (falso por defecto).",
+    )
 
     # Integraciones Externas (Integration Hub / Adapter Layer)
     INTEGRATIONS_ENABLED: bool = Field(
@@ -1149,6 +1310,7 @@ class AppSettings(BaseSettings):
             "jarvis": {"enabled": False},
             "are": {"enabled": False},
             "windows_computer_use": {"enabled": False},
+            "mobile": {"enabled": False},
         },
         description="Configuración y estado de habilitación de adapters específicos.",
     )
@@ -1190,11 +1352,13 @@ class AppSettings(BaseSettings):
     )
     MODEL_ROUTER_MODE: str = Field(
         default="shadow",
-        description="Modo de operación del router inteligente: static, shadow (por defecto Fase 4), experimental.",
+        description="Modo de operación del router inteligente: static, shadow (por defecto Fase 4), controlled, experimental.",
     )
     ROUTER_CONFIDENCE_THRESHOLD: float = Field(
         default=0.80,
-        description="Umbral mínimo de confianza para enrutamiento avanzado hacia modelos de alto cómputo.",
+        ge=0.0,
+        le=1.0,
+        description="Umbral mínimo de confianza para enrutamiento avanzado hacia modelos de alto cómputo (0.0 a 1.0).",
     )
     ROUTER_SHADOW_LOG_FILE: Path = Field(
         default=Path("logs/router_shadow.jsonl"),
@@ -1263,3 +1427,150 @@ class AppSettings(BaseSettings):
                 f"ARE_RUNTIME_MODE inválido: '{value}'. Valores permitidos: DISABLED, SHADOW, CONTROLLED."
             )
         return cleaned
+
+    @field_validator("MODEL_ROUTER_MODE", mode="before")
+    @classmethod
+    def validate_model_router_mode(cls, value: Any) -> str:
+        cleaned = str(value).strip().lower()
+        if cleaned not in VALID_MODEL_ROUTER_MODES:
+            raise ValueError(
+                f"MODEL_ROUTER_MODE inválido: '{value}'. "
+                f"Valores permitidos: {', '.join(sorted(VALID_MODEL_ROUTER_MODES))}."
+            )
+        return cleaned
+
+    @field_validator("ROUTER_CONFIDENCE_THRESHOLD", mode="before")
+    @classmethod
+    def validate_router_confidence_threshold(cls, value: Any) -> float:
+        try:
+            val = float(value)
+        except (ValueError, TypeError) as e:
+            raise ValueError(f"ROUTER_CONFIDENCE_THRESHOLD debe ser un número: {value}") from e
+        if not (0.0 <= val <= 1.0):
+            raise ValueError(
+                f"ROUTER_CONFIDENCE_THRESHOLD fuera de rango: {val}. "
+                "Debe estar comprendido entre 0.0 y 1.0 inclusive."
+            )
+        return val
+
+    @field_validator("ROUTER_SHADOW_LOG_FILE", mode="before")
+    @classmethod
+    def validate_router_shadow_log_file(cls, value: Any) -> Path:
+        if not value or not str(value).strip():
+            raise ValueError("ROUTER_SHADOW_LOG_FILE no puede estar vacío.")
+        return Path(str(value).strip())
+
+    @field_validator("NEMOTRON_TIMEOUT_SECONDS", mode="before")
+    @classmethod
+    def validate_nemotron_timeout(cls, value: Any) -> float:
+        try:
+            val = float(value)
+        except (ValueError, TypeError) as e:
+            raise ValueError(f"NEMOTRON_TIMEOUT_SECONDS debe ser un número: {value}") from e
+        if val <= 0:
+            raise ValueError(f"NEMOTRON_TIMEOUT_SECONDS debe ser mayor a 0 (obtenido: {val})")
+        return val
+
+    @field_validator("NEMOTRON_CONNECT_TIMEOUT_SECONDS", mode="before")
+    @classmethod
+    def validate_nemotron_connect_timeout(cls, value: Any) -> float:
+        try:
+            val = float(value)
+        except (ValueError, TypeError) as e:
+            raise ValueError(f"NEMOTRON_CONNECT_TIMEOUT_SECONDS debe ser un número: {value}") from e
+        if val <= 0:
+            raise ValueError(f"NEMOTRON_CONNECT_TIMEOUT_SECONDS debe ser mayor a 0 (obtenido: {val})")
+        return val
+
+    @field_validator("NEMOTRON_MAX_RETRIES", mode="before")
+    @classmethod
+    def validate_nemotron_max_retries(cls, value: Any) -> int:
+        try:
+            val = int(value)
+        except (ValueError, TypeError) as e:
+            raise ValueError(f"NEMOTRON_MAX_RETRIES debe ser un entero: {value}") from e
+        if val < 0:
+            raise ValueError(f"NEMOTRON_MAX_RETRIES no puede ser negativo: {val}")
+        return val
+
+    @field_validator("VOICE_STT_PROVIDER", mode="before")
+    @classmethod
+    def validate_stt_provider(cls, value: Any) -> str:
+        val = str(value).lower().strip()
+        allowed = {"faster-whisper", "google", "mock"}
+        if val not in allowed:
+            raise ValueError(f"VOICE_STT_PROVIDER '{val}' no es válido. Opciones permitidas: {sorted(allowed)}")
+        return val
+
+    @field_validator("VAD_BACKEND", mode="before")
+    @classmethod
+    def validate_vad_backend(cls, value: Any) -> str:
+        if not value:
+            return "energy"
+        val = str(value).lower().strip()
+        allowed = {"energy", "silero"}
+        if val not in allowed:
+            raise ValueError(f"VAD_BACKEND '{val}' no es válido. Opciones permitidas: {sorted(allowed)}")
+        return val
+
+    @field_validator("BROWSER_BACKEND", mode="before")
+    @classmethod
+    def validate_browser_backend(cls, value: Any) -> str:
+        if not value:
+            return "windows"
+        val = str(value).lower().strip()
+        allowed = {"windows", "playwright", "fake"}
+        if val not in allowed:
+            raise ValueError(f"BROWSER_BACKEND '{val}' no es válido. Opciones permitidas: {sorted(allowed)}")
+        return val
+
+    @field_validator("ANYDOC_BACKEND", mode="before")
+    @classmethod
+    def validate_anydoc_backend(cls, value: Any) -> str:
+        if not value:
+            return "anydoc"
+        val = str(value).lower().strip()
+        allowed = {"anydoc", "docling"}
+        if val not in allowed:
+            raise ValueError(f"ANYDOC_BACKEND '{val}' no es válido. Opciones permitidas: {sorted(allowed)}")
+        return val
+
+    def get_effective_summary(self) -> dict[str, Any]:
+        """Genera un diccionario de la configuración efectiva sanitizada,
+
+        ocultando credenciales, API keys y tokens secretos.
+        """
+        raw = self.model_dump()
+        safe: dict[str, Any] = {}
+
+        sensitive_substrings = (
+            "api_key",
+            "auth_token",
+            "secret",
+            "password",
+            "credential",
+        )
+        non_sensitive_exceptions = (
+            "keyword",
+            "subkeys",
+            "token_pattern",
+            "max_tokens",
+        )
+
+        for k, v in raw.items():
+            k_lower = k.lower()
+            is_sensitive = any(pat in k_lower for pat in sensitive_substrings) and not any(
+                exc in k_lower for exc in non_sensitive_exceptions
+            )
+
+            if is_sensitive:
+                safe[k] = "[REDACTED]" if v else ""
+            elif isinstance(v, Path):
+                safe[k] = str(v)
+            elif hasattr(v, "value"):
+                safe[k] = v.value
+            else:
+                safe[k] = v
+
+        return safe
+

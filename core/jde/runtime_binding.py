@@ -45,7 +45,6 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field
 
 from core.execution.idempotency_guard import (
-    ExecutionFingerprint,
     ExecutionIdempotencyGuard,
     get_idempotency_guard,
 )
@@ -53,14 +52,17 @@ from core.jde.audit import JDEAuditTrail
 from core.jde.authority import (
     ActionRiskTier,
     AuthorityDecision,
-    AuthorityMode,
     JDEAuthorityGate,
     classify_action_risk,
     get_authority_gate,
-    is_canary_excluded_action,
+)
+from core.jde.confirmation import (
+    JDEConfirmationManager,
+    get_confirmation_manager,
 )
 from core.jde.conflict import JDEConflictResolver
 from core.jde.contract import DecisionContract
+from core.jde.policy import JDEPolicyGate
 from core.jde.receipts import ActionReceipt
 from core.jde.states import DecisionState, ExecutionStatusType, VerificationStatusType
 from core.logger import get_logger
@@ -124,12 +126,16 @@ class JDERuntimeBinding:
         idempotency_guard: ExecutionIdempotencyGuard | None = None,
         audit_trail: JDEAuditTrail | None = None,
         conflict_resolver: JDEConflictResolver | None = None,
+        policy_gate: JDEPolicyGate | None = None,
+        confirmation_manager: JDEConfirmationManager | None = None,
     ) -> None:
         self._mutex = threading.RLock()
         self.authority_gate = authority_gate or get_authority_gate()
         self.idempotency_guard = idempotency_guard or get_idempotency_guard()
         self.audit_trail = audit_trail or JDEAuditTrail()
         self.conflict_resolver = conflict_resolver or JDEConflictResolver()
+        self.policy_gate = policy_gate or JDEPolicyGate()
+        self.confirmation_manager = confirmation_manager or get_confirmation_manager()
         self._mode = self._resolve_runtime_mode(mode)
 
     @classmethod
@@ -188,6 +194,7 @@ class JDERuntimeBinding:
         session_id: str = "default_session",
         request_id: str = "",
         risk_level: str = "SAFE",
+        user_id: str = "default_user",
     ) -> JDERuntimeVerdict:
         """Evalúa determinísticamente si una acción puede proceder ANTES de cualquier efecto secundario.
 
@@ -196,9 +203,22 @@ class JDERuntimeBinding:
         - DENY: Interceptar y abortar sin producir ningún efecto secundario.
         - REQUIRE_REVIEW: Pausar y exigir aprobación explícita del usuario.
         """
-        params = parameters or {}
+        raw_params = parameters or {}
+        # Invariante de seguridad: NUNCA aceptar is_confirmed o confirmed inyectados por LLM o parámetros crudos
+        cleaned_params = {k: v for k, v in raw_params.items() if k not in ("is_confirmed", "confirmed")}
         req_id = request_id or f"jde-rt-{int(datetime.now(UTC).timestamp()*1000)}"
         t_now = datetime.now(UTC)
+
+        # ── 0. VERIFICACIÓN DE CONFIRMACIÓN HUMANA VINCULADA ESTRICTAMENTE ──
+        # Solo se considera confirmado si el gestor de confirmación vinculado valida y consume el token
+        # para esta sesión, acción, parámetros e identidad, O si fue validado por callback confiable.
+        has_bound_confirmation = self.confirmation_manager.verify_and_consume(
+            session_id=session_id,
+            action=action,
+            parameters=cleaned_params,
+            user_id=user_id,
+        )
+        effective_user_confirmed = bool(has_bound_confirmation or user_confirmed)
 
         # ── 1. VERIFICACIÓN DE KILL SWITCH DE EMERGENCIA ──
         if self.authority_gate.is_kill_switch_active:
@@ -211,7 +231,7 @@ class JDERuntimeBinding:
                 reason=reason,
                 decision_id=req_id,
                 session_id=session_id,
-                context=params,
+                context=cleaned_params,
                 risk_level=risk_level,
                 permission_status="DENIED",
                 idempotency_status="NOT_ACQUIRED",
@@ -226,7 +246,7 @@ class JDERuntimeBinding:
                 user_request=intent,
                 action=action,
                 tool=tool,
-                parameters=params,
+                parameters=cleaned_params,
                 executor="none",
                 verifier="none",
                 started_at=t_now,
@@ -260,7 +280,7 @@ class JDERuntimeBinding:
             tool=tool,
             user_prompt=intent,
             risk_tier=risk_level,
-            user_confirmed=user_confirmed,
+            user_confirmed=effective_user_confirmed,
         )
 
         if not conflict_res.is_allowed and conflict_res.resolved_state in (DecisionState.NO_DECISION, DecisionState.CONFLICT):
@@ -274,7 +294,7 @@ class JDERuntimeBinding:
                     reason=reason,
                     decision_id=req_id,
                     session_id=session_id,
-                    context=params,
+                    context=cleaned_params,
                     risk_level=risk_level,
                     permission_status="DENIED",
                     idempotency_status="NOT_ACQUIRED",
@@ -288,7 +308,7 @@ class JDERuntimeBinding:
                     user_request=intent,
                     action=action,
                     tool=tool,
-                    parameters=params,
+                    parameters=cleaned_params,
                     executor="none",
                     verifier="none",
                     started_at=t_now,
@@ -315,12 +335,20 @@ class JDERuntimeBinding:
                     timestamp=t_now,
                 )
 
-        # ── 3. EVALUACIÓN MEDIANTE EL AUTHORITY GATE EXISTENTE ──
+        # ── 3. EVALUACIÓN MEDIANTE EL AUTHORITY GATE Y POLICY GATE ──
         auth_eval = self.authority_gate.evaluate_authority(
             action=action,
             tool=tool,
-            parameters=params,
-            user_confirmed=user_confirmed,
+            parameters=cleaned_params,
+            user_confirmed=effective_user_confirmed,
+        )
+
+        pol_dec = self.policy_gate.evaluate(
+            tool=tool,
+            action=action,
+            parameters=cleaned_params,
+            user_confirmed=effective_user_confirmed,
+            declared_risk=risk_level,
         )
 
         # ── 4. RESOLUCIÓN SEGÚN JDE_RUNTIME_MODE ──
@@ -333,7 +361,7 @@ class JDERuntimeBinding:
                 reason=f"Evaluación Shadow: veredicto original={auth_eval.decision.value}. {auth_eval.reason}",
                 decision_id=req_id,
                 session_id=session_id,
-                context=params,
+                context=cleaned_params,
                 risk_level=auth_eval.risk_tier.value,
                 permission_status="ALLOW",
                 idempotency_status="ACQUIRED",
@@ -355,14 +383,18 @@ class JDERuntimeBinding:
             )
 
         # MODO CONTROLLED (Obligatorio en Fase 1)
+        policy_denied = (not pol_dec.is_allowed and not pol_dec.requires_confirmation)
         is_denied = (
             auth_eval.decision == AuthorityDecision.DENY
             or risk_level.upper() == "CRITICAL"
+            or policy_denied
         )
 
         if is_denied:
             deny_reason = auth_eval.reason if auth_eval.decision == AuthorityDecision.DENY else (
-                f"Acción crítica/destructiva '{action}' en herramienta '{tool}' denegada por gobernanza JDE."
+                pol_dec.reason if policy_denied else (
+                    f"Acción crítica/destructiva '{action}' en herramienta '{tool}' denegada por gobernanza JDE."
+                )
             )
             reason = f"Acción denegada por gobernanza JDE: {deny_reason}"
             logger.warning(f"[JDE RUNTIME BINDING - DENIED] {reason}")
@@ -372,7 +404,7 @@ class JDERuntimeBinding:
                 reason=reason,
                 decision_id=req_id,
                 session_id=session_id,
-                context=params,
+                context=cleaned_params,
                 risk_level=auth_eval.risk_tier.value,
                 permission_status="DENIED",
                 idempotency_status="NOT_ACQUIRED",
@@ -386,7 +418,7 @@ class JDERuntimeBinding:
                 user_request=intent,
                 action=action,
                 tool=tool,
-                parameters=params,
+                parameters=cleaned_params,
                 executor="none",
                 verifier="none",
                 started_at=t_now,
@@ -417,13 +449,14 @@ class JDERuntimeBinding:
         needs_review = (
             auth_eval.decision == AuthorityDecision.REQUIRE_VERIFICATION
             or auth_eval.requires_human_confirmation
+            or pol_dec.requires_confirmation
             or auth_eval.risk_tier == ActionRiskTier.HIGH
             or classify_action_risk(action, tool) == ActionRiskTier.HIGH
-            or risk_level.upper() == "HIGH"
+            or risk_level.upper() in ("HIGH", "CRITICAL")
         )
 
         if needs_review:
-            if user_confirmed:
+            if effective_user_confirmed:
                 # Confirmado explícitamente: autorizar a continuar
                 contract = DecisionContract.create(
                     intent=intent,
@@ -431,7 +464,7 @@ class JDERuntimeBinding:
                     reason=f"Acción autorizada tras confirmación humana válida: {auth_eval.reason}",
                     decision_id=req_id,
                     session_id=session_id,
-                    context=params,
+                    context=cleaned_params,
                     risk_level=auth_eval.risk_tier.value,
                     permission_status="ALLOW",
                     idempotency_status="ACQUIRED",
@@ -452,16 +485,27 @@ class JDERuntimeBinding:
                     timestamp=t_now,
                 )
             else:
-                # Sin confirmación: exigir revisión y BLOQUEAR el side effect
-                reason = f"Revisión humana requerida por JDE: {auth_eval.reason}"
+                # Sin confirmación: registrar confirmación vinculada estrictamente y BLOQUEAR el side effect
+                review_reason = pol_dec.reason if pol_dec.requires_confirmation else auth_eval.reason
+                reason = f"Revisión humana requerida por JDE: {review_reason}"
                 logger.info(f"[JDE RUNTIME BINDING - REQUIRE_REVIEW] {reason}")
+
+                # Registrar en ConfirmationManager para permitir validación vinculada posterior
+                self.confirmation_manager.register_pending_confirmation(
+                    session_id=session_id,
+                    action=action,
+                    tool=tool,
+                    parameters=cleaned_params,
+                    user_id=user_id,
+                )
+
                 contract = DecisionContract.create(
                     intent=intent,
                     selected_action=action,
                     reason=reason,
                     decision_id=req_id,
                     session_id=session_id,
-                    context=params,
+                    context=cleaned_params,
                     risk_level=auth_eval.risk_tier.value,
                     permission_status="REQUIRE_CONFIRMATION",
                     idempotency_status="NOT_ACQUIRED",
@@ -489,7 +533,7 @@ class JDERuntimeBinding:
             reason=f"Acción autorizada por JDE: {auth_eval.reason}",
             decision_id=req_id,
             session_id=session_id,
-            context=params,
+            context=cleaned_params,
             risk_level=auth_eval.risk_tier.value,
             permission_status="ALLOW",
             idempotency_status="ACQUIRED",

@@ -12,7 +12,12 @@ import math
 import struct
 
 import pytest
-import speech_recognition as sr
+
+try:
+    import speech_recognition as sr
+except ImportError:
+    sr = None  # type: ignore[assignment]
+
 
 from core.bus import EventBus
 from core.events import UtteranceFinal
@@ -289,6 +294,9 @@ def test_8_silence_timeout_does_not_emit_false_utterance():
 
     # 4 segundos de silencio continuo con un timeout de 2 segundos
     pure_silence_chunks = _generate_chunk_sequence([(4000.0, 0.0)])
+
+    if sr is None:
+        pytest.skip("speech_recognition no está instalado en este entorno.")
 
     with pytest.raises(sr.WaitTimeoutError):
         engine.evaluate_adaptive_stream(

@@ -13,7 +13,10 @@ from __future__ import annotations
 import re
 import threading
 import time
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from skills.skill_manager import SkillManager
 
 from core.audit_logger import AuditEvent, AuditEventType, AuditLogger, get_audit_logger
 from core.collaboration.collaboration_models import (
@@ -31,8 +34,6 @@ from core.llm.consensus_engine import ConsensusEngine
 from core.llm.model_manager import ModelManager, get_model_manager
 from core.logger import get_logger
 from core.security_architecture import SecurityLevel
-from skills.skill_manager import SkillManager, get_skill_manager
-from skills.skill_models import SkillStatus
 
 logger = get_logger("jessyca.collaboration.engine")
 
@@ -48,7 +49,11 @@ class CollaborationEngine:
         emergency_stop: EmergencyStopManager | None = None,
         audit_logger: AuditLogger | None = None,
     ) -> None:
-        self.skill_manager = skill_manager or get_skill_manager()
+        if skill_manager is None:
+            from skills.skill_manager import get_skill_manager
+            self.skill_manager = get_skill_manager()
+        else:
+            self.skill_manager = skill_manager
         self.model_manager = model_manager or get_model_manager()
         self.consensus_engine = consensus_engine or ConsensusEngine.get_instance()
         self.emergency_stop = emergency_stop or get_emergency_stop_manager()
@@ -216,8 +221,9 @@ class CollaborationEngine:
             timeout_seconds=contract.timeout_seconds,
             budget=contract.budget,
         )
+        from skills.skill_models import SkillStatus
 
-        if res.status == SkillStatus.COMPLETED and res.success:
+        if (res.status == SkillStatus.COMPLETED or str(res.status) == "COMPLETED") and res.success:
             out_key = f"{skill_id}_output"
             context.outputs[out_key] = res.output
             context.provenance[out_key] = skill_id

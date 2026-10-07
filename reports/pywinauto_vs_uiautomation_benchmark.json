@@ -1,0 +1,227 @@
+{
+  "timestamp": "2026-10-04T23:08:47.659528+00:00",
+  "environment": {
+    "os": "Windows-10-10.0.26200-SP0",
+    "os_release": "10",
+    "os_version": "10.0.26200",
+    "architecture": "AMD64",
+    "python_version": "3.11.9 (tags/v3.11.9:de54cf5, Apr  2 2024, 10:12:12) [MSC v.1938 64 bit (AMD64)]"
+  },
+  "libraries": {
+    "uiautomation": {
+      "version": "2.0.29",
+      "author": "yinkaisheng",
+      "available": true
+    },
+    "pywinauto": {
+      "version": "0.6.9",
+      "available": true
+    }
+  },
+  "benchmarks": {
+    "notepad_target": {
+      "pid": 15736,
+      "title": "Sin título: Bloc de notas",
+      "class_name": "Notepad",
+      "hwnd": 270474,
+      "process_id": 32444
+    },
+    "notepad_comparison": {
+      "uiautomation": {
+        "window_found": true,
+        "window_search_latency_ms": 11.22,
+        "hierarchy_traversal_latency_ms": 73.48,
+        "element_count": 56,
+        "supports_negative_coords": false,
+        "sample_controls": [
+          {
+            "name": "Sin título: Bloc de notas",
+            "control_type": "WindowControl",
+            "automation_id": "",
+            "class_name": "Notepad",
+            "bounds": {
+              "x": 676,
+              "y": 328,
+              "w": 1064,
+              "h": 1023
+            },
+            "depth": 1,
+            "is_enabled": true
+          },
+          {
+            "name": "",
+            "control_type": "PaneControl",
+            "automation_id": "",
+            "class_name": "NotepadTextBox",
+            "bounds": {
+              "x": 682,
+              "y": 403,
+              "w": 1052,
+              "h": 910
+            },
+            "depth": 2,
+            "is_enabled": true
+          },
+          {
+            "name": "Editor de texto",
+            "control_type": "DocumentControl",
+            "automation_id": "",
+            "class_name": "RichEditD2DPT",
+            "bounds": {
+              "x": 682,
+              "y": 403,
+              "w": 1052,
+              "h": 910
+            },
+            "depth": 3,
+            "is_enabled": true
+          },
+          {
+            "name": "",
+            "control_type": "PaneControl",
+            "automation_id": "",
+            "class_name": "Microsoft.UI.Content.DesktopChildSiteBridge",
+            "bounds": {
+              "x": 722,
+              "y": 338,
+              "w": 287,
+              "h": 32
+            },
+            "depth": 2,
+            "is_enabled": true
+          },
+          {
+            "name": "",
+            "control_type": "PaneControl",
+            "automation_id": "",
+            "class_name": "InputSiteWindowClass",
+            "bounds": {
+              "x": 722,
+              "y": 338,
+              "w": 287,
+              "h": 32
+            },
+            "depth": 3,
+            "is_enabled": true
+          }
+        ]
+      },
+      "pywinauto_uia": {
+        "window_found": true,
+        "window_search_latency_ms": 6.45,
+        "hierarchy_traversal_latency_ms": 69.77,
+        "element_count": 43,
+        "supports_negative_coords": false,
+        "sample_controls": [
+          {
+            "name": "Sin título: Bloc de notas",
+            "control_type": "Window",
+            "automation_id": "",
+            "class_name": "Notepad",
+            "bounds": {
+              "x": 676,
+              "y": 328,
+              "w": 1064,
+              "h": 1023
+            },
+            "depth": 1,
+            "is_enabled": true
+          },
+          {
+            "name": "",
+            "control_type": "Pane",
+            "automation_id": "",
+            "class_name": "NotepadTextBox",
+            "bounds": {
+              "x": 682,
+              "y": 403,
+              "w": 1052,
+              "h": 910
+            },
+            "depth": 2,
+            "is_enabled": true
+          },
+          {
+            "name": "",
+            "control_type": "Document",
+            "automation_id": "",
+            "class_name": "RichEditD2DPT",
+            "bounds": {
+              "x": 682,
+              "y": 403,
+              "w": 1052,
+              "h": 910
+            },
+            "depth": 3,
+            "is_enabled": true
+          },
+          {
+            "name": "",
+            "control_type": "Pane",
+            "automation_id": "",
+            "class_name": "Microsoft.UI.Content.DesktopChildSiteBridge",
+            "bounds": {
+              "x": 722,
+              "y": 338,
+              "w": 287,
+              "h": 32
+            },
+            "depth": 2,
+            "is_enabled": true
+          },
+          {
+            "name": "",
+            "control_type": "Pane",
+            "automation_id": "",
+            "class_name": "InputSiteWindowClass",
+            "bounds": {
+              "x": 722,
+              "y": 338,
+              "w": 287,
+              "h": 32
+            },
+            "depth": 3,
+            "is_enabled": true
+          }
+        ]
+      }
+    },
+    "ambiguity_evaluation": {
+      "uiautomation_specific_search_ms": 528.31,
+      "uiautomation_edit_found": false,
+      "pywinauto_specific_search_ms": 0.01,
+      "pywinauto_edit_found": false
+    },
+    "stale_element_evaluation": {
+      "uiautomation_after_close": {
+        "exception": false,
+        "result": "not_found"
+      },
+      "pywinauto_after_close": {
+        "exception": false,
+        "result": "not_found"
+      }
+    },
+    "com_evaluation": {
+      "uiautomation_com_requirement": "Inicializa COM internamente a través de comtypes. CoInitializeEx se maneja transparentemente.",
+      "pywinauto_com_requirement": "Advierte 'Revert to STA COM threading mode' al importar; requiere modo STA y puede colisionar con bucles asyncio si no se ejecuta en worker dedicado."
+    }
+  },
+  "conclusions": {
+    "speed_comparison": {
+      "uiautomation_total_ms": 84.7,
+      "pywinauto_total_ms": 76.22,
+      "fastest": "pywinauto",
+      "ratio": 0.9
+    },
+    "controls_detected": {
+      "uiautomation_elements": 56,
+      "pywinauto_elements": 43
+    },
+    "multi_monitor_support": {
+      "native_uiautomation": "Preserva coordenadas rect.left y rect.top negativas sin clamping",
+      "pywinauto": "rectangle() devuelve L, T, R, B preservando coordenadas virtuales de Windows"
+    },
+    "architectural_recommendation": "uiautomation es más rápido, ligero y directo para inspección pura de sólo lectura (IUIInspectionBackend), sin forzar modo STA COM global que afecte a FastAPI/asyncio. pywinauto añade un envoltorio de alto nivel útil para aplicaciones legacy win32 pero introduce sobrecarga de STA COM y mayor latencia. Recomendación: Implementar adaptador opcional PyWinAutoInspectionBackend y PyWinAutoGovernedActionExecutor detrás de las interfaces correspondientes con flag desactivado por defecto (PYWINAUTO_ENABLED=False), manteniendo uiautomation como backend nativo primario y preservando la regla de oro: CERO clicks en IUIInspectionBackend."
+  }
+}

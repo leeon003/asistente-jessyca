@@ -17,6 +17,15 @@ from core.logger import get_logger
 
 logger = get_logger("jessyca.llm.registry")
 
+def _is_nemotron_enabled_default() -> bool:
+    if "NEMOTRON_ENABLED" in os.environ:
+        return os.environ["NEMOTRON_ENABLED"].strip().lower() in ("true", "1", "yes", "on")
+    try:
+        from config.manager import get_settings
+        return bool(get_settings().NEMOTRON_ENABLED)
+    except Exception:
+        return False
+
 
 def get_default_built_in_profiles() -> list[ModelProfile]:
     """Retorna los perfiles iniciales de los 5 modelos soportados en el catálogo."""
@@ -137,7 +146,7 @@ def get_default_built_in_profiles() -> list[ModelProfile]:
             reasoning=True,
             priority=4,
             vram_estimate_mb=0,  # 0 MB de VRAM local (modelo remoto consumido vía API)
-            enabled=os.getenv("NEMOTRON_ENABLED", "false").strip().lower() in ("true", "1", "yes", "on"),
+            enabled=_is_nemotron_enabled_default(),
             default_parameters={"temperature": 0.1},
             description="NVIDIA Nemotron 3 Ultra (550B-A55B) - Modelo remoto de ultra alta capacidad para razonamiento y planificación.",
         ),

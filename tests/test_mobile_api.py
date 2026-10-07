@@ -260,3 +260,158 @@ def test_10_cli_mobile_with_custom_host_and_port() -> None:
     assert args.mobile is True
     assert args.host == "192.168.1.50"
     assert args.port == 9000
+
+
+# ── TEST 8: SEGURIDAD DE TOKEN OBLIGATORIO Y RECHAZO DE VALORES INSEGUROS ──
+
+
+def test_11_factory_fails_without_secret_before_effects() -> None:
+    """Verifica que create_mobile_api_app falle inmediatamente si el token no está configurado."""
+    empty_settings = AppSettings(
+        MOBILE_API_ENABLED=True,
+        MOBILE_API_AUTH_TOKEN="",
+    )
+    with patch("interfaces.mobile_api.app.JessycaLocalAgent.get_instance") as mock_agent_get:
+        with pytest.raises(ValueError, match="MOBILE_API_AUTH_TOKEN es obligatorio"):
+            create_mobile_api_app(settings=empty_settings)
+        # Garantizar que no hubo efectos secundarios ni instanciación del agente
+        mock_agent_get.assert_not_called()
+
+
+def test_12_factory_fails_with_whitespace_secret_before_effects() -> None:
+    """Verifica que create_mobile_api_app rechace tokens compuestos solo de espacios en blanco."""
+    whitespace_settings = AppSettings(
+        MOBILE_API_ENABLED=True,
+        MOBILE_API_AUTH_TOKEN="    ",
+    )
+    with patch("interfaces.mobile_api.app.JessycaLocalAgent.get_instance") as mock_agent_get:
+        with pytest.raises(ValueError, match="espacios en blanco"):
+            create_mobile_api_app(settings=whitespace_settings)
+        mock_agent_get.assert_not_called()
+
+
+def test_13_factory_fails_with_insecure_dev_token_before_effects() -> None:
+    """Verifica que create_mobile_api_app rechace el valor inseguro de desarrollo conocido."""
+    dev_token_settings = AppSettings(
+        MOBILE_API_ENABLED=True,
+        MOBILE_API_AUTH_TOKEN="jessyca-dev-token-insecure",
+    )
+    with patch("interfaces.mobile_api.app.JessycaLocalAgent.get_instance") as mock_agent_get:
+        with pytest.raises(ValueError, match="token de desarrollo inseguro conocido"):
+            create_mobile_api_app(settings=dev_token_settings)
+        mock_agent_get.assert_not_called()
+
+
+# ── TEST 9: ARRANQUE DEL SERVIDOR (run_mobile_server) ──
+
+
+def test_14_run_mobile_server_aborts_without_valid_secret() -> None:
+    """Verifica que run_mobile_server retorne código 1 sin iniciar uvicorn si el token es inválido."""
+    bad_settings = AppSettings(
+        MOBILE_API_ENABLED=True,
+        MOBILE_API_AUTH_TOKEN="jessyca-dev-token-insecure",
+    )
+    from interfaces.mobile_api.server import run_mobile_server
+    with patch("uvicorn.Server.run") as mock_run:
+        exit_code = run_mobile_server(settings=bad_settings)
+        assert exit_code == 1
+        mock_run.assert_not_called()
+
+
+def test_15_disabled_flag_prevents_server_start_unless_forced() -> None:
+    """Verifica que MOBILE_API_ENABLED=False impida arrancar a menos que force=True."""
+    from interfaces.mobile_api.server import run_mobile_server
+    disabled_settings = AppSettings(
+        MOBILE_API_ENABLED=False,
+        MOBILE_API_AUTH_TOKEN="valid-production-secret-token-32ch",
+    )
+    with patch("uvicorn.Server.run") as mock_run:
+        # 1. Sin force -> aborta con 1
+        exit_code = run_mobile_server(settings=disabled_settings, force=False)
+        assert exit_code == 1
+        mock_run.assert_not_called()
+
+        # 2. Con force -> procede a ejecutar el servidor
+        exit_code_forced = run_mobile_server(settings=disabled_settings, force=True)
+        assert exit_code_forced == 0
+        mock_run.assert_called_once()
+
+
+# ── TEST 10: POLÍTICA DE RED (LOOPBACK POR DEFECTO Y ADVERTENCIA LAN) ──
+
+
+def test_16_network_options_default_loopback_and_lan_warning(caplog: pytest.LogCaptureFixture) -> None:
+    """Verifica que el host por defecto sea loopback y que escuchar en LAN emita una advertencia."""
+    settings = AppSettings(MOBILE_API_AUTH_TOKEN="valid-production-secret-token-32ch")
+    assert settings.MOBILE_API_HOST == "127.0.0.1"
+
+    from interfaces.mobile_api.server import run_mobile_server
+    with patch("uvicorn.Server.run"):
+        with caplog.at_level("WARNING"):
+            # Escucha en LAN 0.0.0.0
+            run_mobile_server(host="0.0.0.0", settings=settings)
+            assert any("ADVERTENCIA DE RED" in r.message for r in caplog.records)
+
+
+# ── TEST 11: CONFIGURACIÓN DEFENSIVA DE CORS ──
+
+
+def test_17_cors_unauthorized_origin_denied() -> None:
+    """Verifica que orígenes no autorizados no reciban permisos CORS y orígenes autorizados sí."""
+    cors_settings = AppSettings(
+        MOBILE_API_ENABLED=True,
+        MOBILE_API_AUTH_TOKEN="valid-production-secret-token-32ch",
+        MOBILE_API_CORS_ORIGINS=["https://app.jessyca.internal"],
+    )
+    app = create_mobile_api_app(settings=cors_settings)
+    client = TestClient(app, raise_server_exceptions=False)
+
+    # 1. Origen no autorizado
+    res_unauth = client.get("/api/v1/health", headers={"Origin": "https://malicious.evil.com"})
+    assert res_unauth.status_code == 200
+    assert "access-control-allow-origin" not in res_unauth.headers
+
+    # 2. Origen autorizado
+    res_auth = client.get("/api/v1/health", headers={"Origin": "https://app.jessyca.internal"})
+    assert res_auth.status_code == 200
+    assert res_auth.headers.get("access-control-allow-origin") == "https://app.jessyca.internal"
+    assert res_auth.headers.get("access-control-allow-credentials") == "true"
+
+
+def test_18_cors_no_wildcard_combined_with_credentials() -> None:
+    """Verifica que si se configura comodín '*', allow_credentials sea estrictamente False."""
+    wildcard_settings = AppSettings(
+        MOBILE_API_ENABLED=True,
+        MOBILE_API_AUTH_TOKEN="valid-production-secret-token-32ch",
+        MOBILE_API_CORS_ORIGINS=["*"],
+    )
+    app = create_mobile_api_app(settings=wildcard_settings)
+    client = TestClient(app, raise_server_exceptions=False)
+
+    res = client.get("/api/v1/health", headers={"Origin": "https://anywhere.org"})
+    assert res.status_code == 200
+    assert res.headers.get("access-control-allow-origin") == "*"
+    assert res.headers.get("access-control-allow-credentials") is None
+
+
+def test_19_docs_and_schema_exposure_toggle(mock_settings: AppSettings) -> None:
+    """Verifica el control explícito de exposición de /docs y /openapi.json."""
+    # Por defecto en producción: deshabilitado
+    app_no_docs = create_mobile_api_app(settings=mock_settings, enable_docs=False)
+    client_no_docs = TestClient(app_no_docs, raise_server_exceptions=False)
+    assert client_no_docs.get("/docs").status_code == 404
+    assert client_no_docs.get("/openapi.json").status_code == 404
+
+    # Habilitado explícitamente
+    app_with_docs = create_mobile_api_app(settings=mock_settings, enable_docs=True)
+    client_with_docs = TestClient(app_with_docs, raise_server_exceptions=False)
+    assert client_with_docs.get("/docs").status_code == 200
+    assert client_with_docs.get("/openapi.json").status_code == 200
+
+
+def test_20_cli_mobile_with_force_flag() -> None:
+    """Verifica que el argumento --force sea parseado correctamente junto con --mobile."""
+    args = parse_arguments(["--mobile", "--force"])
+    assert args.mobile is True
+    assert args.force is True
+

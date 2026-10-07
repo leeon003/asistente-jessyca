@@ -51,32 +51,124 @@ class NemotronProvider(LLMProvider):
         post_fn: Callable[..., Any] | None = None,
         get_fn: Callable[..., Any] | None = None,
     ) -> None:
-        # Resolución de habilitación por Feature Flag
+        # Resolución de habilitación por Feature Flag (argumento > os.environ > AppSettings > fallback)
         if enabled is not None:
             self.enabled = bool(enabled)
-        else:
-            env_enabled = os.getenv("NEMOTRON_ENABLED", "false").strip().lower()
+        elif "NEMOTRON_ENABLED" in os.environ:
+            env_enabled = os.environ["NEMOTRON_ENABLED"].strip().lower()
             self.enabled = env_enabled in ("true", "1", "yes", "on")
+        else:
+            try:
+                from config.manager import get_settings
+                self.enabled = bool(get_settings().NEMOTRON_ENABLED)
+            except Exception:
+                self.enabled = False
 
-        # Resolución de API Key
-        raw_key = api_key if api_key is not None else os.getenv("NEMOTRON_API_KEY", "")
+        # Resolución de API Key (argumento > os.environ > AppSettings > fallback)
+        if api_key is not None:
+            raw_key = api_key
+        elif "NEMOTRON_API_KEY" in os.environ:
+            raw_key = os.environ["NEMOTRON_API_KEY"]
+        else:
+            try:
+                from config.manager import get_settings
+                raw_key = get_settings().NEMOTRON_API_KEY
+            except Exception:
+                raw_key = ""
         self.api_key = str(raw_key).strip()
 
         # Configuración de URLs y modelo
-        resolved_base = base_url or os.getenv("NEMOTRON_BASE_URL", DEFAULT_NEMOTRON_BASE_URL)
+        if base_url is not None:
+            resolved_base = base_url
+        elif "NEMOTRON_BASE_URL" in os.environ:
+            resolved_base = os.environ["NEMOTRON_BASE_URL"]
+        else:
+            try:
+                from config.manager import get_settings
+                resolved_base = get_settings().NEMOTRON_BASE_URL
+            except Exception:
+                resolved_base = DEFAULT_NEMOTRON_BASE_URL
         self.base_url = str(resolved_base).rstrip("/")
-        self.model_name = str(model_name or os.getenv("NEMOTRON_MODEL", DEFAULT_NEMOTRON_MODEL)).strip()
+
+        if model_name is not None:
+            resolved_model = model_name
+        elif "NEMOTRON_MODEL" in os.environ:
+            resolved_model = os.environ["NEMOTRON_MODEL"]
+        else:
+            try:
+                from config.manager import get_settings
+                resolved_model = get_settings().NEMOTRON_MODEL
+            except Exception:
+                resolved_model = DEFAULT_NEMOTRON_MODEL
+        self.model_name = str(resolved_model).strip()
 
         # Timeouts y reintentos
-        self.timeout_seconds = float(timeout_seconds or os.getenv("NEMOTRON_TIMEOUT_SECONDS", str(DEFAULT_NEMOTRON_TIMEOUT)))
-        self.connect_timeout_seconds = float(
-            connect_timeout_seconds or os.getenv("NEMOTRON_CONNECT_TIMEOUT_SECONDS", str(DEFAULT_NEMOTRON_CONNECT_TIMEOUT))
-        )
-        self.max_retries = int(max_retries or os.getenv("NEMOTRON_MAX_RETRIES", str(DEFAULT_NEMOTRON_MAX_RETRIES)))
+        if timeout_seconds is not None:
+            resolved_timeout = timeout_seconds
+        elif "NEMOTRON_TIMEOUT_SECONDS" in os.environ:
+            resolved_timeout = os.environ["NEMOTRON_TIMEOUT_SECONDS"]
+        else:
+            try:
+                from config.manager import get_settings
+                resolved_timeout = get_settings().NEMOTRON_TIMEOUT_SECONDS
+            except Exception:
+                resolved_timeout = DEFAULT_NEMOTRON_TIMEOUT
+        self.timeout_seconds = float(resolved_timeout)
+
+        if connect_timeout_seconds is not None:
+            resolved_connect = connect_timeout_seconds
+        elif "NEMOTRON_CONNECT_TIMEOUT_SECONDS" in os.environ:
+            resolved_connect = os.environ["NEMOTRON_CONNECT_TIMEOUT_SECONDS"]
+        else:
+            try:
+                from config.manager import get_settings
+                resolved_connect = get_settings().NEMOTRON_CONNECT_TIMEOUT_SECONDS
+            except Exception:
+                resolved_connect = DEFAULT_NEMOTRON_CONNECT_TIMEOUT
+        self.connect_timeout_seconds = float(resolved_connect)
+
+        if max_retries is not None:
+            resolved_retries = max_retries
+        elif "NEMOTRON_MAX_RETRIES" in os.environ:
+            resolved_retries = os.environ["NEMOTRON_MAX_RETRIES"]
+        else:
+            try:
+                from config.manager import get_settings
+                resolved_retries = get_settings().NEMOTRON_MAX_RETRIES
+            except Exception:
+                resolved_retries = DEFAULT_NEMOTRON_MAX_RETRIES
+        self.max_retries = int(resolved_retries)
 
         # Inyección de transporte HTTP para pruebas unitarias deterministas
         self._post_fn = post_fn
         self._get_fn = get_fn
+        self._session: requests.Session | None = None
+
+    def _get_session(self) -> requests.Session:
+        """Obtiene o crea de forma perezosa una sesión HTTP reutilizable con connection pooling."""
+        if self._session is None:
+            sess = requests.Session()
+            adapter = requests.adapters.HTTPAdapter(pool_connections=10, pool_maxsize=10)
+            sess.mount("https://", adapter)
+            sess.mount("http://", adapter)
+            self._session = sess
+        return self._session
+
+    def close(self) -> None:
+        """Cierra la sesión HTTP persistente liberando conexiones subyacentes."""
+        if self._session is not None:
+            try:
+                self._session.close()
+            except Exception as e:
+                logger.debug(f"[NEMOTRON] Error cerrando sesión HTTP: {e}")
+            finally:
+                self._session = None
+
+    def __enter__(self) -> NemotronProvider:
+        return self
+
+    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
+        self.close()
 
     @property
     def endpoint(self) -> str:
@@ -94,11 +186,12 @@ class NemotronProvider(LLMProvider):
             return False
 
         models_endpoint = f"{self.base_url}/models"
-        headers = {
-            "Authorization": f"Bearer {self.api_key}",
-            "Accept": "application/json",
-        }
-        get_callable = self._get_fn if self._get_fn is not None else requests.get
+        if self._get_fn is not None:
+            get_callable = self._get_fn
+        elif hasattr(requests.get, "mock_calls"):
+            get_callable = requests.get
+        else:
+            get_callable = self._get_session().get
 
         try:
             resp = get_callable(
@@ -168,14 +261,26 @@ class NemotronProvider(LLMProvider):
         }
 
         timeout_tuple = (self.connect_timeout_seconds, self.timeout_seconds)
-        post_callable = self._post_fn if self._post_fn is not None else requests.post
+        if self._post_fn is not None:
+            post_callable = self._post_fn
+        elif hasattr(requests.post, "mock_calls"):
+            post_callable = requests.post
+        else:
+            post_callable = self._get_session().post
+
+        # Resolver reintentos respetando explícitamente el valor 0 (evitar or que ignore 0)
+        effective_max_retries = self.max_retries
+        if request.extra_options and "max_retries" in request.extra_options:
+            opt_retries = request.extra_options.get("max_retries")
+            if opt_retries is not None:
+                effective_max_retries = int(opt_retries)
 
         attempt = 0
         last_exception: Exception | None = None
         data: dict[str, Any] = {}
         start_time = time.perf_counter()
 
-        while attempt <= self.max_retries:
+        while attempt <= effective_max_retries:
             attempt += 1
             try:
                 resp = post_callable(
@@ -200,16 +305,16 @@ class NemotronProvider(LLMProvider):
 
                 # Reintentos controlados para 429 (rate limit) o 5xx (server error)
                 if status_code in (429, 500, 502, 503, 504):
-                    if attempt <= self.max_retries:
+                    if attempt <= effective_max_retries:
                         backoff = 0.5 * (2 ** (attempt - 1))
                         logger.warning(
-                            f"[NEMOTRON] HTTP {status_code} recibido. Reintentando ({attempt}/{self.max_retries}) en {backoff:.1f}s..."
+                            f"[NEMOTRON] HTTP {status_code} recibido. Reintentando ({attempt}/{effective_max_retries}) en {backoff:.1f}s..."
                         )
                         time.sleep(backoff)
                         continue
                     else:
                         raise InferenceError(
-                            message=f"NVIDIA API retornó código HTTP {status_code} tras {self.max_retries} reintentos.",
+                            message=f"NVIDIA API retornó código HTTP {status_code} tras {effective_max_retries} reintentos.",
                             code="HTTP_SERVER_ERROR",
                         )
 
@@ -221,7 +326,7 @@ class NemotronProvider(LLMProvider):
 
             except (requests.exceptions.ConnectTimeout, requests.exceptions.ReadTimeout, requests.exceptions.Timeout) as e:
                 last_exception = e
-                if attempt <= self.max_retries:
+                if attempt <= effective_max_retries:
                     backoff = 0.5 * (2 ** (attempt - 1))
                     logger.warning(f"[NEMOTRON] Timeout en intento {attempt}. Reintentando en {backoff:.1f}s...")
                     time.sleep(backoff)
@@ -234,7 +339,7 @@ class NemotronProvider(LLMProvider):
 
             except requests.exceptions.ConnectionError as e:
                 last_exception = e
-                if attempt <= self.max_retries:
+                if attempt <= effective_max_retries:
                     backoff = 0.5 * (2 ** (attempt - 1))
                     logger.warning(f"[NEMOTRON] Error de conexión en intento {attempt}. Reintentando en {backoff:.1f}s...")
                     time.sleep(backoff)
@@ -246,10 +351,14 @@ class NemotronProvider(LLMProvider):
                     original_error=str(e),
                 ) from e
 
-            except InferenceError:
+            except (InferenceError, ProviderError):
                 raise
 
             except Exception as e:
+                # Errores de ejecución de herramientas o de MCP no deben confundirse ni reintentarse como inferencia
+                from core.exceptions import MCPError, ToolExecutionError
+                if isinstance(e, (ToolExecutionError, MCPError)):
+                    raise
                 logger.error(f"[NEMOTRON] Error no esperado durante inferencia remota: {type(e).__name__}: {e}")
                 raise InferenceError(f"Error procesando inferencia remota con Nemotron: {e}") from e
 

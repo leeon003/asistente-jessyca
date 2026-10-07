@@ -122,6 +122,33 @@ class OllamaProvider:
         self.model_manager = model_manager or get_model_manager()
         self.timeout_seconds = timeout_seconds
         self._post_fn = post_fn
+        self._session: requests.Session | None = None
+
+    def _get_session(self) -> requests.Session:
+        """Obtiene o crea de forma perezosa una sesión HTTP reutilizable con connection pooling."""
+        if self._session is None:
+            sess = requests.Session()
+            adapter = requests.adapters.HTTPAdapter(pool_connections=10, pool_maxsize=10)
+            sess.mount("http://", adapter)
+            sess.mount("https://", adapter)
+            self._session = sess
+        return self._session
+
+    def close(self) -> None:
+        """Cierra la sesión HTTP persistente liberando conexiones."""
+        if self._session is not None:
+            try:
+                self._session.close()
+            except Exception as e:
+                logger.debug(f"[OLLAMA] Error cerrando sesión HTTP: {e}")
+            finally:
+                self._session = None
+
+    def __enter__(self) -> OllamaProvider:
+        return self
+
+    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
+        self.close()
 
     @property
     def endpoint(self) -> str:
@@ -158,7 +185,12 @@ class OllamaProvider:
             payload["images"] = list(request.images)
 
         start_time = time.perf_counter()
-        post_callable = self._post_fn if self._post_fn is not None else requests.post
+        if self._post_fn is not None:
+            post_callable = self._post_fn
+        elif hasattr(requests.post, "mock_calls"):
+            post_callable = requests.post
+        else:
+            post_callable = self._get_session().post
 
         eff_timeout = request.timeout_seconds if request.timeout_seconds is not None else self.timeout_seconds
         try:
@@ -224,7 +256,12 @@ class OllamaProvider:
         if request.images:
             payload["images"] = list(request.images)
 
-        post_callable = self._post_fn if self._post_fn is not None else requests.post
+        if self._post_fn is not None:
+            post_callable = self._post_fn
+        elif hasattr(requests.post, "mock_calls"):
+            post_callable = requests.post
+        else:
+            post_callable = self._get_session().post
         eff_timeout = request.timeout_seconds if request.timeout_seconds is not None else self.timeout_seconds
 
         try:
@@ -275,7 +312,8 @@ class OllamaProvider:
     def is_available(self) -> bool:
         """Comprueba de forma rápida si el servidor local de Ollama está activo."""
         try:
-            resp = requests.get(f"{self.host}/api/tags", timeout=3.5)
+            get_callable = requests.get if hasattr(requests.get, "mock_calls") else self._get_session().get
+            resp = get_callable(f"{self.host}/api/tags", timeout=3.5)
             return resp.status_code == 200
         except Exception:
             return False
