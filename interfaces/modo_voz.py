@@ -13,6 +13,7 @@ Ejecutar con:
 from __future__ import annotations
 
 import os
+import re
 import sys
 import threading
 import time
@@ -45,6 +46,7 @@ from services.voice.device_resolver import VoiceDeviceResolver
 from services.voice.stt_event_adapter import STTEventAdapter
 from services.voice.stt_service import get_stt_service
 from services.voice.tts_provider import get_tts_manager
+from services.voice.voice_errors import VoiceCancelledError, VoiceInterruptedError
 from services.voice.voice_diagnostics import (
     UtteranceLatencyTrace,
     VoiceDiscardReason,
@@ -137,8 +139,29 @@ class VoiceSpeaker:
             logger.debug(f"[VOICE TTS] SAPI fallback no disponible: {e}")
             return None
 
+    def stop(self) -> None:
+        """Detiene de inmediato cualquier reproducción o generación activa de voz."""
+        with self._lock:
+            if hasattr(self, "_current_token") and self._current_token:
+                self._current_token.cancel()
+                self._current_token = None
+            if self._tts_manager:
+                self._tts_manager.cancel(reason="speaker_stopped")
+            try:
+                import pygame
+
+                if pygame.mixer.get_init():
+                    pygame.mixer.stop()
+            except Exception:
+                pass
+            if self._sapi_speaker:
+                try:
+                    self._sapi_speaker.Speak("", 2)  # SVSFPurgeBeforeSpeak
+                except Exception:
+                    pass
+
     def speak(self, text: str, session_id: str | None = None) -> VoiceSpeakerMetrics:
-        """Sintetiza y reproduce el texto mediante TTSManager con fallback transparente y mide latencias."""
+        """Sintetiza y reproduce el texto mediante TTSManager entregando por frases completas para fluidez."""
         if not text or not text.strip():
             return VoiceSpeakerMetrics()
 
@@ -146,52 +169,90 @@ class VoiceSpeaker:
         metrics = VoiceSpeakerMetrics(voice_name=str(self.voice_name))
         t_start = time.perf_counter()
 
+        from core.cancellation import CancellationToken
+
+        token = CancellationToken()
+        self._current_token = token
+
         if self.barge_in_controller:
-            self.barge_in_controller.notify_tts_started(session_id=session_id)
+            self.barge_in_controller.notify_tts_started(cancellation_token=token, session_id=session_id)
 
         try:
+            # Dividir en frases completas para reducir TTFA (Time to First Audio) y permitir corte inmediato
+            sentences = [s.strip() for s in re.split(r"(?<=[.!?])\s+", clean_text) if s.strip()]
+            if not sentences:
+                sentences = [clean_text]
+
+            total_duration_ms = 0.0
+            first_sentence = True
+
             with self._lock:
-                # 1. Motor Centralizado e Intercambiable: TTSManager (Pocket TTS -> Edge-TTS Camila Fallback)
-                try:
-                    success, tts_met = self._tts_manager.speak(clean_text, voice=str(self.voice_name))
-                    if success:
-                        metrics.startup_latency_ms = tts_met.t2_first_audio_ms or ((time.perf_counter() - t_start) * 1000.0)
-                        metrics.duration_ms = tts_met.t4_audio_duration_ms
-                        metrics.engine_used = tts_met.engine_used or tts_met.provider_used
-                        return metrics
-                except Exception as e:
-                    logger.warning(f"[VOICE TTS] TTSManager falló ({e}), intentando fallback SAPI...")
+                for sentence in sentences:
+                    if token.is_cancelled:
+                        logger.info("[VOICE SPEAKER] Reproducción interrumpida entre frases.")
+                        break
 
-            # 2. Fallback a SAPI
-            try:
-                sp = self._get_sapi_speaker()
-                if sp:
-                    t_play_start = time.perf_counter()
-                    metrics.startup_latency_ms = (t_play_start - t_start) * 1000.0
-                    sp.Speak(clean_text)
-                    metrics.duration_ms = (time.perf_counter() - t_play_start) * 1000.0
-                    metrics.engine_used = "sapi"
-                    return metrics
-            except Exception as ex2:
-                logger.warning(f"[VOICE TTS] SAPI directo falló ({ex2}), intentando fallback con pyttsx3...")
+                    try:
+                        success, tts_met = self._tts_manager.speak(
+                            sentence,
+                            voice=str(self.voice_name),
+                            cancellation_token=token,
+                        )
+                        if success:
+                            if first_sentence:
+                                metrics.startup_latency_ms = tts_met.t2_first_audio_ms or ((time.perf_counter() - t_start) * 1000.0)
+                                first_sentence = False
+                            total_duration_ms += tts_met.t4_audio_duration_ms
+                            metrics.engine_used = tts_met.engine_used or tts_met.provider_used
+                            continue
+                    except VoiceCancelledError:
+                        logger.info("[VOICE SPEAKER] Locución cancelada por interrupción del usuario.")
+                        break
+                    except Exception as e:
+                        logger.warning(f"[VOICE TTS] TTSManager falló ({e}), intentando fallback SAPI...")
 
-            # 3. Fallback a pyttsx3
-            try:
-                import pyttsx3
-                engine = pyttsx3.init()
-                engine.setProperty("rate", 175)
-                t_play_start = time.perf_counter()
-                metrics.startup_latency_ms = (t_play_start - t_start) * 1000.0
-                engine.say(clean_text)
-                engine.runAndWait()
-                engine.stop()
-                metrics.duration_ms = (time.perf_counter() - t_play_start) * 1000.0
-                metrics.engine_used = "pyttsx3"
-                return metrics
-            except Exception as ex3:
-                logger.error(f"[VOICE TTS FATAL] Fallo en todos los motores de voz: {ex3}")
-                return metrics
+                    if token.is_cancelled:
+                        break
+
+                    # Fallback a SAPI por frase si TTSManager falla
+                    try:
+                        sp = self._get_sapi_speaker()
+                        if sp:
+                            t_play_start = time.perf_counter()
+                            if first_sentence:
+                                metrics.startup_latency_ms = (t_play_start - t_start) * 1000.0
+                                first_sentence = False
+                            sp.Speak(sentence)
+                            dur = (time.perf_counter() - t_play_start) * 1000.0
+                            total_duration_ms += dur
+                            metrics.engine_used = "sapi"
+                            continue
+                    except Exception:
+                        pass
+
+                    # Fallback pyttsx3 por frase
+                    try:
+                        import pyttsx3
+
+                        engine = pyttsx3.init()
+                        engine.setProperty("rate", 175)
+                        t_play_start = time.perf_counter()
+                        if first_sentence:
+                            metrics.startup_latency_ms = (t_play_start - t_start) * 1000.0
+                            first_sentence = False
+                        engine.say(sentence)
+                        engine.runAndWait()
+                        engine.stop()
+                        total_duration_ms += (time.perf_counter() - t_play_start) * 1000.0
+                        metrics.engine_used = "pyttsx3"
+                    except Exception as ex3:
+                        logger.error(f"[VOICE TTS FATAL] Fallo en todos los motores de voz: {ex3}")
+                        break
+
+            metrics.duration_ms = total_duration_ms
+            return metrics
         finally:
+            self._current_token = None
             if self.barge_in_controller:
                 self.barge_in_controller.notify_tts_finished()
 
@@ -237,13 +298,19 @@ def iniciar_modo_voz(
         # Log estructurado de TTS (Fase 72)
         tts_mgr = get_tts_manager()
         active_tts = tts_mgr.get_active_provider()
+        has_fb = bool(
+            tts_mgr.fallback_provider_name
+            and tts_mgr.fallback_provider_name != tts_mgr.preferred_provider_name
+            and tts_mgr.fallback_provider_name.lower() not in ("none", "")
+        )
+        fb_display = tts_mgr.fallback_provider_name if has_fb else "sin fallback"
         logger.info(
             f"TTS:\n"
             f"preferred: {tts_mgr.preferred_provider_name}\n"
             f"active: {active_tts.name}\n"
-            f"fallback: {tts_mgr.fallback_provider_name}"
+            f"fallback: {fb_display}"
         )
-        print(f"  TTS Motor: {active_tts.name} (Preferido: {tts_mgr.preferred_provider_name}, Fallback: {tts_mgr.fallback_provider_name})")
+        print(f"  TTS Motor: {active_tts.name} (Preferido: {tts_mgr.preferred_provider_name}, Fallback: {fb_display})")
         logger.info(f"[DEMO] Microphone: {resolved_dev.display_name} (Index: {resolved_dev.index})")
         logger.info(f"[DEMO] TTS: {speaker.voice_name}")
     except Exception as e:
@@ -254,9 +321,23 @@ def iniciar_modo_voz(
     try:
         stt_provider_name = getattr(settings, "VOICE_STT_PROVIDER", "faster-whisper")
         stt_service = get_stt_service(stt_provider_name)
+        print(f"  [Inicializando y verificando STT ({stt_service.name})...]")
+        t_w0 = time.perf_counter()
+        if hasattr(stt_service, "warmup"):
+            stt_service.warmup()
+        elif hasattr(stt_service, "load_model"):
+            stt_service.load_model()
+        t_w1 = time.perf_counter()
+        eff_dev = getattr(stt_service, "effective_device", "cpu")
+        eff_comp = getattr(stt_service, "effective_compute_type", "default")
+        load_time_ms = (t_w1 - t_w0) * 1000.0
+        fb_cpu = " (Fallback a CPU por dependencias GPU)" if getattr(stt_service, "is_fallback_cpu_used", False) else ""
         net_desc = "Sí (requiere internet)" if stt_service.requires_network else "No (100% local/offline)"
-        print(f"  STT Motor: {stt_service.name} (Requiere red: {net_desc})")
-        logger.info(f"[MODO_VOZ] STT inicializado: {stt_service.name} (requires_network={stt_service.requires_network})")
+        print(f"  STT Motor: {stt_service.name} [Dispositivo: {eff_dev.upper()} | Cómputo: {eff_comp} | Warmup: {load_time_ms:.0f}ms]{fb_cpu}")
+        logger.info(
+            f"[MODO_VOZ] STT verificado y listo: {stt_service.name} "
+            f"(device={eff_dev}, compute={eff_comp}, warmup_ms={load_time_ms:.1f}, fallback_cpu={getattr(stt_service, 'is_fallback_cpu_used', False)})"
+        )
 
         capture_engine = CalibratedVoiceCaptureEngine(
             sample_rate=settings.VOICE_SAMPLE_RATE,
@@ -307,18 +388,24 @@ def iniciar_modo_voz(
     last_spoken_time = time.perf_counter()
 
     def _is_acoustic_echo(captured_text: str, spoken_text: str, elapsed_sec: float) -> bool:
-        if not spoken_text or not captured_text or elapsed_sec > 4.5:
+        if not spoken_text or not captured_text or elapsed_sec > 5.0:
             return False
         import re
-        c_words = set(re.findall(r"\w+", captured_text.lower()))
-        s_words = set(re.findall(r"\w+", spoken_text.lower()))
+
+        c_clean = re.sub(r"\b(jessica|jessyca)\b", "", captured_text.lower()).strip()
+        s_clean = re.sub(r"\b(jessica|jessyca)\b", "", spoken_text.lower()).strip()
+        if len(c_clean) > 8 and c_clean in s_clean:
+            return True
+        c_words = set(re.findall(r"\w+", c_clean))
+        s_words = set(re.findall(r"\w+", s_clean))
         if not c_words or not s_words:
             return False
         overlap = len(c_words.intersection(s_words)) / len(c_words)
-        return overlap >= 0.70
+        return overlap >= 0.55
 
-    while True:
-        try:
+    try:
+        while True:
+            try:
             # En modo Pulsar para Hablar (PTT), esperar activación explícita del usuario
             if ptt_mode:
                 try:
@@ -344,9 +431,23 @@ def iniciar_modo_voz(
 
             logger.info(f"[VOICE_CAPTURE_STARTED] Modo: {capture_mode_str}...")
             t_capture_start = time.perf_counter()
+
+            def _on_listening() -> None:
+                if state_machine.current_state == SessionState.IDLE:
+                    state_machine.transition_to(SessionState.WAKEWORD)
+                    state_machine.transition_to(SessionState.LISTENING)
+                elif state_machine.current_state != SessionState.LISTENING:
+                    state_machine.transition_to(SessionState.LISTENING)
+
+            def _on_transcribing() -> None:
+                if state_machine.current_state == SessionState.LISTENING:
+                    state_machine.transition_to(SessionState.TRANSCRIBING)
+
             capture_result = capture_engine.capture_and_transcribe(
                 mode=capture_mode_str,
                 timeout=7.0,
+                on_listening_start=_on_listening,
+                on_transcribing_start=_on_transcribing,
             )
             stt_latency_ms = (time.perf_counter() - t_capture_start) * 1000.0
             logger.info(f"[VOICE_CAPTURE_STOPPED] Captura finalizada. Descarte: {capture_result.discard_reason.value}")
@@ -400,7 +501,7 @@ def iniciar_modo_voz(
                 voice_session.end_session()
                 break
 
-            print("  [Intentando ejecutar...]")
+            print("  [Procesando con Agente Core...]")
             logger.info(f"[VOICE_EXECUTION_STARTED] Procesando petición de voz: '{texto}'")
 
             voice_session.on_processing_started()
@@ -411,6 +512,10 @@ def iniciar_modo_voz(
                 session_id=session_id,
                 user_input=texto,
                 modality=InputModality.VOICE,
+                metadata={
+                    "stt_confidence": capture_result.confidence,
+                    "original_transcript": texto,
+                },
             )
             res = agent.interact(req)
             _agent_latency_ms = (time.perf_counter() - t_interact_start) * 1000.0
@@ -418,10 +523,13 @@ def iniciar_modo_voz(
             logger.info(f"[VOICE_EXECUTION_COMPLETED] Estado: {res.status.value}, Intent: {res.intent}, Skill: {res.selected_skill}")
 
             voice_session.on_speaking_started()
+            print("  [Sintetizando y respondiendo con voz...]")
             t_tts_start = time.perf_counter()
 
             if res.requires_clarification or res.status.value == "AWAITING_CLARIFICATION":
                 msg = res.clarification_question or res.spoken_text or res.response_text or "¿Podrías aclararme qué deseas hacer?"
+                if res.proposed_interpretation:
+                    print(f"  [Aclaración detectada | Transcripción: '{texto}' | Interpretación propuesta: '{res.proposed_interpretation}']")
                 print(f"\n  Jessyca (Aclaración): {msg}")
                 tts_metrics = speaker.speak(msg, session_id=session_id)
             elif res.requires_confirmation:
@@ -467,6 +575,18 @@ def iniciar_modo_voz(
             logger.info(f"\n{formatted_trace}")
             print(f"\n{formatted_trace}\n")
 
+            # Hitos canónicos de tiempo (fin de voz, fin de STT, respuesta del Core, primer audio reproducido, fin de reproducción)
+            t_first_audio_ms = (t_tts_start + (tts_startup_val / 1000.0) - t_eos_ref) * 1000.0
+            t_core_resp_ms = (t_interact_start + (_agent_latency_ms / 1000.0) - t_eos_ref) * 1000.0
+            logger.info(
+                f"[TIMELINE MILESTONES] "
+                f"1. Fin de voz (EOS): 0.0ms | "
+                f"2. Fin de STT: +{stt_dur_val:.1f}ms | "
+                f"3. Respuesta del Core: +{t_core_resp_ms:.1f}ms (Core dur: {_agent_latency_ms:.1f}ms) | "
+                f"4. Primer audio reproducido: +{t_first_audio_ms:.1f}ms (TTS inicio: {tts_startup_val:.1f}ms) | "
+                f"5. Fin de reproducción: +{total_turn_ms:.1f}ms (TTS dur: {tts_dur_val:.1f}ms)"
+            )
+
             # Breve pausa de estabilización de audio para evitar que el micrófono capture el eco del altavoz
             time.sleep(0.3)
 
@@ -482,6 +602,12 @@ def iniciar_modo_voz(
         except Exception as e:
             logger.error(f"[MODO VOZ] Error en el ciclo de interacción: {e}")
             print(f"  [Error inesperado: {e}]")
+    finally:
+        try:
+            from core.browser_session_manager import reset_shared_browser_adapter
+            reset_shared_browser_adapter()
+        except Exception as e_br:
+            logger.debug(f"[MODO VOZ CLEANUP] Error al cerrar adaptador Playwright: {e_br}")
 
 
 if __name__ == "__main__":

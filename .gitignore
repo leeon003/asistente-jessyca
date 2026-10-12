@@ -16,6 +16,9 @@ __pycache__/
 .ruff_cache/
 .coverage
 htmlcov/
+reports/*.xml
+sandbox/
+voice_samples/
 
 # Logs del sistema
 logs/*.log

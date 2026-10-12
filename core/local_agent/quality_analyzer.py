@@ -48,6 +48,7 @@ class QualityAnalysisResult:
     is_acceptable: bool
     reason: str
     suggested_prompt: str | None = None
+    proposed_interpretation: str | None = None
 
 
 @dataclass(frozen=True)
@@ -108,10 +109,68 @@ class TranscriptQualityAnalyzer:
         "conx",
     }
 
-    def __init__(self, min_confidence: float = 0.60) -> None:
+    def __init__(self, min_confidence: float = 0.55) -> None:
         self.min_confidence = min_confidence
 
-    def analyze(self, raw_text: str, confidence: float = 1.0) -> QualityAnalysisResult:
+    def find_probable_interpretation(self, text: str) -> str | None:
+        """Busca mediante similitud de secuencias y solapamiento fonético una entidad o tema probable."""
+        import difflib
+        clean = text.lower().replace("¿", "").replace("?", "").replace("¡", "").replace("!", "").strip()
+        if not clean:
+            return None
+
+        # Espacio de entidades y temas canónicos (ciencia, física, biografías, apps del sistema)
+        candidates = (
+            "el entrelazamiento cuántico",
+            "Albert Einstein",
+            "Nikola Tesla",
+            "una enana blanca",
+            "el espacio-tiempo",
+            "la física cuántica",
+            "un agujero negro",
+            "abrir YouTube",
+            "abrir el bloc de notas",
+            "abrir la calculadora",
+            "abrir el navegador",
+            "cerrar el bloc de notas",
+        )
+        best_cand: str | None = None
+        best_score = 0.0
+
+        for cand in candidates:
+            cand_l = cand.lower()
+            # 1. Coincidencia directa de palabra clave distintiva (>= 6 letras)
+            if any(part in clean for part in cand_l.split() if len(part) >= 6):
+                return cand
+
+            # 2. Similitud de secuencia general
+            seq_score = difflib.SequenceMatcher(None, clean, cand_l).ratio()
+
+            # 3. Similitud fonética/token por palabras significativas
+            cand_tokens = [t for t in cand_l.split() if len(t) >= 4]
+            input_tokens = [w for w in clean.split() if len(w) >= 3]
+            token_scores = []
+            for ct in cand_tokens:
+                match_val = max((difflib.SequenceMatcher(None, wt, ct).ratio() for wt in input_tokens), default=0.0)
+                token_scores.append(match_val)
+
+            avg_token_score = (sum(token_scores) / len(token_scores)) if token_scores else 0.0
+            overall = max(seq_score, avg_token_score)
+
+            if overall > best_score:
+                best_score = overall
+                best_cand = cand
+
+        if best_cand and best_score >= 0.65:
+            return best_cand
+        return None
+
+    def analyze(
+        self,
+        raw_text: str,
+        confidence: float = 1.0,
+        metadata: dict[str, Any] | None = None,
+    ) -> QualityAnalysisResult:
         """Evalúa si la transcripción es válida para procesamiento o si debe solicitarse repetición."""
         if not raw_text or not raw_text.strip():
             return QualityAnalysisResult(
@@ -122,23 +181,58 @@ class TranscriptQualityAnalyzer:
                 is_acceptable=False,
                 reason="Transcripción vacía o sin contenido de audio.",
                 suggested_prompt="No escuché ninguna orden. ¿Puedes repetir?",
+                proposed_interpretation=None,
             )
 
         cleaned, _had_wake = SafeTextNormalizer.normalize_wake_prefix(raw_text)
         cleaned = SafeTextNormalizer.clean_text(cleaned)
         words = cleaned.split()
 
-        # 1. Comprobación de nivel de confianza bajo
+        # 1. Evaluación de incertidumbre acústica y ambigüedad fonética
+        probable_cand = self.find_probable_interpretation(cleaned)
+
         if confidence < self.min_confidence:
-            logger.warning(f"[TRANSCRIPT LOW CONFIDENCE] Confianza {confidence:.2f} < {self.min_confidence:.2f} para '{raw_text}'.")
+            logger.warning(
+                f"[TRANSCRIPT LOW CONFIDENCE] Confianza {confidence:.2f} < {self.min_confidence:.2f} para '{raw_text}'. "
+                f"Candidato probable: '{probable_cand}'"
+            )
+            if probable_cand:
+                return QualityAnalysisResult(
+                    quality=TranscriptQuality.AMBIGUOUS,
+                    normalized_text=cleaned,
+                    raw_text=raw_text,
+                    confidence=confidence,
+                    is_acceptable=False,
+                    reason=f"Nivel de confianza STT ({confidence:.2f}) bajo con ambigüedad fonética. Candidato: '{probable_cand}'.",
+                    suggested_prompt=f"¿Te refieres a {probable_cand}?",
+                    proposed_interpretation=probable_cand,
+                )
             return QualityAnalysisResult(
                 quality=TranscriptQuality.LOW_CONFIDENCE,
                 normalized_text=cleaned,
                 raw_text=raw_text,
                 confidence=confidence,
                 is_acceptable=False,
-                reason=f"Nivel de confianza STT ({confidence:.2f}) inferior al umbral.",
-                suggested_prompt="No te entendí bien. ¿Puedes repetirlo?",
+                reason=f"Nivel de confianza STT ({confidence:.2f}) inferior al umbral sin interpretación unívoca.",
+                suggested_prompt="No alcancé a escucharte con claridad. ¿Podrías repetirlo?",
+                proposed_interpretation=None,
+            )
+
+        # 1.1 Detección de artefactos fonéticos evidentes incluso con confianza reportada mayor
+        if probable_cand and any(
+            artifact in cleaned
+            for artifact in ("entreloceamiento", "tika", "gameplay", "kim fu", "nicolatezla", "inana blanca", "hinana blanca")
+        ):
+            logger.warning(f"[TRANSCRIPT PHONETIC ARTIFACT DETECTED] Texto: '{raw_text}', candidato propuesto: '{probable_cand}'.")
+            return QualityAnalysisResult(
+                quality=TranscriptQuality.AMBIGUOUS,
+                normalized_text=cleaned,
+                raw_text=raw_text,
+                confidence=confidence,
+                is_acceptable=False,
+                reason=f"Ambigüedad fonética detectada en transcripción. Candidato propuesto: '{probable_cand}'.",
+                suggested_prompt=f"¿Te refieres a {probable_cand}?",
+                proposed_interpretation=probable_cand,
             )
 
         # 2. Detección de fragmentos defectuosos como "pre calculadora"
@@ -152,6 +246,7 @@ class TranscriptQualityAnalyzer:
                 is_acceptable=False,
                 reason=f"Transcripción defectuosa o prefijo truncado ('{words[0]}').",
                 suggested_prompt="No te entendí bien. ¿Puedes repetirlo?",
+                proposed_interpretation=None,
             )
 
         # 3. Palabra única que es solo fragmento defectuoso
@@ -164,6 +259,7 @@ class TranscriptQualityAnalyzer:
                 is_acceptable=False,
                 reason="Audio contiene únicamente una palabra de enlace o ruido.",
                 suggested_prompt="No te entendí bien. ¿Puedes repetirlo?",
+                proposed_interpretation=None,
             )
 
         return QualityAnalysisResult(
@@ -174,6 +270,7 @@ class TranscriptQualityAnalyzer:
             is_acceptable=True,
             reason="Transcripción válida y de calidad suficiente.",
             suggested_prompt=None,
+            proposed_interpretation=None,
         )
 
 

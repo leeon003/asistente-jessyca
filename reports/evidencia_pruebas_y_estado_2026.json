@@ -1,0 +1,159 @@
+{
+  "git_head": "14b5f1d6f14c2302561152bda22f8f05b49fd679",
+  "git_status": "M core/local_agent/response_synthesizer.py\n M skills/documents_skills.py\n M tests/documents/test_document_routes_and_guarantees.py\n?? reports/evidencia_inferencia_2026.json",
+  "git_diff_stat": "core/local_agent/response_synthesizer.py           |  33 ++++\n skills/documents_skills.py                         | 213 ++++++++++++++++++---\n .../test_document_routes_and_guarantees.py         | 128 ++++++++++++-\n 3 files changed, 346 insertions(+), 28 deletions(-)",
+  "test_accounting": {
+    "total_executions_recorded": 83,
+    "unique_test_cases": 76,
+    "duplicated_or_overlapping_executions": 7,
+    "document_guarantees_included_in_full_documents_suite": true,
+    "overlapping_node_ids": [
+      "tests/documents/test_document_routes_and_guarantees.py::test_rejection_of_unauthorized_overwrite_injection_and_session_binding",
+      "tests/documents/test_document_routes_and_guarantees.py::test_security_guarantee_anti_silent_overwrite",
+      "tests/documents/test_document_routes_and_guarantees.py::test_word_creation_with_specific_content_and_accents",
+      "tests/documents/test_document_routes_and_guarantees.py::test_powerpoint_multiple_slides_with_accents_and_spaces",
+      "tests/documents/test_document_routes_and_guarantees.py::test_security_guarantee_critical_path_blocked",
+      "tests/documents/test_document_routes_and_guarantees.py::test_excel_creation_formulas_and_recalculation_distinction",
+      "tests/documents/test_document_routes_and_guarantees.py::test_security_guarantee_forbidden_extension_blocked"
+    ]
+  },
+  "suites": [
+    {
+      "name": "Rutas y Garantías Documentales",
+      "path": "tests/documents/test_document_routes_and_guarantees.py",
+      "passed": 7,
+      "duration_s": 1.86,
+      "node_ids": [
+        "tests/documents/test_document_routes_and_guarantees.py::test_word_creation_with_specific_content_and_accents",
+        "tests/documents/test_document_routes_and_guarantees.py::test_excel_creation_formulas_and_recalculation_distinction",
+        "tests/documents/test_document_routes_and_guarantees.py::test_powerpoint_multiple_slides_with_accents_and_spaces",
+        "tests/documents/test_document_routes_and_guarantees.py::test_security_guarantee_critical_path_blocked",
+        "tests/documents/test_document_routes_and_guarantees.py::test_security_guarantee_forbidden_extension_blocked",
+        "tests/documents/test_document_routes_and_guarantees.py::test_security_guarantee_anti_silent_overwrite",
+        "tests/documents/test_document_routes_and_guarantees.py::test_rejection_of_unauthorized_overwrite_injection_and_session_binding"
+      ],
+      "total_collected": 7
+    },
+    {
+      "name": "Suite Completa Documentos",
+      "path": "tests/documents/",
+      "passed": 12,
+      "duration_s": 12.77,
+      "node_ids": [
+        "tests/documents/test_document_routes_and_guarantees.py::test_word_creation_with_specific_content_and_accents",
+        "tests/documents/test_document_routes_and_guarantees.py::test_excel_creation_formulas_and_recalculation_distinction",
+        "tests/documents/test_document_routes_and_guarantees.py::test_powerpoint_multiple_slides_with_accents_and_spaces",
+        "tests/documents/test_document_routes_and_guarantees.py::test_security_guarantee_critical_path_blocked",
+        "tests/documents/test_document_routes_and_guarantees.py::test_security_guarantee_forbidden_extension_blocked",
+        "tests/documents/test_document_routes_and_guarantees.py::test_security_guarantee_anti_silent_overwrite",
+        "tests/documents/test_document_routes_and_guarantees.py::test_rejection_of_unauthorized_overwrite_injection_and_session_binding",
+        "tests/documents/test_real_document_capabilities.py::test_document_system_audit",
+        "tests/documents/test_real_document_capabilities.py::test_word_report_creation_and_preservation_edit",
+        "tests/documents/test_real_document_capabilities.py::test_excel_budget_creation_formulas_and_calculation_engine",
+        "tests/documents/test_real_document_capabilities.py::test_powerpoint_five_slides_deck_from_word_report",
+        "tests/documents/test_real_document_capabilities.py::test_end_to_end_document_orchestrator"
+      ],
+      "total_collected": 12
+    },
+    {
+      "name": "Trazas E2E Lenguaje Natural",
+      "path": "tests/acceptance/test_natural_language_e2e_traces.py",
+      "passed": 4,
+      "duration_s": 3.12,
+      "node_ids": [
+        "tests/acceptance/test_natural_language_e2e_traces.py::TestNaturalLanguageE2ETraces::test_e2e_01_open_folder_from_natural_language",
+        "tests/acceptance/test_natural_language_e2e_traces.py::TestNaturalLanguageE2ETraces::test_e2e_02_search_information_from_natural_language",
+        "tests/acceptance/test_natural_language_e2e_traces.py::TestNaturalLanguageE2ETraces::test_e2e_03_create_document_from_natural_language",
+        "tests/acceptance/test_natural_language_e2e_traces.py::TestNaturalLanguageE2ETraces::test_e2e_04_multistep_task_orchestration_from_natural_language"
+      ],
+      "total_collected": 4
+    },
+    {
+      "name": "Matriz Funcional de Aceptación",
+      "path": "tests/acceptance/test_functional_acceptance_matrix.py",
+      "passed": 13,
+      "duration_s": 27.34,
+      "node_ids": [
+        "tests/acceptance/test_functional_acceptance_matrix.py::test_req_01_open_application_and_folder",
+        "tests/acceptance/test_functional_acceptance_matrix.py::test_req_02_locate_copy_and_rename_files",
+        "tests/acceptance/test_functional_acceptance_matrix.py::test_req_03_web_search_and_extract_sources",
+        "tests/acceptance/test_functional_acceptance_matrix.py::test_req_04_play_and_pause_video",
+        "tests/acceptance/test_functional_acceptance_matrix.py::test_req_05_create_word_document",
+        "tests/acceptance/test_functional_acceptance_matrix.py::test_req_06_create_excel_with_verified_calculations",
+        "tests/acceptance/test_functional_acceptance_matrix.py::test_req_07_create_powerpoint_presentation",
+        "tests/acceptance/test_functional_acceptance_matrix.py::test_req_08_code_assistant_diagnose_patch_and_test",
+        "tests/acceptance/test_functional_acceptance_matrix.py::test_req_09_multi_step_are_workflow_execution",
+        "tests/acceptance/test_functional_acceptance_matrix.py::test_req_10_memory_save_retrieve_modify_and_delete_preference",
+        "tests/acceptance/test_functional_acceptance_matrix.py::test_req_11a_voice_simulated_contract_flow",
+        "tests/acceptance/test_functional_acceptance_matrix.py::test_req_11b_voice_real_hardware_and_tts_diagnostics",
+        "tests/acceptance/test_functional_acceptance_matrix.py::test_req_12_mobile_control_under_jde_contract"
+      ],
+      "total_collected": 13
+    },
+    {
+      "name": "Auditoría Arquitectura de Integraciones",
+      "path": "tests/integration/test_integrations_architecture_audit.py",
+      "passed": 17,
+      "duration_s": 0.57,
+      "node_ids": [
+        "tests/integration/test_integrations_architecture_audit.py::TestJarvisIntegrationsAudit::test_jarvis_adapter_disabled_by_default_in_hub",
+        "tests/integration/test_integrations_architecture_audit.py::TestJarvisIntegrationsAudit::test_jarvis_app_control_is_secondary_fallback_to_native_apps",
+        "tests/integration/test_integrations_architecture_audit.py::TestJarvisIntegrationsAudit::test_jarvis_volume_control_is_keystroke_fallback",
+        "tests/integration/test_integrations_architecture_audit.py::TestJarvisIntegrationsAudit::test_jarvis_workspace_confinement_is_isolated_sandbox",
+        "tests/integration/test_integrations_architecture_audit.py::TestAREArchitectureAudit::test_are_initialization_shares_adapter_with_hub",
+        "tests/integration/test_integrations_architecture_audit.py::TestAREArchitectureAudit::test_are_lifecycle_synchronization_with_disabled_mode",
+        "tests/integration/test_integrations_architecture_audit.py::TestAREArchitectureAudit::test_are_active_mode_is_strictly_prohibited",
+        "tests/integration/test_integrations_architecture_audit.py::TestAREArchitectureAudit::test_are_real_dag_topological_sort_and_cycle_detection",
+        "tests/integration/test_integrations_architecture_audit.py::TestAREArchitectureAudit::test_are_limited_templates_heuristic_classification",
+        "tests/integration/test_integrations_architecture_audit.py::TestAnyDocConfinementAndProvenance::test_anydoc_input_confinement_rejects_external_reads",
+        "tests/integration/test_integrations_architecture_audit.py::TestAnyDocConfinementAndProvenance::test_anydoc_output_confinement_rejects_external_writes",
+        "tests/integration/test_integrations_architecture_audit.py::TestAnyDocConfinementAndProvenance::test_anydoc_symlink_traversal_is_resolved_and_rejected",
+        "tests/integration/test_integrations_architecture_audit.py::TestAnyDocConfinementAndProvenance::test_anydoc_file_size_safety_limit",
+        "tests/integration/test_integrations_architecture_audit.py::TestAnyDocConfinementAndProvenance::test_anydoc_governed_orchestrator_receipt_provenance",
+        "tests/integration/test_integrations_architecture_audit.py::TestArchifyOrcaAdeProductIntegration::test_single_product_integration_no_duplicate_personas",
+        "tests/integration/test_integrations_architecture_audit.py::TestArchifyOrcaAdeProductIntegration::test_archify_mermaid_fallback_is_deterministic",
+        "tests/integration/test_integrations_architecture_audit.py::TestArchifyOrcaAdeProductIntegration::test_orca_ade_requires_real_jde_allow_verdict"
+      ],
+      "total_collected": 17
+    },
+    {
+      "name": "Contrato Adaptador Jarvis-py",
+      "path": "tests/test_jarvis_adapter.py",
+      "passed": 30,
+      "duration_s": 1.06,
+      "node_ids": [
+        "tests/test_jarvis_adapter.py::test_jarvis_adapter_lifecycle[asyncio]",
+        "tests/test_jarvis_adapter.py::test_jarvis_adapter_unavailable_when_deps_missing[asyncio]",
+        "tests/test_jarvis_adapter.py::test_jarvis_adapter_failed_initialization[asyncio]",
+        "tests/test_jarvis_adapter.py::test_jarvis_adapter_execute_system_status_unverified[asyncio]",
+        "tests/test_jarvis_adapter.py::test_jarvis_adapter_workspace_file_operations[asyncio]",
+        "tests/test_jarvis_adapter.py::test_jarvis_adapter_anti_path_traversal[asyncio]",
+        "tests/test_jarvis_adapter.py::test_jarvis_adapter_security_boundary_enforcement[asyncio]",
+        "tests/test_jarvis_adapter.py::test_jarvis_fallback_to_native[asyncio]",
+        "tests/test_jarvis_adapter.py::test_jarvis_no_identity_leak[asyncio]",
+        "tests/test_jarvis_adapter.py::test_jarvis_volume_control[asyncio]",
+        "tests/test_jarvis_adapter.py::test_jarvis_clipboard[asyncio]",
+        "tests/test_jarvis_adapter.py::test_jarvis_app_control[asyncio]",
+        "tests/test_jarvis_adapter.py::test_jarvis_unknown_capability_and_workspace_errors[asyncio]",
+        "tests/test_jarvis_adapter.py::test_jarvis_adapter_lifecycle[trio]",
+        "tests/test_jarvis_adapter.py::test_jarvis_adapter_unavailable_when_deps_missing[trio]",
+        "tests/test_jarvis_adapter.py::test_jarvis_adapter_failed_initialization[trio]",
+        "tests/test_jarvis_adapter.py::test_jarvis_adapter_execute_system_status_unverified[trio]",
+        "tests/test_jarvis_adapter.py::test_jarvis_adapter_workspace_file_operations[trio]",
+        "tests/test_jarvis_adapter.py::test_jarvis_adapter_anti_path_traversal[trio]",
+        "tests/test_jarvis_adapter.py::test_jarvis_adapter_security_boundary_enforcement[trio]",
+        "tests/test_jarvis_adapter.py::test_jarvis_fallback_to_native[trio]",
+        "tests/test_jarvis_adapter.py::test_jarvis_no_identity_leak[trio]",
+        "tests/test_jarvis_adapter.py::test_jarvis_volume_control[trio]",
+        "tests/test_jarvis_adapter.py::test_jarvis_clipboard[trio]",
+        "tests/test_jarvis_adapter.py::test_jarvis_app_control[trio]",
+        "tests/test_jarvis_adapter.py::test_jarvis_unknown_capability_and_workspace_errors[trio]",
+        "tests/test_jarvis_adapter.py::test_jarvis_adapter_capabilities_declaration",
+        "tests/test_jarvis_adapter.py::test_jessyca_external_verification_contract",
+        "tests/test_jarvis_adapter.py::test_no_memory_or_llm_duplication",
+        "tests/test_jarvis_adapter.py::test_jarvis_adapter_discovery_and_auto_registration"
+      ],
+      "total_collected": 30
+    }
+  ]
+}

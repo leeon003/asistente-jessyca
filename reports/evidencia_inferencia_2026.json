@@ -1,0 +1,21 @@
+{
+  "provider_configured": "OllamaProvider",
+  "endpoint_configured": "http://localhost:11434/api/generate",
+  "model_requested": "llama3.2",
+  "is_available": false,
+  "provider_result": null,
+  "error_type": "ProviderConnectionError",
+  "error_message_sanitized": "[PROVIDER_CONNECTION_ERROR] No se pudo conectar con el proveedor 'ollama' en 'http://localhost:11434'. | Details: {'provider': 'ollama', 'host': 'http://localhost:11434', 'original_error': 'HTTPConnectionPool(host=\\'localhost\\', port=11434): Max retries exceeded with url: /api/generate (Caused by NewConnectionError(\"HTTPConnection(host=\\'localhost\\', port=11434): Failed to establish a new connection: [WinError 10061] No se puede establecer una conexión ya que el equipo de destino denegó expresamente dicha conexión\"))'}",
+  "unavailability_demonstrated": true,
+  "fallback_mechanism": "FakeLLMProvider",
+  "fallback_result": {
+    "content": "París",
+    "model_name": "llama3.2",
+    "duration_ms": 1.0,
+    "tokens_used": 10,
+    "success": true,
+    "error_message": null
+  },
+  "fallback_counted_as_original_proof": false,
+  "fallback_disclaimer": "Este resultado proviene estrictamente del mecanismo de contingencia/fallback y NO constituye prueba de disponibilidad o inferencia del proveedor Ollama."
+}

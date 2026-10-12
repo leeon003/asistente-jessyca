@@ -471,26 +471,29 @@ class FastRouter:
             )
 
         # ── 7. COMANDOS DIRECTOS: ABRIR APLICACIONES (windows.apps / browser.open) ────────────
+        # Soporta prefijos conversacionales naturales ("pero que abra...", "por favor abre...", "ábreme...")
+        norm_cmd = re.sub(r"^(?:pero\s+|y\s+|entonces\s+|bueno\s+|por\s+favor\s+|a\s+ver\s+)?(?:que\s+)?", "", norm_no_accents).strip()
         open_prefix_match = re.match(
-            r"^(puedes\s+|podrias\s+)?(abre|abrir|inicia|iniciar|ejecuta|ejecutar|lanza|lanzar)\s*(el|la|los|las|un|una)?\s*(.*)$",
-            norm_no_accents,
+            r"^(?:puedes\s+|podrias\s+|quiero\s+que\s+)?(abre|abrir|abra|abras|abreme|abrenos|inicia|iniciar|inicie|ejecuta|ejecutar|ejecute|lanza|lanzar|lance)\s*(?:el|la|los|las|un|una|mi|tu|su)?\s*(.*)$",
+            norm_cmd,
         )
         if open_prefix_match:
-            raw_target = open_prefix_match.group(4).strip()
+            raw_target = open_prefix_match.group(2).strip()
+            clean_target = re.sub(r"^(?:el|la|los|las|un|una|mi|tu|su)\s+", "", raw_target).strip()
 
             # Comprobar caso ambiguo: sin target o target genérico ("eso", "esto")
-            if not raw_target or raw_target in self.AMBIGUOUS_TARGETS:
+            if not clean_target or clean_target in self.AMBIGUOUS_TARGETS:
                 return RouteDecision(
                     category=RouteCategory.AMBIGUOUS,
                     intent="open_application",
                     confidence=0.35,
                     reason=f"Comando 'abrir' sin objetivo válido especificado (target='{raw_target}')",
                     raw_text=raw,
-                    suggested_response="¿Qué aplicación o programa deseas que abra?",
+                    suggested_response="¿Qué aplicación o página deseas que abra?",
                 )
 
             # Sitios web conocidos en browser.open (previene intentar youtube.exe o google.exe)
-            if raw_target in ("youtube", "el youtube"):
+            if clean_target in ("youtube", "yt"):
                 return RouteDecision(
                     category=RouteCategory.COMMAND,
                     intent="open_browser",
@@ -500,7 +503,7 @@ class FastRouter:
                     reason="Apertura directa de YouTube en el navegador",
                     raw_text=raw,
                 )
-            if raw_target in ("google", "el google"):
+            if clean_target in ("google",):
                 return RouteDecision(
                     category=RouteCategory.COMMAND,
                     intent="open_browser",
@@ -512,7 +515,7 @@ class FastRouter:
                 )
 
             # Resolver aplicación en catálogo conocido
-            app_tuple = self._resolve_known_app(raw_target)
+            app_tuple = self._resolve_known_app(clean_target)
             if app_tuple:
                 app_exec, app_display = app_tuple
                 return RouteDecision(

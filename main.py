@@ -157,6 +157,21 @@ def run_voice_mode(ptt: bool = False) -> int:
         return 1
 
 
+def run_text_mode() -> int:
+    """Ejecuta exclusivamente la interfaz interactiva de texto (CLI)."""
+    try:
+        from interfaces.modo_texto import iniciar_modo_texto
+
+        iniciar_modo_texto()
+        return 0
+    except KeyboardInterrupt:
+        logger.info("[TEXT CLI] Modo texto detenido por el usuario.")
+        return 0
+    except Exception as e:
+        logger.critical(f"[TEXT CLI FATAL] Error en modo texto: {e}", exc_info=True)
+        return 1
+
+
 
 def run_mobile_mode(host: str | None = None, port: int | None = None, force: bool = False) -> int:
     """Ejecuta exclusivamente el servidor Mobile API Bridge standalone."""
@@ -394,6 +409,11 @@ def parse_arguments(argv: Sequence[str] | None = None) -> argparse.Namespace:
         help="Inicia exclusivamente la interfaz interactiva de voz",
     )
     group.add_argument(
+        "--text", "-t",
+        action="store_true",
+        help="Inicia exclusivamente la interfaz interactiva de texto (CLI)",
+    )
+    group.add_argument(
         "--mobile",
         action="store_true",
         help="Inicia exclusivamente el servidor Mobile API Bridge",
@@ -455,6 +475,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return run_mcp_mode(transport=args.transport)
     if getattr(args, "voice", False) or getattr(args, "ptt", False):
         return run_voice_mode(ptt=getattr(args, "ptt", False))
+    if getattr(args, "text", False):
+        return run_text_mode()
     if getattr(args, "mobile", False):
         if getattr(args, "force", False):
             return run_mobile_mode(host=args.host, port=args.port, force=True)

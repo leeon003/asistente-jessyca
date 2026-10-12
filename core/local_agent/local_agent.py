@@ -168,12 +168,19 @@ class JessycaLocalAgent:
         request: JessycaRequest | str,
         cancellation_token: CancellationToken | None = None,
         user_confirmation_callback: Callable[[ConfirmationPrompt], bool] | None = None,
+        session_id: str | None = None,
     ) -> JessycaResponse:
         """Punto de entrada universal y unificado para cualquier interacción con JESSYCA."""
         if isinstance(request, str):
-            req = JessycaRequest(user_input=request, modality=InputModality.TEXT)
+            req = JessycaRequest(
+                user_input=request,
+                modality=InputModality.TEXT,
+                session_id=session_id or "default",
+            )
         else:
             req = request
+            if session_id:
+                req.session_id = session_id
 
         return self._execute_unified_pipeline(
             req=req,
@@ -278,6 +285,21 @@ class JessycaLocalAgent:
         )
         return self.interact(
             request=req,
+            cancellation_token=cancellation_token,
+            user_confirmation_callback=user_confirmation_callback,
+        )
+
+    def process_interaction(
+        self,
+        prompt: str,
+        session_id: str = "default_session",
+        cancellation_token: CancellationToken | None = None,
+        user_confirmation_callback: Callable[[ConfirmationPrompt], bool] | None = None,
+    ) -> JessycaResponse:
+        """Alias compatible para clientes de distribución y CLI."""
+        return self.process_text(
+            text=prompt,
+            session_id=session_id,
             cancellation_token=cancellation_token,
             user_confirmation_callback=user_confirmation_callback,
         )
@@ -442,11 +464,23 @@ class JessycaLocalAgent:
                 TranscriptQualityAnalyzer,
             )
 
-            # Analizar calidad de transcripción
+            # Analizar calidad de transcripción y señales de incertidumbre
+            stt_conf = float(req.metadata.get("stt_confidence", 1.0)) if req.metadata and "stt_confidence" in req.metadata else 1.0
             q_analyzer = TranscriptQualityAnalyzer()
-            q_res = q_analyzer.analyze(user_text)
+            q_res = q_analyzer.analyze(user_text, confidence=stt_conf, metadata=req.metadata)
             if not q_res.is_acceptable:
                 clarification_msg = q_res.suggested_prompt or "No te entendí bien. ¿Puedes repetirlo?"
+                if q_res.proposed_interpretation:
+                    self.context_manager.set_pending_clarification(
+                        session_id=req.session_id,
+                        question=clarification_msg,
+                        expected_slot="confirmation",
+                        original_intent="general_query",
+                        partial_parameters={
+                            "proposed_interpretation": q_res.proposed_interpretation,
+                            "original_transcript": user_text,
+                        },
+                    )
                 metrics.total_latency_ms = (time.perf_counter() - start_time) * 1000
                 resp = JessycaResponse(
                     request_id=req.request_id,
@@ -455,9 +489,11 @@ class JessycaLocalAgent:
                     status=AgentExecutionState.AWAITING_CLARIFICATION,
                     response_text=clarification_msg,
                     spoken_text=clarification_msg,
-                    intent="unknown",
+                    intent="clarification_request" if q_res.proposed_interpretation else "unknown",
                     requires_clarification=True,
                     clarification_question=clarification_msg,
+                    original_transcript=user_text,
+                    proposed_interpretation=q_res.proposed_interpretation,
                     metrics=metrics,
                 )
                 self._log_turn_experience(req, resp, category=ExperienceCategory.LOW_STT_CONFIDENCE)
@@ -609,8 +645,8 @@ class JessycaLocalAgent:
                 self._log_turn_experience(req, resp, category=ExperienceCategory.GENERAL)
                 return resp
 
-            # Manejo de respuesta inmediata de diálogo contextual (ej. "¿Qué números quieres sumar?", "¿Para qué día?", "¿Qué quieres incluir?")
-            if (intent in ("math_sum", "write_list") or (intent == "set_alarm" and is_ambiguous)) and extracted_params.get("immediate_response") and is_ambiguous:
+            # Manejo de respuesta inmediata de diálogo contextual (ej. "¿Qué números quieres sumar?", "¿Para qué día?", "¿Qué quieres incluir?", selección de documento)
+            if (intent in ("math_sum", "write_list", "summarize_document") or is_ambiguous) and extracted_params.get("immediate_response") and is_ambiguous:
                 clarification_msg = extracted_params["immediate_response"]
                 metrics.total_latency_ms = (time.perf_counter() - start_time) * 1000
                 resp = JessycaResponse(
@@ -629,23 +665,30 @@ class JessycaLocalAgent:
                 self._log_turn_experience(req, resp, category=ExperienceCategory.CLARIFICATION_REQUESTED)
                 return resp
 
-            # Manejo de diálogo contextual completado (ej. resultado matemático, alarma configurada, respuesta afirmativa, lista completada, consulta general, corrección, búsqueda informada)
+            # Manejo de diálogo contextual completado (ej. resultado matemático, alarma configurada, respuesta afirmativa, lista completada, consulta general, corrección, búsqueda informada, error de validación)
             if extracted_params.get("immediate_response") and not is_ambiguous:
                 resp_msg = extracted_params["immediate_response"]
+                is_err = bool(extracted_params.get("error"))
+                is_auth_denied = (extracted_params.get("error") in ("access_denied", "critical_path")) or ("acceso denegado" in str(resp_msg).lower()) or ("fuera del alcance" in str(resp_msg).lower())
+                sec_verdict = "DENY" if is_auth_denied else "ALLOW"
+                out_info = {"security_layers": {"pre_gate": "ALLOW", "resource_enforcement": "DENY"}} if is_auth_denied else None
                 metrics.total_latency_ms = (time.perf_counter() - start_time) * 1000
                 resp = JessycaResponse(
                     request_id=req.request_id,
                     session_id=req.session_id,
-                    success=True,
-                    status=AgentExecutionState.COMPLETED,
+                    success=not is_err,
+                    status=AgentExecutionState.FAILED if is_err else AgentExecutionState.COMPLETED,
                     response_text=resp_msg,
                     spoken_text=resp_msg,
                     intent=intent,
+                    error=resp_msg if is_err else None,
                     tools_executed=[],
+                    security_verdict=sec_verdict,
+                    output_data=out_info,
                     metrics=metrics,
                     action_intent_contract=action_contract,
                 )
-                cat = ExperienceCategory.USER_CORRECTION if intent == "user_correction" else ExperienceCategory.ACTION_SUCCESS
+                cat = ExperienceCategory.ACTION_FAILED if is_err else (ExperienceCategory.USER_CORRECTION if intent == "user_correction" else ExperienceCategory.ACTION_SUCCESS)
                 self._log_turn_experience(req, resp, category=cat, is_correction=(intent == "user_correction"))
                 return resp
 
@@ -709,21 +752,24 @@ class JessycaLocalAgent:
                     security_verdict="ALLOW",
                 )
                 self._latest_metrics = metrics
+                is_degraded = bool(getattr(self.conversational_handler, "_last_was_degraded", False))
+                deg_reason = getattr(self.conversational_handler, "_last_degradation_reason", None)
                 resp = JessycaResponse(
                     request_id=req.request_id,
                     session_id=req.session_id,
-                    success=True,
-                    status=AgentExecutionState.COMPLETED,
+                    success=not is_degraded,
+                    status=AgentExecutionState.FAILED if is_degraded else AgentExecutionState.COMPLETED,
                     response_text=conv_text,
                     spoken_text=conv_text,
                     intent="general_query",
-                    selected_model=active_routed_model,
+                    selected_model="none" if is_degraded else active_routed_model,
                     selected_agent="general_assistant_agent",
                     selected_skill="core.assistant@1.0.0",
                     selected_graph="conversational_graph",
                     tools_executed=[],
                     security_level=SecurityLevel.SAFE,
-                    output_data={"conversational_response": conv_text},
+                    output_data={"conversational_response": conv_text, "degraded": is_degraded},
+                    error=deg_reason if is_degraded else None,
                     metrics=metrics,
                 )
                 self._log_turn_experience(req, resp, category=ExperienceCategory.GENERAL)
@@ -864,11 +910,15 @@ class JessycaLocalAgent:
                     sec_level in (SecurityLevel.MEDIUM, SecurityLevel.HIGH, SecurityLevel.CRITICAL)
                     or "delete" in proposed_tool
                     or "kill" in proposed_tool
+                    or "grant_scope" in proposed_tool
                 )
                 and not is_confirmed
             )
             if requires_risk_review:
                 review_msg = f"Detecté una acción sensible: '{proposed_tool}'. ¿Confirmas su ejecución?"
+                if intent == "grant_folder_access":
+                    f_name = extracted_params.get("ruta_carpeta") or extracted_params.get("ruta") or ""
+                    review_msg = f"Detecté una solicitud de autorización de acceso para la carpeta '{f_name}'. ¿Confirmas conceder este permiso?"
                 if action_contract is not None:
                     action_contract = bridge_dialogue_to_contract(
                         decision=dialogue_decision,
@@ -896,6 +946,14 @@ class JessycaLocalAgent:
                     parameters=extracted_params,
                     prompt=review_msg,
                     security_level=sec_level.value if hasattr(sec_level, "value") else str(sec_level),
+                )
+                from core.jde.confirmation import get_confirmation_manager
+                get_confirmation_manager().register_pending_confirmation(
+                    session_id=req.session_id,
+                    action=intent,
+                    tool=proposed_tool,
+                    parameters=extracted_params,
+                    user_id=getattr(req, "user_id", "default_user"),
                 )
                 metrics.total_latency_ms = (time.perf_counter() - start_time) * 1000
                 resp = JessycaResponse(
@@ -1406,7 +1464,12 @@ class JessycaLocalAgent:
                 elif is_verif:
                     exec_status = ExecutionStatus.SUCCEEDED
                     exec_success = True
-                    msg_out = f"Listo, busqué '{query_val}' en el navegador."
+                    if raw_out.get("resultados_leidos") is False:
+                        msg_out = f"Abrí la búsqueda para '{query_val}' en el navegador."
+                    elif raw_out.get("info_elaborada"):
+                        msg_out = str(raw_out["info_elaborada"])
+                    else:
+                        msg_out = raw_out.get("mensaje") or f"Listo, busqué '{query_val}' en el navegador."
                 else:
                     exec_status = ExecutionStatus.UNKNOWN
                     exec_success = False
@@ -1927,6 +1990,21 @@ class JessycaLocalAgent:
                     if query_tgt and query_tgt != "*.*":
                         msg_out = f"Búsqueda de {query_tgt} finalizada. {msg_out}".strip()
 
+                if is_skill_ok and intent in ("search_file", "list_files"):
+                    found_candidates: list[str] = []
+                    for c in raw_out.get("coincidencias", []):
+                        if isinstance(c, dict) and "ruta" in c:
+                            found_candidates.append(str(c["ruta"]))
+                    if not found_candidates and isinstance(raw_out.get("archivos"), list):
+                        for a in raw_out.get("archivos", []):
+                            if isinstance(a, str):
+                                found_candidates.append(a)
+                            elif isinstance(a, dict) and "ruta" in a:
+                                found_candidates.append(str(a["ruta"]))
+                    if found_candidates:
+                        sess_inst = self.context_manager.get_or_create_session(req.session_id)
+                        sess_inst.update_context("candidate_documents", found_candidates)
+
                 verif_type = "folder_exists" if intent == "create_folder" else "filesystem"
                 target_ident = str(
                     extracted_params.get("ruta")
@@ -1970,7 +2048,18 @@ class JessycaLocalAgent:
                     "convert_document": "documents.convert",
                 }
                 target_skill = doc_skill_map[intent]
-                skill_res = self.skill_manager.execute_skill(target_skill, parameters=extracted_params)
+                call_meta: dict[str, Any] = {}
+                if intent in ("summarize_document", "read_document"):
+                    sess_inst = self.context_manager.get_session(req.session_id)
+                    auth_root = getattr(sess_inst, "trusted_root", None) if sess_inst else None
+                    if auth_root:
+                        call_meta["trusted_root"] = auth_root
+                skill_res = self.skill_manager.execute_skill(
+                    target_skill,
+                    parameters=extracted_params,
+                    session_id=req.session_id,
+                    metadata=call_meta,
+                )
                 raw_out = skill_res.output if isinstance(skill_res.output, dict) else {}
                 is_skill_ok = bool(skill_res.success and raw_out.get("exito"))
                 msg_out = raw_out.get("mensaje") or (skill_res.error or f"Operación documental {intent} completada.")
@@ -1995,6 +2084,13 @@ class JessycaLocalAgent:
                     evidence=evidence_obj,
                     output=raw_out,
                 )
+                is_auth_denied = (not is_skill_ok) and (
+                    getattr(skill_res, "security_decision", "") in ("DENY", "NOT_FOUND")
+                    or "acceso denegado" in str(msg_out).lower()
+                    or "fuera del alcance" in str(msg_out).lower()
+                    or "trusted_root" in str(msg_out).lower()
+                )
+                sec_verdict = "DENY" if is_auth_denied else "ALLOW"
                 sys_resp = SystemResponse(
                     task_id=req.request_id,
                     correlation_id=req.request_id,
@@ -2002,8 +2098,54 @@ class JessycaLocalAgent:
                     status="COMPLETED" if is_skill_ok else "FAILED",
                     output=raw_out,
                     error=None if is_skill_ok else msg_out,
+                    security_verdict=sec_verdict,
                 )
                 exec_success = is_skill_ok
+
+            # 6.11.2 Concesión y Revocación de Alcance de Carpetas para la Sesión
+            elif intent in ("grant_folder_access", "revoke_folder_access"):
+                sess_inst = self.context_manager.get_session(req.session_id)
+                if sess_inst is None:
+                    sess_inst = self.context_manager.get_or_create_session(req.session_id)
+
+                if intent == "grant_folder_access":
+                    folder_target = extracted_params.get("ruta_carpeta") or extracted_params.get("ruta")
+                    p_resolved = Path(str(folder_target)).resolve()
+                    sess_inst.grant_scope(p_resolved)
+                    msg_out = f"Acceso concedido a la carpeta '{p_resolved}' para esta sesión."
+                    evidence_obj = ExecutionEvidence(
+                        verification_type="scope_granted",
+                        target=str(p_resolved),
+                        is_verified=True,
+                        details={"granted_scope": str(p_resolved)},
+                    )
+                else:
+                    sess_inst.grant_scope(None)
+                    msg_out = "Acceso a la carpeta revocado exitosamente para esta sesión."
+                    evidence_obj = ExecutionEvidence(
+                        verification_type="scope_revoked",
+                        target="session_scope",
+                        is_verified=True,
+                        details={"revoked": True},
+                    )
+
+                execution_result = ExecutionResult(
+                    status=ExecutionStatus.SUCCEEDED,
+                    action=intent,
+                    target=evidence_obj.target,
+                    message=msg_out,
+                    evidence=evidence_obj,
+                    output={"exito": True, "mensaje": msg_out},
+                )
+                sys_resp = SystemResponse(
+                    task_id=req.request_id,
+                    correlation_id=req.request_id,
+                    success=True,
+                    status="COMPLETED",
+                    output={"exito": True, "mensaje": msg_out},
+                    error=None,
+                )
+                exec_success = True
 
             # 6.12 Flujo Coordinado Multidimensional
             else:
@@ -2291,6 +2433,15 @@ class JessycaLocalAgent:
 
         pending = self.context_manager.pop_pending_clarification(session_id)
         if pending:
+            proposed = pending.get("partial_parameters", {}).get("proposed_interpretation")
+            is_affirmative = lower in ("si", "sí", "claro", "exacto", "a eso", "eso", "por favor", "a él", "a ella", "sí por favor", "si por favor", "afirmativo", "correcto", "eso mismo")
+            if proposed and is_affirmative:
+                if proposed.startswith("abrir ") or proposed.startswith("abre "):
+                    return self._resolve_intent_and_slots(proposed, session_id)
+                return "general_query", {"query": f"¿Quién es o qué es {proposed}?", "target": proposed, "confirmed_interpretation": proposed}, False
+            elif proposed and lower.startswith(("no,", "no me referia", "no me refería", "no ")):
+                clean_corr = re.sub(r"^(no[,\s]+(me refer[ií]a a\s+|quer[ií]a\s+|era\s+)?)", "", lower).strip()
+                return self._resolve_intent_and_slots(clean_corr, session_id)
             return pending["original_intent"], {"target": text, "app_name": text, "query": text}, False
 
         # 2. Patrones de Reproducción Multimedia ("Jessyca, báilame" / play_random_video)
@@ -2437,11 +2588,106 @@ class JessycaLocalAgent:
             file_p = p_m.group(1).strip() if p_m else re.sub(r"^(jessyca,?\s*)?(consulta|consultar|muestra|ver)?\s*(los\s+metadatos|metadatos|propiedades|detalles)?\s*(del?\s+archivo|de|del)?\s*", "", text, flags=re.IGNORECASE).strip()
             return "file_metadata", {"ruta": file_p}, False
 
+        # 4.5.0 Patrones de Autorización y Revocación de Carpetas (grant_scope / revoke_scope)
+        if any(w in lower for w in (
+            "revoca el acceso a la carpeta", "revocar el acceso a la carpeta",
+            "revoca el acceso a", "revocar el acceso a",
+            "revoca el acceso", "revocar el acceso",
+            "revoca los permisos de carpeta", "revocar los permisos de carpeta",
+            "revoca los permisos", "revocar los permisos",
+            "revoca permisos", "revocar permisos",
+            "revoca el alcance", "revocar el alcance",
+            "desautoriza la carpeta", "desautorizar la carpeta",
+            "desautoriza el acceso", "desautorizar el acceso",
+            "quitar acceso a la carpeta", "quitar acceso",
+        )):
+            return "revoke_folder_access", {}, False
+
+        if any(w in lower for w in (
+            "autoriza la carpeta", "autorizar la carpeta", "autoriza el directorio", "autorizar el directorio",
+            "autoriza carpeta", "autorizar carpeta", "concede acceso a la carpeta", "conceder acceso a la carpeta",
+            "concede acceso a", "conceder acceso a", "permite acceso a la carpeta", "permitir acceso a la carpeta",
+            "permite acceso a", "permitir acceso a", "autoriza acceso a", "autorizar acceso a",
+            "dar acceso a la carpeta", "dar acceso a",
+        )):
+            folder_m = re.search(r'["\']([^"\']+)["\']', text)
+            if folder_m:
+                folder_path = folder_m.group(1).strip()
+            else:
+                m_path = re.search(r'([a-zA-Z]:\\[^\r\n"\'\s]+|[a-zA-Z]:/[^\r\n"\'\s]+|(?:\.{1,2}[/\\]|[/\\])[^\r\n"\'\s]+)', text)
+                if m_path:
+                    folder_path = m_path.group(1).strip()
+                else:
+                    folder_path = re.sub(
+                        r"^(?:jessyca,?\s*|jessica,?\s*)?(?:autoriza(?:r)?|concede(?:r)?\s+acceso\s+a|permite(?:r)?\s+acceso\s+a|dar\s+acceso\s+a)\s*(?:la\s+carpeta|el\s+directorio|carpeta|directorio)?\s*",
+                        "",
+                        text,
+                        flags=re.IGNORECASE,
+                    ).strip()
+
+            folder_path = folder_path.strip("\"'").rstrip(".")
+            if not folder_path:
+                msg_err = "¿Qué carpeta deseas autorizar?"
+                return "grant_folder_access", {"error": "missing_folder", "immediate_response": msg_err}, True
+
+            p_cand = Path(folder_path).resolve()
+            if not p_cand.exists() or not p_cand.is_dir():
+                msg_nf = f"La carpeta '{folder_path}' no existe o no es un directorio válido."
+                return "grant_folder_access", {"error": "folder_not_found", "immediate_response": msg_nf}, False
+
+            from skills.files_skills import _is_path_critical
+            if _is_path_critical(str(p_cand)):
+                msg_crit = f"Acceso denegado: No se permite autorizar carpetas críticas del sistema ({p_cand})."
+                return "grant_folder_access", {"error": "critical_path", "immediate_response": msg_crit}, False
+
+            return "grant_folder_access", {"ruta_carpeta": str(p_cand)}, False
+
         # 4.5.1 Patrones de Operaciones Documentales Estructuradas (Word, Excel, PowerPoint, PDF)
-        if any(w in lower for w in ("resumen del documento", "resume el documento", "resumir el documento", "sintetiza el documento")):
+        if (
+            any(w in lower for w in ("resumen del documento", "resume el documento", "resumir el documento", "sintetiza el documento", "resume un documento", "resume el archivo", "resumen de un documento", "resume documento"))
+            or (("resume " in lower or "resumir " in lower or "sintetiza " in lower) and any(ext in lower for ext in (".docx", ".xlsx", ".pptx", ".pdf", ".txt", ".md", "documento", "archivo", "informe", "reporte")))
+        ):
             m_path = re.search(r'["\']([^"\']+)["\']', text)
-            doc_path = m_path.group(1).strip() if m_path else re.sub(r"^(jessyca,?\s*)?(resume(r)?|sintetiza(r)?|resumen\s+de(l)?)\s*(el\s*documento|el\s*archivo)?\s*", "", text, flags=re.IGNORECASE).strip()
-            return "summarize_document", {"ruta": doc_path}, False
+            if m_path:
+                doc_path = m_path.group(1).strip()
+            else:
+                doc_path = re.sub(r"^(?:jessyca,?\s*|jessica,?\s*)?(?:resume|resumir|sintetiza|sintetizar|resumen\s+de(?:l)?)\s*(?:el\s*documento|un\s*documento|el\s*archivo|un\s*archivo|documento|archivo)?\s*", "", text, flags=re.IGNORECASE).strip()
+            doc_path = doc_path.strip("\"'").rstrip(".")
+
+            is_generic = not doc_path or doc_path.lower() in ("el documento", "un documento", "documento", "el archivo", "un archivo", "archivo", "su contenido", "el contenido")
+            if is_generic:
+                candidates = self._discover_candidate_documents(session_id)
+                if not candidates:
+                    msg_0 = "No se encontraron documentos candidatos para resumir en el entorno de trabajo."
+                    return "summarize_document", {"error": "no_candidates", "immediate_response": msg_0}, False
+                elif len(candidates) == 1:
+                    return "summarize_document", {"ruta": candidates[0]}, False
+                else:
+                    cand_lines = "\n".join(f"{i+1}. {os.path.basename(c)}" for i, c in enumerate(candidates[:5]))
+                    clarif_msg = f"Encontré varios documentos candidatos. ¿Cuál deseas resumir?\n{cand_lines}"
+                    session_obj = self.context_manager.get_or_create_session(session_id)
+                    session_obj.set_pending_question(
+                        question=clarif_msg,
+                        intent="summarize_document",
+                        expected_slot="document_selection",
+                        partial_parameters={"candidates": candidates},
+                    )
+                    return "summarize_document", {"immediate_response": clarif_msg, "candidates": candidates, "requires_clarification": True}, True
+            else:
+                # Comprobar si la ruta indicada existe
+                if not os.path.exists(doc_path):
+                    msg_nf = f"El documento '{doc_path}' no existe o ya no está disponible."
+                    return "summarize_document", {"error": "file_not_found", "immediate_response": msg_nf}, False
+
+                # Comprobar autorización (existencia != autorización)
+                from core.documents.summarizer import check_document_authorization
+                sess_obj = self.context_manager.get_session(session_id)
+                sess_root = getattr(sess_obj, "trusted_root", None) if sess_obj else None
+                is_auth, msg_sec = check_document_authorization(doc_path, trusted_root=sess_root)
+                if not is_auth:
+                    return "summarize_document", {"error": "access_denied", "immediate_response": msg_sec}, False
+
+                return "summarize_document", {"ruta": doc_path}, False
 
         if (
             any(w in lower for w in ("crea un documento", "crear un documento", "crea una hoja", "crear una hoja", "crea un excel", "crear un excel", "crea un word", "crear un word", "crea una presentación", "crear una presentacion", "crea un powerpoint", "crear un powerpoint"))
@@ -2492,11 +2738,38 @@ class JessycaLocalAgent:
         ):
             m_path = re.search(r'["\']([^"\']+)["\']', text)
             doc_path = m_path.group(1).strip() if m_path else re.sub(r"^(jessyca,?\s*)?(lee(r)?|muestra)\s*(el\s*documento|el\s*pdf|el\s*word|el\s*excel)?\s*", "", text, flags=re.IGNORECASE).strip()
+            doc_path = doc_path.strip("\"'").rstrip(".")
+            if doc_path:
+                if not os.path.exists(doc_path):
+                    msg_nf = f"El documento '{doc_path}' no existe o ya no está disponible."
+                    return "read_document", {"error": "file_not_found", "immediate_response": msg_nf}, False
+
+                from core.documents.summarizer import check_document_authorization
+                sess_obj = self.context_manager.get_session(session_id)
+                sess_root = getattr(sess_obj, "trusted_root", None) if sess_obj else None
+                is_auth, msg_sec = check_document_authorization(doc_path, trusted_root=sess_root)
+                if not is_auth:
+                    return "read_document", {"error": "access_denied", "immediate_response": msg_sec}, False
+
             return "read_document", {"ruta": doc_path}, False
 
-        if any(w in lower for w in ("busca el archivo", "buscar el archivo", "encuentra el archivo", "localiza el archivo", "busca archivos", "buscar archivos")):
-            query = re.sub(r"^(jessyca,?\s*)?(busca(r)?|encuentra|localiza)\s*(el\s*archivo|los\s*archivos|el\s*fichero|el\s*documento)?\s*", "", lower).strip()
-            return "search_file", {"query": query or "*.*"}, False
+        if any(w in lower for w in (
+            "busca el archivo", "buscar el archivo", "encuentra el archivo", "localiza el archivo",
+            "busca archivos", "buscar archivos", "busca los archivos", "buscar los archivos",
+            "busca documentos", "buscar documentos", "busca los documentos", "buscar los documentos",
+            "encuentra documentos", "localiza documentos", "busca ficheros", "buscar ficheros",
+        )):
+            m_folder = re.search(r'(?:en(?:\s+(?:la\s+carpeta|el\s+directorio))?|dentro\s+de)\s+["\']?([a-zA-Z]:[^\r\n"\'*?<>|]+|[^\s"\'*?<>|]+)["\']?', text, flags=re.IGNORECASE)
+            folder_target = m_folder.group(1).strip().rstrip(".,;:") if m_folder else None
+
+            clean_query = re.sub(r"^(jessyca,?\s*)?(busca(r)?|encuentra|localiza)\s*(el\s*archivo|los\s*archivos|el\s*fichero|los\s*ficheros|el\s*documento|los\s*documentos|documentos|archivos)?\s*", "", text, flags=re.IGNORECASE).strip()
+            if m_folder:
+                clean_query = re.sub(r'(?:en(?:\s+(?:la\s+carpeta|el\s+directorio))?|dentro\s+de)\s+["\']?[^"\'\r\n]+["\']?', "", clean_query, flags=re.IGNORECASE).strip()
+
+            params_search: dict[str, Any] = {"query": clean_query or "*.*"}
+            if folder_target:
+                params_search["ruta"] = folder_target
+            return "search_file", params_search, False
 
         if any(w in lower for w in ("lee el archivo", "leer el archivo", "muestra el archivo", "contenido del archivo")) and not any(w in lower for w in ("bloc de notas", "notepad")):
             path = re.sub(r"^(jessyca,?\s*)?(lee(r)?|muestra)\s*(el\s*archivo|el\s*documento|el\s*fichero|el\s*contenido\s*de(l)?)?\s*", "", text, flags=re.IGNORECASE).strip()
@@ -2586,6 +2859,23 @@ class JessycaLocalAgent:
 
         # 7. Fallback General / Asistente
         return "general_query", {"query": text}, False
+
+    def _discover_candidate_documents(self, session_id: str) -> list[str]:
+        """Descubre documentos candidatos en sesión sin inventar archivos del repositorio."""
+        session_obj = self.context_manager.get_session(session_id)
+        if session_obj:
+            active_doc = session_obj.get_context("active_document") or session_obj.get_context("last_summarized_document")
+            if active_doc and os.path.exists(str(active_doc)):
+                return [str(active_doc)]
+
+            # Candidatos descubiertos o provistos en contexto de sesión
+            ctx_cands = session_obj.get_context("candidate_documents")
+            if ctx_cands and isinstance(ctx_cands, list):
+                valid_ctx = [str(c) for c in ctx_cands if os.path.exists(str(c))]
+                if valid_ctx:
+                    return valid_ctx
+
+        return []
 
     def _select_model_for_intent(self, intent: str) -> str:
         """Selecciona el modelo óptimo automáticamente según la intención."""
@@ -2691,6 +2981,8 @@ class JessycaLocalAgent:
             "read_document": "documents.read@1.0.0",
             "summarize_document": "documents.summarize@1.0.0",
             "convert_document": "documents.convert@1.0.0",
+            "grant_folder_access": "security.permissions@1.0.0",
+            "revoke_folder_access": "security.permissions@1.0.0",
         }
         return skill_map.get(intent, "core.assistant@1.0.0")
 
@@ -2737,6 +3029,8 @@ class JessycaLocalAgent:
             "read_document": "documents.read",
             "summarize_document": "documents.summarize",
             "convert_document": "documents.convert",
+            "grant_folder_access": "security.grant_scope",
+            "revoke_folder_access": "security.revoke_scope",
         }
         return tool_map.get(intent, "system.execute")
 
@@ -2744,6 +3038,8 @@ class JessycaLocalAgent:
         """Evalúa el nivel de riesgo de seguridad para la acción."""
         if "delete" in tool_name or "kill" in tool_name or "format" in tool_name:
             return SecurityLevel.CRITICAL if "system" in str(parameters).lower() else SecurityLevel.MEDIUM
+        if "grant_scope" in tool_name:
+            return SecurityLevel.MEDIUM
         return SecurityLevel.SAFE
 
     def _format_response_text(

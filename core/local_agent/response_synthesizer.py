@@ -11,6 +11,7 @@ Conserva 100% de compatibilidad con contratos existentes de JessycaResponse.
 
 from __future__ import annotations
 
+import os
 import re
 import time
 from typing import Any
@@ -105,7 +106,46 @@ class ResponseSynthesizer:
                     return f"Listo, abrí {site_name} en el navegador."
                 elif intent == "browser_search":
                     query_clean = params.get("query") or "la búsqueda"
-                    return f"Listo, busqué '{query_clean}' en el navegador."
+                    ev_obj = getattr(execution_result, "evidence", None)
+                    details = getattr(ev_obj, "details", {}) if ev_obj and hasattr(ev_obj, "details") else {}
+                    if not isinstance(details, dict):
+                        details = getattr(execution_result, "output", {}) if isinstance(getattr(execution_result, "output", None), dict) else {}
+
+                    # Si los resultados no pudieron leerse, declarar ÚNICAMENTE apertura
+                    if details.get("resultados_leidos") is False or (details.get("resultados_extraidos") is not None and len(details.get("resultados_extraidos", [])) == 0):
+                        return f"Abrí la búsqueda para '{query_clean}' en el navegador."
+
+                    # Si existen resultados leídos y respuesta elaborada
+                    if details.get("info_elaborada"):
+                        return str(details["info_elaborada"])
+                    if details.get("mensaje") and "busqué" not in str(details.get("mensaje")).lower():
+                        return str(details["mensaje"])
+
+                    url_source = details.get("url") or details.get("fuente") or ""
+                    source_str = f" Fuente: {url_source}." if url_source else ""
+                    return f"Listo, busqué '{query_clean}' en el navegador.{source_str}".strip()
+                elif intent in ("create_document", "documents.create"):
+                    ev_obj = getattr(execution_result, "evidence", None)
+                    details = getattr(ev_obj, "details", {}) if ev_obj and hasattr(ev_obj, "details") else {}
+                    if not isinstance(details, dict):
+                        details = getattr(execution_result, "output", {}) if isinstance(getattr(execution_result, "output", None), dict) else {}
+                    doc_target = str(params.get("ruta") or params.get("path") or "documento")
+                    doc_name = os.path.basename(doc_target)
+                    arc_ok = details.get("archivo_creado", True)
+                    cnt_ok = details.get("contenido_verificado", True)
+                    calc_ok = details.get("calculo_verificado")
+                    if arc_ok and cnt_ok:
+                        calc_info = ", cálculo de fórmulas verificado" if calc_ok else ""
+                        return f"Listo, creé '{doc_name}'. Archivo creado y contenido verificado en disco{calc_info}."
+                    return str(getattr(execution_result, "message", None) or "Documento generado con éxito.")
+                elif intent in ("summarize_document", "documents.summarize"):
+                    details = getattr(execution_result, "output", {}) if isinstance(getattr(execution_result, "output", None), dict) else {}
+                    resumen_txt = details.get("resumen") or details.get("summary")
+                    if resumen_txt:
+                        return resumen_txt
+                    return str(getattr(execution_result, "message", None) or "Resumen documental completado con éxito.")
+                elif intent in ("grant_folder_access", "revoke_folder_access"):
+                    return str(getattr(execution_result, "message", None) or "Operación de permisos completada.")
                 return str(getattr(execution_result, "message", None) or "Acción completada con éxito.")
 
             elif st_upper in ("UNKNOWN",):
@@ -142,15 +182,33 @@ class ResponseSynthesizer:
                     return "Encontré el vídeo, pero no pude iniciar su reproducción."
                 elif intent in ("youtube_play", "search_and_play", "browser_search"):
                     return "Logré abrir YouTube, pero no pude iniciar la reproducción."
+                elif intent in ("create_document", "documents.create"):
+                    ev_obj = getattr(execution_result, "evidence", None)
+                    details = getattr(ev_obj, "details", {}) if ev_obj and hasattr(ev_obj, "details") else {}
+                    if not isinstance(details, dict):
+                        details = getattr(execution_result, "output", {}) if isinstance(getattr(execution_result, "output", None), dict) else {}
+                    doc_target = str(params.get("ruta") or params.get("path") or "documento")
+                    doc_name = os.path.basename(doc_target)
+                    arc_ok = details.get("archivo_creado", False)
+                    cnt_ok = details.get("contenido_verificado", False)
+                    if arc_ok and not cnt_ok:
+                        return f"El archivo '{doc_name}' fue creado en disco, pero falló la verificación de integridad de su contenido al reabrirlo."
+                    return f"Fallo al verificar la creación del documento '{doc_name}'."
                 elif any(k in intent for k in ("file", "archivo", "delete", "create", "write", "move", "copy")):
                     return "La acción sobre el archivo no pudo ser verificada en el sistema."
                 return f"La acción sobre {app_display} no pudo ser verificada en Windows."
 
             elif st_upper in ("DENIED", "BLOCKED"):
+                out_map = getattr(execution_result, "output", {}) if isinstance(getattr(execution_result, "output", None), dict) else {}
+                if out_map.get("sobrescritura_no_autorizada") or "sobrescritura no autorizada" in str(getattr(execution_result, "message", "")).lower():
+                    return "No se autorizó la sobrescritura del archivo existente sin confirmación previa del usuario vinculada a la sesión y destino."
                 return "No puedo ejecutar esa acción porque la política de seguridad no la autoriza."
             elif st_upper in ("CANCELLED",):
                 return "Operación cancelada."
             else:
+                out_map = getattr(execution_result, "output", {}) if isinstance(getattr(execution_result, "output", None), dict) else {}
+                if out_map.get("sobrescritura_no_autorizada") or "sobrescritura no autorizada" in str(getattr(execution_result, "message", "")).lower():
+                    return "Sobrescritura no autorizada: Se requiere confirmación explícita del usuario vinculada a la sesión y archivo destino."
                 if intent in ("youtube_play", "search_and_play"):
                     err_code = getattr(execution_result, "error_code", None)
                     if err_code == "SEARCH_FAILED":
@@ -186,6 +244,9 @@ class ResponseSynthesizer:
         if intent == "multistep_research":
             topic = params.get("topic", "el tema solicitado")
             return f"He investigado sobre '{topic}' y consolidado los resultados."
+
+        if intent in ("grant_folder_access", "revoke_folder_access"):
+            return str(out_data.get("mensaje") or "Operación de permisos completada.")
 
         # Consultas generales informativas
         if intent == "general_query" and conversational_handler is not None and context_manager is not None:

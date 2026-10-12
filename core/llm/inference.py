@@ -123,6 +123,8 @@ class OllamaProvider:
         self.timeout_seconds = timeout_seconds
         self._post_fn = post_fn
         self._session: requests.Session | None = None
+        self._last_availability_error: str | None = None
+        self._auto_start_attempted: bool = False
 
     def _get_session(self) -> requests.Session:
         """Obtiene o crea de forma perezosa una sesión HTTP reutilizable con connection pooling."""
@@ -177,6 +179,11 @@ class OllamaProvider:
             "stream": request.stream,
             "options": options_dict,
         }
+
+        if "think" in request.extra_options:
+            payload["think"] = request.extra_options["think"]
+        else:
+            payload["think"] = False
 
         if request.system_prompt:
             payload["system"] = request.system_prompt
@@ -250,6 +257,11 @@ class OllamaProvider:
             "options": options_dict,
         }
 
+        if "think" in request.extra_options:
+            payload["think"] = request.extra_options["think"]
+        else:
+            payload["think"] = False
+
         if request.system_prompt:
             payload["system"] = request.system_prompt
 
@@ -309,14 +321,119 @@ class OllamaProvider:
         res = self.generate(req)
         return res.content
 
-    def is_available(self) -> bool:
-        """Comprueba de forma rápida si el servidor local de Ollama está activo."""
+    def _find_ollama_binary(self) -> str | None:
+        """Localiza el binario de Ollama en el sistema."""
+        import shutil
+
+        # 1. En PATH
+        which_path = shutil.which("ollama")
+        if which_path and os.path.isfile(which_path):
+            return which_path
+
+        # 2. Rutas conocidas en Windows
+        local_app_data = os.getenv("LOCALAPPDATA")
+        if local_app_data:
+            candidate = os.path.join(local_app_data, "Programs", "Ollama", "ollama.exe")
+            if os.path.isfile(candidate):
+                return candidate
+
+        user_profile = os.getenv("USERPROFILE")
+        if user_profile:
+            candidate = os.path.join(user_profile, "AppData", "Local", "Programs", "Ollama", "ollama.exe")
+            if os.path.isfile(candidate):
+                return candidate
+
+        return None
+
+    def _try_start_ollama_service(self) -> bool:
+        """Intenta iniciar el proceso local 'ollama serve' si el ejecutable está disponible."""
+        ollama_bin = self._find_ollama_binary()
+        if not ollama_bin:
+            logger.info("[OLLAMA AUTO-START] Ejecutable de Ollama no encontrado en el sistema.")
+            return False
+
+        logger.info(f"[OLLAMA AUTO-START] Detectado binario Ollama en '{ollama_bin}'. Iniciando servicio local en segundo plano...")
+        try:
+            import subprocess
+
+            creation_flags = 0
+            if sys.platform == "win32":
+                creation_flags = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0) | getattr(subprocess, "DETACHED_PROCESS", 0)
+
+            env = dict(os.environ)
+            # Evitar colisión de UI si es posible
+            env["OLLAMA_HOST"] = "127.0.0.1:11434"
+
+            subprocess.Popen(
+                [ollama_bin, "serve"],
+                env=env,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                creationflags=creation_flags,
+            )
+
+            # Esperar hasta 3.0s a que el puerto responda
+            deadline = time.perf_counter() + 3.0
+            while time.perf_counter() < deadline:
+                time.sleep(0.3)
+                try:
+                    get_callable = requests.get if hasattr(requests.get, "mock_calls") else self._get_session().get
+                    resp = get_callable(f"{self.host}/api/tags", timeout=1.0)
+                    if resp.status_code == 200:
+                        logger.info("[OLLAMA AUTO-START] Servicio Ollama iniciado exitosamente y respondiendo.")
+                        return True
+                except Exception:
+                    pass
+        except Exception as e:
+            logger.warning(f"[OLLAMA AUTO-START] Error al intentar iniciar proceso Ollama: {e}")
+
+        return False
+
+    def is_available(self, auto_start: bool = True) -> bool:
+        """Comprueba si el servidor local de Ollama está activo y registra el diagnóstico exacto."""
         try:
             get_callable = requests.get if hasattr(requests.get, "mock_calls") else self._get_session().get
             resp = get_callable(f"{self.host}/api/tags", timeout=3.5)
-            return resp.status_code == 200
-        except Exception:
+            if resp.status_code == 200:
+                self._last_availability_error = None
+                return True
+            self._last_availability_error = f"Respuesta HTTP inesperada {resp.status_code} desde {self.host}/api/tags"
             return False
+        except requests.exceptions.ConnectionError as ce:
+            self._last_availability_error = f"Conexión rechazada en {self.host} (servicio inactivo o puerto cerrado: {ce})"
+            # Intentar auto-arranque una sola vez si es host local
+            if auto_start and not self._auto_start_attempted and ("localhost" in self.host or "127.0.0.1" in self.host):
+                self._auto_start_attempted = True
+                if self._try_start_ollama_service():
+                    self._last_availability_error = None
+                    return True
+            return False
+        except requests.exceptions.Timeout:
+            self._last_availability_error = f"Timeout (3.5s) esperando respuesta de {self.host}/api/tags"
+            return False
+        except Exception as e:
+            self._last_availability_error = f"Error comprobando disponibilidad de Ollama ({self.host}): {e}"
+            return False
+
+    def get_diagnostic_status(self) -> dict[str, Any]:
+        """Devuelve el estado diagnóstico estructurado del proveedor Ollama."""
+        available = self.is_available(auto_start=False)
+        models: list[str] = []
+        if available:
+            try:
+                get_callable = requests.get if hasattr(requests.get, "mock_calls") else self._get_session().get
+                resp = get_callable(f"{self.host}/api/tags", timeout=2.0)
+                if resp.status_code == 200:
+                    data = resp.json()
+                    models = [m.get("name", "") for m in data.get("models", []) if m.get("name")]
+            except Exception:
+                pass
+        return {
+            "host": self.host,
+            "is_available": available,
+            "error": self._last_availability_error,
+            "models_available": models,
+        }
 
 
 class FakeLLMProvider:

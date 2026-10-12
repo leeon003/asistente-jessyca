@@ -21,6 +21,35 @@ from core.constants import (
 _is_configured: bool = False
 
 
+def _write_emergency_log_diagnostic(handler_name: str, record: logging.LogRecord, exc_info: Any) -> None:
+    """Diagnóstico alternativo estructurado cuando falla la emisión de logs en un handler."""
+    try:
+        import traceback
+        from datetime import UTC, datetime
+
+        err_msg = str(exc_info[1]) if exc_info and len(exc_info) > 1 and exc_info[1] else "Error desconocido"
+        tb_lines = "".join(traceback.format_exception(*exc_info)) if exc_info and exc_info[0] else ""
+        diag_line = (
+            f"[{datetime.now(UTC).isoformat()}] [LOGGING_DIAGNOSTIC_FALLBACK] "
+            f"Fallo en {handler_name}: {err_msg} | Record: '{getattr(record, 'msg', '')}'\n{tb_lines}\n"
+        )
+
+        emergency_file = Path(__file__).resolve().parent.parent / "logs" / "emergency_logging_errors.log"
+        emergency_file.parent.mkdir(parents=True, exist_ok=True)
+        with open(emergency_file, "a", encoding="utf-8", errors="replace") as f:
+            f.write(diag_line)
+
+        if sys.__stderr__:
+            if hasattr(sys.__stderr__, "buffer") and sys.__stderr__.buffer:
+                sys.__stderr__.buffer.write(diag_line.encode("utf-8", errors="replace"))
+                sys.__stderr__.buffer.flush()
+            else:
+                sys.__stderr__.write(diag_line)
+                sys.__stderr__.flush()
+    except Exception:
+        pass
+
+
 class SafeRotatingFileHandler(RotatingFileHandler):
     """Manejador de archivos rotativos seguro para Windows (ignora PermissionError durante rollover si otro proceso tiene el lock)."""
 
@@ -30,6 +59,54 @@ class SafeRotatingFileHandler(RotatingFileHandler):
         except PermissionError:
             # En Windows, si otro proceso concurrente tiene el archivo abierto, continuar escribiendo
             pass
+
+    def handleError(self, record: logging.LogRecord) -> None:
+        _write_emergency_log_diagnostic(self.__class__.__name__, record, sys.exc_info())
+
+
+import sys
+from typing import Any
+
+# Asegurar codificación UTF-8 en streams de Windows para prevenir UnicodeEncodeError en consola
+for _s in (sys.stdout, sys.stderr):
+    if _s and hasattr(_s, "reconfigure"):
+        try:
+            _s.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
+
+
+class SafeStreamHandler(logging.StreamHandler):
+    """Manejador de stream de consola seguro contra fallos de codificación Unicode en Windows."""
+
+    def emit(self, record: logging.LogRecord) -> None:
+        try:
+            msg = self.format(record)
+            stream = self.stream
+            # 1. Si el stream posee buffer binario (stdout/stderr en Python), escribir bytes directamente
+            if hasattr(stream, "buffer") and stream.buffer:
+                enc = getattr(stream, "encoding", "utf-8") or "utf-8"
+                b = (msg + self.terminator).encode(enc, errors="replace")
+                stream.buffer.write(b)
+                stream.buffer.flush()
+                return
+            # 2. Si no tiene buffer, escribir de forma segura en texto
+            stream.write(msg + self.terminator)
+            self.flush()
+        except RecursionError:
+            raise
+        except Exception:
+            try:
+                msg = self.format(record)
+                enc = getattr(self.stream, "encoding", "ascii") or "ascii"
+                safe_msg = msg.encode("ascii", errors="replace").decode("ascii")
+                self.stream.write(safe_msg + self.terminator)
+                self.flush()
+            except Exception:
+                self.handleError(record)
+
+    def handleError(self, record: logging.LogRecord) -> None:
+        _write_emergency_log_diagnostic(self.__class__.__name__, record, sys.exc_info())
 
 
 def setup_logger(
@@ -62,7 +139,7 @@ def setup_logger(
 
     # Handler para Consola
     if enable_console:
-        console_handler = logging.StreamHandler()
+        console_handler = SafeStreamHandler()
         console_handler.setLevel(numeric_level)
         console_handler.setFormatter(formatter)
         root_logger.addHandler(console_handler)

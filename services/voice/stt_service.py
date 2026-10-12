@@ -150,50 +150,190 @@ class FasterWhisperSTTService:
         device: str = "auto",
         compute_type: str = "default",
         default_language: str = "es",
-        beam_size: int = 1,
+        beam_size: int = 5,
+        initial_prompt: str | None = None,
     ) -> None:
         self.model_size = model_size
         self.device = device
         self.compute_type = compute_type
         self.default_language = default_language
         self.beam_size = beam_size
+        self.initial_prompt = initial_prompt
         self._model: Any = None
         self._is_loaded = False
+        self._is_ready = False
+        self._effective_device = device
+        self._effective_compute_type = compute_type
+        self._fallback_cpu_used = False
+        self._model_load_ms = 0.0
         self._lock = threading.Lock()
         self._executor = concurrent.futures.ThreadPoolExecutor(
             max_workers=1,
             thread_name_prefix="stt_whisper_worker",
         )
 
+    @property
+    def effective_device(self) -> str:
+        """Dispositivo físico de cómputo en uso efectivo ('cpu', 'cuda')."""
+        return self._effective_device
+
+    @property
+    def effective_compute_type(self) -> str:
+        """Tipo de cómputo y cuantización en uso efectivo ('int8', 'default', 'float16')."""
+        return self._effective_compute_type
+
+    @property
+    def model_load_ms(self) -> float:
+        """Tiempo de carga del modelo en milisegundos."""
+        return self._model_load_ms
+
+    @property
+    def is_ready(self) -> bool:
+        """Indica si el modelo completó exitosamente su inferencia de verificación."""
+        return self._is_ready
+
+    @property
+    def is_fallback_cpu_used(self) -> bool:
+        """Indica si se recurrió a CPU/int8 tras fallo de dependencias GPU."""
+        return self._fallback_cpu_used
+
+    @staticmethod
+    def _is_cuda_dependency_error(error: Exception) -> bool:
+        """Determina si una excepción corresponde a bibliotecas o controladores CUDA ausentes/incompatibles."""
+        msg = str(error).lower()
+        cuda_markers = (
+            "cublas",
+            "cudnn",
+            "cuda",
+            "cublas64_12.dll",
+            "cublaslt64_12.dll",
+            "library cublas",
+            "cannot be loaded",
+            "is not found",
+            "cuda driver",
+            "cufft",
+            "curand",
+        )
+        return any(marker in msg for marker in cuda_markers)
+
+    def _fallback_to_cpu(self) -> None:
+        """Recrea de forma segura el modelo WhisperModel en CPU con cuantización int8."""
+        with self._lock:
+            from faster_whisper import WhisperModel
+
+            t0 = time.perf_counter()
+            logger.info(
+                f"[FASTER-WHISPER] Recreando modelo '{self.model_size}' en CPU con compute_type='int8'..."
+            )
+            self._model = WhisperModel(
+                self.model_size,
+                device="cpu",
+                compute_type="int8",
+            )
+            self.device = "cpu"
+            self.compute_type = "int8"
+            self._effective_device = "cpu"
+            self._effective_compute_type = "int8"
+            self._fallback_cpu_used = True
+            self._is_loaded = True
+            load_ms = (time.perf_counter() - t0) * 1000.0
+            self._model_load_ms = load_ms
+            logger.info(
+                f"[FASTER-WHISPER] Modelo recreado en CPU/int8 exitosamente en {load_ms:.1f}ms. "
+                "Dispositivo CPU preservado para todas las siguientes solicitudes de la sesión."
+            )
+
     def load_model(self) -> None:
-        """Carga perezosa y segura del modelo faster-whisper con reutilización."""
+        """Carga perezosa y segura del modelo faster-whisper con reutilización y fallback a CPU."""
         with self._lock:
             if self._is_loaded and self._model is not None:
                 return
+            t0 = time.perf_counter()
+            target_device = self.device
+            target_compute = self.compute_type
+            if target_device == "cpu" and target_compute == "default":
+                target_compute = "int8"
+
             try:
                 from faster_whisper import WhisperModel  # type: ignore[import-untyped]
 
                 logger.info(
                     f"[FASTER-WHISPER] Cargando modelo '{self.model_size}' "
-                    f"(device={self.device}, compute_type={self.compute_type})..."
+                    f"(device={target_device}, compute_type={target_compute})..."
                 )
                 self._model = WhisperModel(
                     self.model_size,
-                    device=self.device,
-                    compute_type=self.compute_type,
+                    device=target_device,
+                    compute_type=target_compute,
                 )
+                self._effective_device = target_device
+                self._effective_compute_type = target_compute
                 self._is_loaded = True
-                logger.info(f"[FASTER-WHISPER] Modelo '{self.model_size}' cargado exitosamente.")
+                self._model_load_ms = (time.perf_counter() - t0) * 1000.0
+                logger.info(
+                    f"[FASTER-WHISPER] Modelo '{self.model_size}' cargado exitosamente en "
+                    f"{self._model_load_ms:.1f}ms (device={self._effective_device}, compute_type={self._effective_compute_type})."
+                )
             except ImportError as e:
                 logger.error(f"[FASTER-WHISPER] faster-whisper no instalado: {e}")
                 self._is_loaded = False
+                self._is_ready = False
                 raise STTModelUnavailableError(f"faster-whisper no está instalado: {e}") from e
             except Exception as e:
-                logger.error(f"[FASTER-WHISPER] Error cargando modelo '{self.model_size}': {e}")
-                self._is_loaded = False
-                raise STTModelUnavailableError(
-                    f"No se pudo cargar el modelo faster-whisper '{self.model_size}': {e}"
-                ) from e
+                if self._is_cuda_dependency_error(e) and target_device in ("auto", "cuda"):
+                    logger.warning(
+                        f"[FASTER-WHISPER] Error de dependencias GPU al construir modelo ({e}). "
+                        "Activando fallback a CPU/int8..."
+                    )
+                    self._fallback_to_cpu()
+                else:
+                    logger.error(f"[FASTER-WHISPER] Error cargando modelo '{self.model_size}': {e}")
+                    self._is_loaded = False
+                    self._is_ready = False
+                    raise STTModelUnavailableError(
+                        f"No se pudo cargar el modelo faster-whisper '{self.model_size}': {e}"
+                    ) from e
+
+    def warmup(self) -> None:
+        """Valida una inferencia real en audio silencioso antes de declarar STT operativo."""
+        if not self._is_loaded or self._model is None:
+            self.load_model()
+
+        dummy_audio = np.zeros(1600, dtype=np.float32)
+        try:
+            segments, _ = self._model.transcribe(
+                dummy_audio,
+                language=self.default_language,
+                beam_size=1,
+            )
+            _ = list(segments)
+            self._is_ready = True
+            logger.info(
+                f"[FASTER-WHISPER] Inferencia de validación superada. STT operativo "
+                f"(device={self._effective_device}, compute_type={self._effective_compute_type})."
+            )
+        except Exception as e:
+            if self._is_cuda_dependency_error(e) and self._effective_device != "cpu":
+                logger.warning(
+                    f"[FASTER-WHISPER] Inferencia de validación GPU falló por dependencias ({e}). "
+                    "Activando fallback a CPU/int8..."
+                )
+                self._fallback_to_cpu()
+                # Re-validar en CPU
+                segments, _ = self._model.transcribe(
+                    dummy_audio,
+                    language=self.default_language,
+                    beam_size=1,
+                )
+                _ = list(segments)
+                self._is_ready = True
+                logger.info(
+                    "[FASTER-WHISPER] Inferencia de validación superada tras fallback. STT operativo en CPU/int8."
+                )
+            else:
+                self._is_ready = False
+                logger.error(f"[FASTER-WHISPER] Fallo en inferencia de validación: {e}")
+                raise STTError(f"Validación de inferencia STT falló: {e}") from e
 
     def _convert_audio_to_float32(self, audio_data: bytes, sample_rate: int) -> tuple[np.ndarray, float]:
         """Convierte y normaliza bytes de audio (PCM crudo o contenedor WAV) a un array float32 de 16kHz mono.
@@ -209,37 +349,76 @@ class FasterWhisperSTTService:
         # Caso 1: Contenedor WAV (inicia con 'RIFF')
         if audio_data.startswith(b"RIFF"):
             try:
-                with wave.open(io.BytesIO(audio_data), "rb") as wf:
-                    nchannels = wf.getnchannels()
-                    sampwidth = wf.getsampwidth()
-                    framerate = wf.getframerate()
-                    nframes = wf.getnframes()
+                try:
+                    with wave.open(io.BytesIO(audio_data), "rb") as wf:
+                        nchannels = wf.getnchannels()
+                        sampwidth = wf.getsampwidth()
+                        framerate = wf.getframerate()
+                        nframes = wf.getnframes()
 
-                    if sampwidth != 2:
-                        raise STTAudioFormatError(
-                            f"Formato WAV no soportado: ancho de muestra de {sampwidth} bytes. "
-                            "Se requiere PCM de 16 bits (2 bytes)."
-                        )
-                    if nchannels > 2:
-                        raise STTAudioFormatError(
-                            f"Formato WAV no soportado: {nchannels} canales. Máximo 2 canales soportados."
-                        )
+                        if sampwidth != 2:
+                            raise STTAudioFormatError(
+                                f"Formato WAV no soportado: ancho de muestra de {sampwidth} bytes. "
+                                "Se requiere PCM de 16 bits (2 bytes)."
+                            )
+                        if nchannels > 2:
+                            raise STTAudioFormatError(
+                                f"Formato WAV no soportado: {nchannels} canales. Máximo 2 canales soportados."
+                            )
 
-                    raw_frames = wf.readframes(nframes)
-                    if nchannels == 2:
-                        samples_stereo = np.frombuffer(raw_frames, dtype=np.int16).reshape(-1, 2)
-                        mono_samples = samples_stereo.mean(axis=1).astype(np.int16)
-                    else:
-                        mono_samples = np.frombuffer(raw_frames, dtype=np.int16)
+                        raw_frames = wf.readframes(nframes)
+                        if nchannels == 2:
+                            samples_stereo = np.frombuffer(raw_frames, dtype=np.int16).reshape(-1, 2)
+                            mono_samples = samples_stereo.mean(axis=1).astype(np.int16)
+                        else:
+                            mono_samples = np.frombuffer(raw_frames, dtype=np.int16)
 
-                    # Remuestreo simple a 16000Hz si difiere
-                    if framerate != 16000 and len(mono_samples) > 0:
-                        num_target = int(len(mono_samples) * 16000 / framerate)
-                        mono_samples = np.interp(
-                            np.linspace(0, len(mono_samples), num_target, endpoint=False),
-                            np.arange(len(mono_samples)),
-                            mono_samples,
-                        ).astype(np.int16)
+                        # Remuestreo simple a 16000Hz si difiere
+                        if framerate != 16000 and len(mono_samples) > 0:
+                            num_target = int(len(mono_samples) * 16000 / framerate)
+                            mono_samples = np.interp(
+                                np.linspace(0, len(mono_samples), num_target, endpoint=False),
+                                np.arange(len(mono_samples)),
+                                mono_samples,
+                            ).astype(np.int16)
+
+                        if len(mono_samples) == 0:
+                            return np.array([], dtype=np.float32), 0.0
+
+                        audio_float = mono_samples.astype(np.float32) / 32768.0
+                        duration_ms = (len(audio_float) / 16000.0) * 1000.0
+                        return audio_float, duration_ms
+
+                except (STTAudioFormatError, EOFError):
+                    raise
+                except Exception as std_wave_err:
+                    # Soporte para WAV formato IEEE_FLOAT (tag 3) mediante scipy.io.wavfile
+                    try:
+                        import scipy.io.wavfile as wavfile
+
+                        framerate, data = wavfile.read(io.BytesIO(audio_data))
+                        if data.dtype in (np.float32, np.float64):
+                            audio_float = data.astype(np.float32)
+                        elif data.dtype == np.int16:
+                            audio_float = data.astype(np.float32) / 32768.0
+                        else:
+                            audio_float = data.astype(np.float32) / float(np.iinfo(data.dtype).max)
+
+                        if len(audio_float.shape) > 1 and audio_float.shape[1] > 1:
+                            audio_float = audio_float.mean(axis=1)
+
+                        if framerate != 16000 and len(audio_float) > 0:
+                            num_target = int(len(audio_float) * 16000 / framerate)
+                            audio_float = np.interp(
+                                np.linspace(0, len(audio_float), num_target, endpoint=False),
+                                np.arange(len(audio_float)),
+                                audio_float,
+                            ).astype(np.float32)
+
+                        duration_ms = (len(audio_float) / 16000.0) * 1000.0
+                        return audio_float, duration_ms
+                    except Exception:
+                        raise std_wave_err
 
             except STTAudioFormatError:
                 raise
@@ -281,12 +460,13 @@ class FasterWhisperSTTService:
         language: str,
         beam_size: int,
     ) -> tuple[Any, Any]:
-        """Ejecuta model.transcribe en el modelo cargado."""
+        """Ejecuta model.transcribe en el modelo cargado con parámetros optimizados."""
         return self._model.transcribe(
             audio_array,
             language=language,
             beam_size=beam_size,
             condition_on_previous_text=False,
+            initial_prompt=self.initial_prompt,
         )
 
     def transcribe(
@@ -295,7 +475,7 @@ class FasterWhisperSTTService:
         sample_rate: int = 16000,
         timeout_seconds: float = 10.0,
     ) -> TranscriptResult:
-        """Transcribe audio mediante faster-whisper con control de timeout e inferencia real."""
+        """Transcribe audio mediante faster-whisper con control de timeout, inferencia real y fallback a CPU."""
         # 1. Validación de entrada y normalización
         audio_float, duration_ms = self._convert_audio_to_float32(audio_data, sample_rate)
 
@@ -348,8 +528,28 @@ class FasterWhisperSTTService:
         except STTError:
             raise
         except Exception as e:
-            logger.error(f"[FASTER-WHISPER] Error durante la transcripción: {e}")
-            raise STTError(f"Error procesando audio con faster-whisper: {e}") from e
+            # Capturar fallos de dependencias GPU al consumir los segmentos (ej. cublas64_12.dll)
+            if self._is_cuda_dependency_error(e) and self._effective_device != "cpu":
+                logger.warning(
+                    f"[FASTER-WHISPER] Fallo GPU al consumir segmentos ({e}). "
+                    "Activando fallback a CPU/int8 y reintentando el mismo audio una sola vez..."
+                )
+                self._fallback_to_cpu()
+                try:
+                    re_future = self._executor.submit(
+                        self._execute_transcribe,
+                        audio_float,
+                        self.default_language,
+                        self.beam_size,
+                    )
+                    segments_gen, info = re_future.result(timeout=timeout_seconds)
+                    segments = list(segments_gen)
+                except Exception as re_err:
+                    logger.error(f"[FASTER-WHISPER] Reintento en CPU falló: {re_err}")
+                    raise STTError(f"Error procesando audio con faster-whisper en CPU: {re_err}") from re_err
+            else:
+                logger.error(f"[FASTER-WHISPER] Error durante la transcripción: {e}")
+                raise STTError(f"Error procesando audio con faster-whisper: {e}") from e
 
         # 5. Consumo de segmentos y cálculo matemático de confianza
         texts: list[str] = []
@@ -398,6 +598,10 @@ class FasterWhisperSTTService:
             duration_ms=actual_duration_ms,
             metadata={
                 "provider": "faster-whisper",
+                "device": self._effective_device,
+                "compute_type": self._effective_compute_type,
+                "model_load_ms": self._model_load_ms,
+                "fallback_used": self._fallback_cpu_used,
                 "audio_duration_ms": duration_ms,
                 "segments_count": len(segments),
                 "segments": segments_meta,
@@ -528,17 +732,28 @@ def get_stt_service(
 
         instance: ISTTService
         if selected == "faster-whisper":
+            fw_kwargs = dict(kwargs)
+            m_size = fw_kwargs.pop("model_size", getattr(settings, "VOICE_FASTER_WHISPER_MODEL", "base"))
+            dev = fw_kwargs.pop("device", getattr(settings, "VOICE_FASTER_WHISPER_DEVICE", "auto"))
+            comp = fw_kwargs.pop("compute_type", getattr(settings, "VOICE_FASTER_WHISPER_COMPUTE_TYPE", "default"))
+            lang = fw_kwargs.pop("default_language", getattr(settings, "VOICE_STT_LANGUAGE", "es"))
+            b_size = fw_kwargs.pop("beam_size", getattr(settings, "VOICE_FASTER_WHISPER_BEAM_SIZE", 5))
+            i_prompt = fw_kwargs.pop("initial_prompt", getattr(settings, "VOICE_FASTER_WHISPER_PROMPT", "Conversación en español con la asistente JESSYCA sobre ciencia, tecnología, aplicaciones y cultura."))
             instance = FasterWhisperSTTService(
-                model_size=getattr(settings, "VOICE_FASTER_WHISPER_MODEL", "base"),
-                device=getattr(settings, "VOICE_FASTER_WHISPER_DEVICE", "auto"),
-                compute_type=getattr(settings, "VOICE_FASTER_WHISPER_COMPUTE_TYPE", "default"),
-                default_language=getattr(settings, "VOICE_STT_LANGUAGE", "es"),
-                **kwargs,
+                model_size=m_size,
+                device=dev,
+                compute_type=comp,
+                default_language=lang,
+                beam_size=b_size,
+                initial_prompt=i_prompt,
+                **fw_kwargs,
             )
         elif selected == "google":
+            g_kwargs = dict(kwargs)
+            lang = g_kwargs.pop("language", getattr(settings, "VOICE_STT_LANGUAGE", "es-ES"))
             instance = GoogleSTTService(
-                language=getattr(settings, "VOICE_STT_LANGUAGE", "es-ES"),
-                **kwargs,
+                language=lang,
+                **g_kwargs,
             )
         else:
             raise STTError(

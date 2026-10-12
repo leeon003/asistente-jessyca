@@ -9,6 +9,7 @@ Sincroniza estados de página mediante PageStateWaiter y verifica el estado de r
 
 from __future__ import annotations
 
+import atexit
 import uuid
 from datetime import UTC, datetime
 from typing import Any
@@ -146,6 +147,22 @@ class FakeBrowserAdapter(IBrowserAdapter):
             elem = self.dom_engine.query_element(selector)
             return str(elem.get("text", ""))
         return "Fake page text data"
+
+    def get_html(self, selector: str | None = None) -> str:
+        return getattr(self, "_custom_html", "")
+
+    def extract_search_results(self, max_results: int = 5) -> list[dict[str, str]]:
+        if hasattr(self, "_custom_html") and self._custom_html:
+            from skills.browser_search_skill import parse_search_results_from_html
+            active_tab = self.get_active_tab()
+            base_url = active_tab.url if active_tab else "http://127.0.0.1"
+            return parse_search_results_from_html(
+                html=self._custom_html,
+                base_url=base_url,
+                policy=URLAllowlistPolicy(),
+                max_results=max_results,
+            )
+        return getattr(self, "_custom_search_results", [])
 
     def query_dom(self, selector: str) -> dict[str, Any]:
         return self.dom_engine.query_element(selector)
@@ -382,6 +399,9 @@ def reset_shared_browser_adapter() -> None:
         _shared_browser_adapter = None
 
 
+atexit.register(reset_shared_browser_adapter)
+
+
 class BrowserSessionManager:
     """Orquestador de sesiones de navegador, pestañas, política de URLs, motor DOM y reproducción de medios."""
 
@@ -458,6 +478,29 @@ class BrowserSessionManager:
         if hasattr(self.adapter, "get_text"):
             return self.adapter.get_text(selector)
         return ""
+
+    def get_html(self, selector: str | None = None) -> str:
+        """Extrae el contenido HTML de la página o de un elemento."""
+        if hasattr(self.adapter, "get_html"):
+            return self.adapter.get_html(selector)
+        return ""
+
+    def extract_search_results(self, max_results: int = 5) -> list[dict[str, str]]:
+        """Extrae estructuradamente (título, href real, snippet) de cada contenedor de resultado en el DOM."""
+        if hasattr(self.adapter, "extract_search_results"):
+            return self.adapter.extract_search_results(max_results=max_results)
+        html = self.get_html()
+        if html:
+            from skills.browser_search_skill import parse_search_results_from_html
+            tab = self.get_active_tab()
+            base_url = tab.url if tab else ""
+            return parse_search_results_from_html(
+                html=html,
+                base_url=base_url,
+                policy=self.policy,
+                max_results=max_results,
+            )
+        return []
 
     def query_dom(self, selector: str) -> dict[str, Any]:
         """Consulta el estado estructurado del elemento DOM."""

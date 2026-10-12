@@ -189,11 +189,23 @@ class _PlaywrightWorkerThread:
         # Cierre ordenado de recursos en el mismo hilo
         try:
             if self._context_instance:
-                self._context_instance.close()
+                try:
+                    self._context_instance.close()
+                except (BrokenPipeError, OSError, Exception) as e_ctx:
+                    logger.debug(f"[PLAYWRIGHT CLEANUP] Context close: {e_ctx}")
+                self._context_instance = None
             if self._browser_instance:
-                self._browser_instance.close()
+                try:
+                    self._browser_instance.close()
+                except (BrokenPipeError, OSError, Exception) as e_br:
+                    logger.debug(f"[PLAYWRIGHT CLEANUP] Browser close: {e_br}")
+                self._browser_instance = None
             if self._playwright_instance:
-                self._playwright_instance.stop()
+                try:
+                    self._playwright_instance.stop()
+                except (BrokenPipeError, OSError, Exception) as e_pw:
+                    logger.debug(f"[PLAYWRIGHT CLEANUP] Playwright stop: {e_pw}")
+                self._playwright_instance = None
         except Exception as e_close:
             logger.debug(f"[PLAYWRIGHT WORKER CLEANUP] Error al cerrar recursos: {e_close}")
 
@@ -454,6 +466,46 @@ class PlaywrightBrowserAdapter(IBrowserAdapter):
         raw_text = self._worker.execute(_extract)
         # Sanitizar secretos antes de devolver la data
         return BrowserPolicy.sanitize_dom_for_llm(raw_text)
+
+    def get_html(self, selector: str | None = None) -> str:
+        """Extrae el contenido HTML del elemento o de la página entera."""
+        if self._is_closed:
+            raise PlaywrightUnavailableError("El adaptador de Playwright ha sido cerrado.")
+        if not self._active_tab_id or self._active_tab_id not in self._tabs:
+            raise TabNotFoundError("No hay pestaña activa para extraer HTML.")
+
+        tid = self._active_tab_id
+
+        def _get_html() -> str:
+            page = self._tabs[tid]
+            if selector:
+                loc = page.locator(selector)
+                if loc.count() == 0:
+                    raise DOMElementNotFoundError(f"Elemento no encontrado para selector: '{selector}'")
+                return loc.inner_html()
+            return page.content()
+
+        return self._worker.execute(_get_html)
+
+    def extract_search_results(self, max_results: int = 5) -> list[dict[str, str]]:
+        """Extrae estructuradamente (título, href real, snippet) de cada contenedor de resultado en el DOM."""
+        if self._is_closed or not self._active_tab_id or self._active_tab_id not in self._tabs:
+            return []
+
+        tid = self._active_tab_id
+
+        def _do_extract() -> list[dict[str, str]]:
+            from skills.browser_search_skill import parse_search_results_from_html
+            page = self._tabs[tid]
+            html = page.content()
+            return parse_search_results_from_html(
+                html=html,
+                base_url=page.url,
+                policy=self.policy,
+                max_results=max_results,
+            )
+
+        return self._worker.execute(_do_extract)
 
     def query_dom(self, selector: str) -> dict[str, Any]:
         """Consulta el estado estructurado de un elemento en el DOM sin coordenadas mágicas."""

@@ -26,7 +26,7 @@ BANNER = r"""
 """
 
 
-def iniciar_modo_texto() -> None:
+def iniciar_modo_texto(session_id: str = "default_cli_session") -> None:
     print(BANNER)
     try:
         agent = JessycaLocalAgent.get_instance()
@@ -49,22 +49,26 @@ def iniciar_modo_texto() -> None:
 
         if agent is not None:
             try:
-                res = agent.interact(texto)
+                res = agent.interact(texto, session_id=session_id)
                 if res.requires_clarification and res.clarification_question:
                     print(f"\n  Jessyca (Aclaración): {res.clarification_question}")
                 elif res.requires_confirmation:
                     print(f"\n  Jessyca (Confirmación Requerida): {res.response_text}")
-                    conf = input("  ¿Deseas confirmar esta acción peligrosa? (s/n): ").strip().lower()
+                    conf = input("  ¿Deseas confirmar esta acción? (s/n): ").strip().lower()
                     if conf in ("s", "si", "sí", "y", "yes"):
-                        res_conf = agent.interact(f"CONFIRMAR {res.request_id}")
+                        res_conf = agent.interact(f"CONFIRMAR {res.request_id}", session_id=session_id)
                         print(f"\n  Jessyca: {res_conf.response_text}")
                     else:
+                        agent.interact("cancelar", session_id=session_id)
                         print("\n  Jessyca: Acción cancelada por seguridad.")
                 else:
                     print(f"\n  Jessyca: {res.response_text}")
 
-                # Metadata informativa
-                print(f"  [Intención: {res.intent} | Agente: {res.selected_agent} | Skill: {res.selected_skill} | Seguridad: {res.security_verdict}]")
+                # Metadata informativa distinguiendo capas de seguridad
+                sec_label = res.security_verdict
+                if res.security_verdict == "DENY" or (not res.success and res.error and ("acceso denegado" in str(res.error).lower() or "fuera del alcance" in str(res.error).lower())):
+                    sec_label = "DENY [Pre-gate: ALLOW | Recurso: DENEGADO]"
+                print(f"  [Intención: {res.intent} | Agente: {res.selected_agent} | Skill: {res.selected_skill} | Seguridad: {sec_label}]")
             except Exception:
                 respuesta = ejecutar_orden_texto(texto)
                 print(f"\n  Jessyca: {respuesta}")

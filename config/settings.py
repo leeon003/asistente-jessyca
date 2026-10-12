@@ -302,6 +302,8 @@ class AppSettings(BaseSettings):
             "wikipedia.org",
             "es.wikipedia.org",
             "duckduckgo.com",
+            "bing.com",
+            "www.bing.com",
             "example.com",
             "httpbin.org",
         },
@@ -954,6 +956,14 @@ class AppSettings(BaseSettings):
         default="base",
         description="Tamaño del modelo faster-whisper ('tiny', 'base', 'small', 'medium', 'large-v3').",
     )
+    VOICE_FASTER_WHISPER_BEAM_SIZE: int = Field(
+        default=5,
+        description="Tamaño del beam para decodificación de faster-whisper (1=greedy, 3-5=mayor precisión fonética).",
+    )
+    VOICE_FASTER_WHISPER_PROMPT: str = Field(
+        default="Conversación en español con la asistente JESSYCA sobre ciencia, tecnología, aplicaciones y cultura.",
+        description="Prompt contextual para guiar el decodificador de faster-whisper en español.",
+    )
     VOICE_FASTER_WHISPER_DEVICE: str = Field(
         default="auto",
         description="Dispositivo de inferencia para faster-whisper ('auto', 'cpu', 'cuda').",
@@ -978,6 +988,14 @@ class AppSettings(BaseSettings):
         default=False,
         description="Habilita la telemetría y logging diagnóstico detallado de audio y VAD.",
     )
+    VOICE_SAVE_DIAGNOSTIC_AUDIO: bool = Field(
+        default=False,
+        description="Guarda grabaciones WAV de diagnóstico explícito para inspección técnica (desactivado por defecto).",
+    )
+    VOICE_DIAGNOSTICS_DIR: str = Field(
+        default="logs/voice_diagnostics",
+        description="Directorio local para almacenar grabaciones de diagnóstico de audio.",
+    )
 
     # Configuración de Auto-Detección y Prioridad de Micrófono (Fase 51.2)
     VOICE_AUTO_SELECT_MICROPHONE: bool = Field(
@@ -995,6 +1013,14 @@ class AppSettings(BaseSettings):
     VOICE_TTS_ENGINE: str = Field(
         default="edge-tts",
         description="Motor TTS principal (edge-tts con voz neuronal Camila).",
+    )
+    VOICE_TTS_RATE: str = Field(
+        default="+0%",
+        description="Ajuste de velocidad para síntesis de voz (ej. '+0%', '-4%', '+5%').",
+    )
+    VOICE_TTS_PITCH: str = Field(
+        default="+0Hz",
+        description="Ajuste de tono para síntesis de voz (ej. '+0Hz', '+2Hz').",
     )
     # Configuración de TTS Providers e Intercambiabilidad (Fase 72)
     VOICE_TTS_PROVIDER: str = Field(

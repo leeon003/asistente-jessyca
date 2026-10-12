@@ -11,6 +11,8 @@ Valida los 25 escenarios de prueba requeridos:
 
 from __future__ import annotations
 
+import os
+import shutil
 import tempfile
 from pathlib import Path
 from typing import Any
@@ -107,6 +109,9 @@ class TestSkillCompositionSuite:
         # Desregistrar skills de prueba
         for s in ("test.echo1", "test.echo2", "test.echo3", "test.high_risk", "test.failing"):
             self.registry.unregister_skill(s)
+        if hasattr(self, "temp_dir") and self.temp_dir and os.path.exists(self.temp_dir):
+            import shutil
+            shutil.rmtree(self.temp_dir, ignore_errors=True)
 
     # ══════════════════════════════════════════════════
     # ── 1. MODOS DE EJECUCIÓN Y DATA FLOW (1 - 7) ──
@@ -475,6 +480,7 @@ class TestSkillCompositionSuite:
 
     def test_23_e2e_research_topic(self) -> None:
         """Composición Real 1: research_topic (browser.search -> documents.create)."""
+        output_doc = Path(self.temp_dir) / "informe_investigacion.txt"
         comp = (
             SkillComposer("workflow.research_topic", "Investigación y Creación de Documento")
             .set_execution_mode(CompositionExecutionMode.SEQUENTIAL)
@@ -488,8 +494,10 @@ class TestSkillCompositionSuite:
                 skill_id="documents.create",
                 input_mapping={
                     "title": "Informe de Investigación: {{inputs.topic}}",
+                    "path": str(output_doc),
                     "content": "Resultados obtenidos en la búsqueda de {{inputs.topic}}.",
                     "format": "txt",
+                    "overwrite": True,
                 },
             )
             .set_output_mapping({
@@ -510,6 +518,7 @@ class TestSkillCompositionSuite:
         assert res.steps_executed == 2
         assert res.output["topic"] == "Inteligencia Artificial en Medicina"
         assert res.output["document_created"] is True
+        assert output_doc.exists()
 
     def test_24_e2e_organize_files(self) -> None:
         """Composición Real 2: organize_files (files.search -> files.organize)."""
@@ -551,6 +560,7 @@ class TestSkillCompositionSuite:
         with open(meeting_notes, "w", encoding="utf-8") as f:
             f.write("Tema: Avances del Proyecto JESSYCA 3.0")
 
+        summary_doc = Path(self.temp_dir) / "minuta_reunion.txt"
         comp = (
             SkillComposer("workflow.prepare_meeting", "Preparar Reunión")
             .set_execution_mode(CompositionExecutionMode.SEQUENTIAL)
@@ -569,8 +579,10 @@ class TestSkillCompositionSuite:
                 skill_id="documents.create",
                 input_mapping={
                     "title": "Minuta de Reunión",
+                    "path": str(summary_doc),
                     "content": "Agenda leída y contexto recopilado para JESSYCA 3.0",
                     "format": "txt",
+                    "overwrite": True,
                 },
             )
             .set_output_mapping({
@@ -588,3 +600,54 @@ class TestSkillCompositionSuite:
         assert res.steps_executed == 3
         assert res.output["agenda_read"] is True
         assert res.output["summary_created"] is True
+        assert summary_doc.exists()
+
+    def test_26_composition_consecutive_runs_idempotent_no_manual_cleanup(self) -> None:
+        """Comprueba que la prueba de composición puede ejecutarse dos veces consecutivas sin limpieza manual y sin sobrescribir archivos ajenos."""
+        doc1 = Path(self.temp_dir) / "run1_informe.txt"
+        doc2 = Path(self.temp_dir) / "run2_informe.txt"
+
+        comp = (
+            SkillComposer("workflow.repeat_test", "Prueba Repetida")
+            .set_execution_mode(CompositionExecutionMode.SEQUENTIAL)
+            .add_step(
+                step_id="search_step",
+                skill_id="browser.search",
+                input_mapping={"query": "{{inputs.topic}}", "motor": "duckduckgo"},
+            )
+            .add_step(
+                step_id="doc_step",
+                skill_id="documents.create",
+                input_mapping={
+                    "title": "Informe Consecutivo",
+                    "path": "{{inputs.output_path}}",
+                    "content": "Resultados obtenidos en la búsqueda de {{inputs.topic}}.",
+                    "format": "txt",
+                },
+            )
+            .set_output_mapping({
+                "topic": "{{inputs.topic}}",
+                "document_created": "{{steps.doc_step.output.exito}}",
+            })
+            .build()
+        )
+
+        # Primera ejecución
+        ctx1 = SkillCompositionContext(
+            composition_id=comp.id,
+            inputs={"topic": "Telemedicina y Sensores", "output_path": str(doc1)},
+        )
+        res1 = self.executor.execute_composition(comp, ctx1)
+        assert res1.success is True
+        assert res1.output["document_created"] is True
+        assert doc1.exists()
+
+        # Segunda ejecución consecutiva inmediata sin limpieza manual ni colisión
+        ctx2 = SkillCompositionContext(
+            composition_id=comp.id,
+            inputs={"topic": "Telemedicina y Sensores", "output_path": str(doc2)},
+        )
+        res2 = self.executor.execute_composition(comp, ctx2)
+        assert res2.success is True
+        assert res2.output["document_created"] is True
+        assert doc2.exists()

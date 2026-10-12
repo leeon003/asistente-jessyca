@@ -106,7 +106,13 @@ def test_excel_creation_formulas_and_recalculation_distinction(create_skill: Doc
         assert res_create["exito"] is True
         assert res_create["verified"] is True
         assert res_create["formula_written"] is True
+        assert res_create["formula_escrita"] is True
         assert res_create["total_calculado_esperado"] == total_esperado
+        assert res_create["resultado_esperado_calculado_independiente"] == total_esperado
+        assert res_create["resultado_recalculado_motor_real"] is None
+        assert res_create["recalculo_motor_real_ejecutado"] is False
+        assert res_create["recalculo_motor_real_verificado"] is False
+        assert res_create["calculo_verificado"] is False
         assert os.path.exists(xl_path)
 
         # Inspección profunda del libro con openpyxl (distinguiendo fórmula de valor evaluado)
@@ -208,35 +214,155 @@ def test_security_guarantee_forbidden_extension_blocked(create_skill: DocumentsC
 
 def test_security_guarantee_anti_silent_overwrite(create_skill: DocumentsCreateSkill):
     """Garantía Anti-sobrescritura Silenciosa: No sobrescribe archivos existentes a menos que se confirme expresamente."""
+    from core.jde.confirmation import get_confirmation_manager
+    conf_mgr = get_confirmation_manager()
+    conf_mgr.reset()
+
+    session_id = "test-session-doc-001"
+
     with tempfile.TemporaryDirectory() as tmp_dir:
         archivo = os.path.join(tmp_dir, "reporte_existente.docx")
+        destino_norm = os.path.abspath(archivo)
 
         # 1. Crear por primera vez
         res1 = create_skill.ejecutar({
             "ruta": archivo,
             "titulo": "Versión 1",
             "contenido": "Contenido original",
+            "session_id": session_id,
         })
         assert res1["exito"] is True
+        assert res1["archivo_creado"] is True
+        assert res1["contenido_verificado"] is True
 
-        # 2. Intentar crear nuevamente sin confirmación (debe fallar)
+        # 2. Intentar crear nuevamente sin confirmación (debe fallar y registrar confirmación pendiente)
         res2 = create_skill.ejecutar({
             "ruta": archivo,
             "titulo": "Versión 2",
             "contenido": "Sobrescritura no autorizada",
             "sobrescribir": False,
+            "session_id": session_id,
         })
         assert res2["exito"] is False
         assert res2["verified"] is False
+        assert res2.get("conflicto_destino") is True
+        assert res2.get("requiere_confirmacion") is True
         assert "ya existe" in res2["mensaje"]
         assert "anti-sobrescritura" in res2["mensaje"]
 
-        # 3. Intentar crear con sobrescribir=True (debe autorizarse)
+        # 3. Intentar crear con sobrescribir=True pero SIN aprobación humana en JDE (debe ser RECHAZADO)
         res3 = create_skill.ejecutar({
+            "ruta": archivo,
+            "titulo": "Versión Inyectada",
+            "contenido": "Intento de bypass de LLM o cliente",
+            "sobrescribir": True,
+            "session_id": session_id,
+        })
+        assert res3["exito"] is False
+        assert res3["verified"] is False
+        assert res3.get("sobrescritura_no_autorizada") is True
+        assert "no constituye autorización" in res3["mensaje"]
+
+        # 4. Autorizar legítimamente en JDE para esta sesión, operación y destino exacto
+        aprobado = conf_mgr.confirm(
+            session_id=session_id,
+            action="documents.create",
+            parameters={"ruta": destino_norm},
+        )
+        assert aprobado is True
+
+        # 5. Intentar crear con sobrescribir=True tras confirmación vinculada (debe autorizarse)
+        res4 = create_skill.ejecutar({
             "ruta": archivo,
             "titulo": "Versión 2 Autorizada",
             "contenido": "Contenido reemplazado legítimamente",
             "sobrescribir": True,
+            "session_id": session_id,
         })
-        assert res3["exito"] is True
-        assert res3["verified"] is True
+        assert res4["exito"] is True
+        assert res4["verified"] is True
+        assert res4["archivo_creado"] is True
+        assert res4["contenido_verificado"] is True
+
+
+def test_rejection_of_unauthorized_overwrite_injection_and_session_binding(create_skill: DocumentsCreateSkill):
+    """Regresión: Demuestra que un LLM o cliente NO puede convertir sobrescribir=True en autorización.
+
+    Verifica la vinculación estricta a:
+    - Sesión (sesión B no puede consumir autorización de sesión A)
+    - Destino (autorización para archivo X no autoriza archivo Y)
+    - Monouso (una confirmación gastada no puede reutilizarse)
+    """
+    from core.jde.confirmation import get_confirmation_manager
+    conf_mgr = get_confirmation_manager()
+    conf_mgr.reset()
+
+    session_a = "session-human-owner-A"
+    session_b = "session-adversary-or-llm-B"
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        doc_x = os.path.join(tmp_dir, "archivo_x.docx")
+        doc_y = os.path.join(tmp_dir, "archivo_y.docx")
+        doc_x_norm = os.path.abspath(doc_x)
+        doc_y_norm = os.path.abspath(doc_y)
+
+        # Crear archivos iniciales
+        assert create_skill.ejecutar({"ruta": doc_x, "titulo": "X1", "contenido": "Data X"})["exito"] is True
+        assert create_skill.ejecutar({"ruta": doc_y, "titulo": "Y1", "contenido": "Data Y"})["exito"] is True
+
+        # Paso 1: Sesión A registra pendiente para doc_x
+        res_pend = create_skill.ejecutar({
+            "ruta": doc_x,
+            "titulo": "X2",
+            "contenido": "Nuevo X",
+            "sobrescribir": False,
+            "session_id": session_a,
+        })
+        assert res_pend.get("requiere_confirmacion") is True
+
+        # Paso 2: Sesión A aprueba confirmación para doc_x
+        assert conf_mgr.confirm(session_id=session_a, action="documents.create", parameters={"ruta": doc_x_norm}) is True
+
+        # Paso 3: Sesión B (LLM o atacante) intenta sobrescribir doc_x con sobrescribir=True -> RECHAZADO
+        res_b = create_skill.ejecutar({
+            "ruta": doc_x,
+            "titulo": "Hack X",
+            "contenido": "Inyección",
+            "sobrescribir": True,
+            "session_id": session_b,
+        })
+        assert res_b["exito"] is False
+        assert res_b.get("sobrescritura_no_autorizada") is True
+
+        # Paso 4: Sesión A intenta usar esa confirmación para sobrescribir doc_y (destino distinto) -> RECHAZADO
+        res_wrong_dest = create_skill.ejecutar({
+            "ruta": doc_y,
+            "titulo": "Hack Y",
+            "contenido": "Desvío de destino",
+            "sobrescribir": True,
+            "session_id": session_a,
+        })
+        assert res_wrong_dest["exito"] is False
+        assert res_wrong_dest.get("sobrescritura_no_autorizada") is True
+
+        # Paso 5: Sesión A sobrescribe doc_x legítimamente -> ACEPTADO y CONSUMIDO
+        res_ok = create_skill.ejecutar({
+            "ruta": doc_x,
+            "titulo": "X2 Autorizado",
+            "contenido": "Actualización legítima",
+            "sobrescribir": True,
+            "session_id": session_a,
+        })
+        assert res_ok["exito"] is True
+        assert res_ok["verified"] is True
+
+        # Paso 6: Reintento posterior en sesión A (monouso) -> RECHAZADO porque ya se consumió
+        res_reused = create_skill.ejecutar({
+            "ruta": doc_x,
+            "titulo": "X3 Sin Reconfirmar",
+            "contenido": "Reintento de reuso",
+            "sobrescribir": True,
+            "session_id": session_a,
+        })
+        assert res_reused["exito"] is False
+        assert res_reused.get("sobrescritura_no_autorizada") is True

@@ -227,6 +227,7 @@ class CalibratedVoiceCaptureEngine:
         resolved_device: ResolvedAudioDevice | None = None,
         adaptive_eos_enabled: bool = True,
         stt_service: ISTTService | None = None,
+        save_diagnostic_audio: bool = False,
     ) -> None:
         self.sample_rate = sample_rate
         self.channels = channels
@@ -238,6 +239,8 @@ class CalibratedVoiceCaptureEngine:
         self.confidence_threshold = confidence_threshold
         self.language = language
         self.adaptive_eos_enabled = adaptive_eos_enabled
+        self.save_diagnostic_audio = save_diagnostic_audio
+        self._last_noise_floor: float = 150.0
         self.stt_service: ISTTService = stt_service or get_stt_service()
         self.device_resolver = device_resolver or get_voice_device_resolver()
 
@@ -314,9 +317,10 @@ class CalibratedVoiceCaptureEngine:
                 rec_start = max(200.0, min(800.0, energy * 1.3))
                 rec_end = max(120.0, rec_start * 0.65)
                 self.vad_service.update_thresholds(rec_start, rec_end)
+                self._last_noise_floor = energy * 0.7
 
                 result = NoiseCalibrationResult(
-                    noise_floor_rms=energy * 0.7,
+                    noise_floor_rms=self._last_noise_floor,
                     avg_rms=energy,
                     peak_rms=energy * 1.5,
                     recommended_start_threshold=rec_start,
@@ -500,6 +504,8 @@ class CalibratedVoiceCaptureEngine:
         timeout: float = 7.0,
         phrase_time_limit: float | None = None,
         custom_audio_bytes: bytes | None = None,
+        on_listening_start: Callable[[], None] | None = None,
+        on_transcribing_start: Callable[[], None] | None = None,
     ) -> VoiceCaptureResult:
         """Captura audio del usuario con Adaptive End-of-Speech, transcribe y emite diagnósticos."""
         with self._lock:
@@ -514,6 +520,11 @@ class CalibratedVoiceCaptureEngine:
 
             # 1. Si se proporciona audio sintético (para testing determinista)
             if custom_audio_bytes is not None:
+                if on_transcribing_start:
+                    try:
+                        on_transcribing_start()
+                    except Exception:
+                        pass
                 return self._process_simulated_audio(custom_audio_bytes, diag, start_ts)
 
             # 2. Captura real de micrófono mediante Adaptive End-of-Speech
@@ -534,6 +545,12 @@ class CalibratedVoiceCaptureEngine:
 
             import speech_recognition as sr
             try:
+                if on_listening_start:
+                    try:
+                        on_listening_start()
+                    except Exception as ex_cb:
+                        logger.debug(f"[VOICE CAPTURE] Excepción en on_listening_start: {ex_cb}")
+
                 with self._microphone as source:
                     watchdog_limit = (
                         phrase_time_limit
@@ -550,7 +567,29 @@ class CalibratedVoiceCaptureEngine:
                 raw_bytes = audio_data.get_raw_data()
                 rms = self._compute_rms(raw_bytes)
 
+                # Métricas acústicas diagnósticas de la señal capturada
+                peak_amp = 0
+                if len(raw_bytes) >= 2:
+                    try:
+                        num_s = len(raw_bytes) // 2
+                        samples_arr = struct.unpack(f"<{num_s}h", raw_bytes[:num_s * 2])
+                        peak_amp = max(abs(s) for s in samples_arr) if samples_arr else 0
+                    except Exception:
+                        peak_amp = 0
+                is_clipped = bool(peak_amp >= 32700)
+                noise_ref = max(1.0, float(getattr(self, "_last_noise_floor", 150.0)))
+                snr_val = round(20.0 * math.log10(max(1.0, float(rms)) / noise_ref), 1)
+
+                if is_clipped:
+                    logger.warning(f"[VOICE AUDIO WARNING] Señal de micrófono saturada (Peak: {peak_amp}/32768, RMS: {rms:.1f}).")
+
                 # 3. Transcripción desacoplada mediante ISTTService inyectado
+                if on_transcribing_start:
+                    try:
+                        on_transcribing_start()
+                    except Exception as ex_cb:
+                        logger.debug(f"[VOICE CAPTURE] Excepción en on_transcribing_start: {ex_cb}")
+
                 t_stt_start = time.perf_counter()
                 eos_to_stt_start_ms = (t_stt_start - t_eos) * 1000.0
                 stt_name = getattr(self.stt_service, "name", "unknown")
@@ -568,6 +607,13 @@ class CalibratedVoiceCaptureEngine:
                 diag_data = diag.to_dict()
                 diag_data["duration_ms"] = (time.time() - start_ts) * 1000.0
                 diag_data["audio_rms"] = rms
+                diag_data["audio_peak"] = float(peak_amp)
+                diag_data["is_clipped"] = is_clipped
+                diag_data["snr_db"] = snr_val
+                diag_data["mic_name"] = self.resolved_device.display_name if self.resolved_device else "Default"
+                diag_data["mic_index"] = self.device_index
+                diag_data["native_sample_rate"] = self.resolved_device.sample_rate if self.resolved_device else self.sample_rate
+                diag_data["effective_sample_rate"] = self.sample_rate
                 diag_data["vad_detected"] = True
                 diag_data["stt_attempted"] = True
                 diag_data["stt_text"] = text_clean
@@ -576,6 +622,9 @@ class CalibratedVoiceCaptureEngine:
                 diag_data["stt_requires_network"] = stt_net
                 diag_data["eos_to_stt_start_ms"] = eos_to_stt_start_ms
                 diag_data["stt_duration_ms"] = stt_duration_ms
+
+                # Guardar grabación diagnóstica si el modo diagnóstico explícito está activo
+                self._save_diagnostic_recording(raw_bytes, diag_data)
 
                 if not text_clean:
                     diag_data["discard_reason"] = VoiceDiscardReason.EMPTY_TRANSCRIPT.value
@@ -795,3 +844,43 @@ class CalibratedVoiceCaptureEngine:
             return math.sqrt(sum_sq / num_samples)
         except Exception:
             return 0.0
+
+    def _save_diagnostic_recording(
+        self,
+        raw_bytes: bytes,
+        diag_data: dict[str, Any],
+    ) -> str | None:
+        """Guarda explícitamente el audio capturado y metadatos técnicos para diagnóstico."""
+        try:
+            from config.manager import get_settings
+            settings = get_settings()
+            save_active = getattr(settings, "VOICE_SAVE_DIAGNOSTIC_AUDIO", False) or getattr(self, "save_diagnostic_audio", False)
+            if not save_active:
+                return None
+
+            import json
+            import wave
+            from pathlib import Path
+
+            diag_dir = Path(getattr(settings, "VOICE_DIAGNOSTICS_DIR", "logs/voice_diagnostics"))
+            diag_dir.mkdir(parents=True, exist_ok=True)
+
+            cap_id = diag_data.get("capture_id") or f"cap_{int(time.time() * 1000)}"
+            wav_file = diag_dir / f"{cap_id}.wav"
+            json_file = diag_dir / f"{cap_id}.json"
+
+            with wave.open(str(wav_file), "wb") as wf:
+                wf.setnchannels(self.channels)
+                wf.setsampwidth(2)
+                wf.setframerate(self.sample_rate)
+                wf.writeframes(raw_bytes)
+
+            with open(json_file, "w", encoding="utf-8") as jf:
+                json.dump(diag_data, jf, indent=2, ensure_ascii=False)
+
+            logger.info(f"[VOICE DIAGNOSTICS AUDIO] Grabación de diagnóstico guardada: {wav_file}")
+            return str(wav_file)
+        except Exception as ex_diag:
+            logger.warning(f"[VOICE DIAGNOSTICS AUDIO] No se pudo guardar grabación diagnóstica: {ex_diag}")
+            return None
+

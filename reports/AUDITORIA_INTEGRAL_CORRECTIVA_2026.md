@@ -1,226 +1,265 @@
-# INFORME DE AUDITORÍA INTEGRAL Y CORRECTIVA DE JESSYCA 3.0 (ACTUALIZACIÓN 2026)
+# INFORME DE AUDITORÍA INTEGRAL Y CORRECTIVA DE JESSYCA 3.0 (ACTUALIZACIÓN 2026 - REVISIÓN 2)
 
 **Fecha:** 2026-10-07  
 **Rama de Auditoría:** `audit/integral-corrective`  
-**Commit Base:** `3c41be2df5411fe59f603aa80a0f09e862354b3c` (`feat(core): certificacion Full E2E y consolidacion arquitectonica CONTROLLED READY`)  
+**Commit HEAD:** `14b5f1d6f14c2302561152bda22f8f05b49fd679` (`feat(audit): consolidacion integral correctiva 2026 y cierre de brechas de evidencia`)  
+**Estado del Working Tree:** Modificado con correcciones de gobernanza de sobrescritura, verificación profunda documental y regresiones (+346 / -28 líneas en 3 archivos).  
 **Entorno Host Verificado:**  
 - **Sistema Operativo:** Microsoft Windows 11 Pro (64-bit), Versión 10.0.26200, Build 26200.
 - **Intérprete Python:** CPython 3.11.9 (`C:\Users\PC\AppData\Local\Programs\Python\Python311\python.exe`).
 - **Acelerador Hardware / GPU:** NVIDIA GeForce RTX 3060 (12,287.4 MB VRAM total, ~11,245 MB libres), Driver 32.0.15.6094, CUDA 12.x compatible.
 - **Dispositivos de Entrada de Audio:** 2 endpoints activos en Windows (Micrófono Realtek Audio y Cámara Web Logitech C922 Pro).
 - **Resolución de Pantalla:** 2560 x 1440 (1 monitor físico activo).
-- **Servicio Local LLM:** Ollama activo en `127.0.0.1:11434` con 5 modelos registrados (`llama3.2:latest`, `llama3.1:latest`, `qwen3:8b`, `qwen3-vl:4b`, `gemma4:e4b`).
+- **Servicio Local LLM:** Binario Ollama instalado (`C:\Users\PC\AppData\Local\Programs\Ollama\ollama.exe`), demonio HTTP inactivo en `127.0.0.1:11434` en el momento de la prueba.
 - **Seguridad de Datos:** Aislamiento local estricto; sin telemetría externa; cero operaciones destructivas (`reset`/`clean`/`push` no ejecutados); credenciales y tokens sanitizados.
 
 ---
 
-## 1. PROTECCIÓN DEL ESTADO Y SALIDA DEL DIAGNÓSTICO BASE
+## 1. ESTADO FINAL DE GIT Y REVERSIÓN RIGUROSA
 
-### Diagnóstico del Entorno (`python main.py doctor`) — Salida Sanitizada:
-```text
-============================================================
-         JESSYCA 3.0 — DIAGNÓSTICO DEL ENTORNO (DOCTOR)
-============================================================
-Sistema Operativo:     Windows 10 (Build 26200) [Windows 11 Pro]
-Runtime Python:        3.11.9 (64bit)
-Acelerador / GPU:      NVIDIA GeForce RTX 3060
-VRAM GPU:              11245.0 MB / 12287.4 MB
-Proveedor Local LLM:   [OK] Ollama en 127.0.0.1:11434 (Modelos: qwen3-vl:4b, qwen3:8b, llama3.1:latest, llama3.2:latest, gemma4:e4b)
-Dispositivos Audio:    Micrófono=[OK] | Salida=[OK]
+### A. Identificación de HEAD y Diff del Estado Evaluado:
+- **HEAD Commit SHA:** `14b5f1d6f14c2302561152bda22f8f05b49fd679`
+- **Diff Actual del Working Tree (`git diff --stat`):**
+  ```text
+  core/local_agent/response_synthesizer.py           |  33 ++++
+  skills/documents_skills.py                         | 213 ++++++++++++++++++---
+  tests/documents/test_document_routes_and_guarantees.py | 128 ++++++++++++-
+  3 files changed, 346 insertions(+), 28 deletions(-)
+  ```
+- **Vinculación Estricta:** Todos los resultados de pruebas y auditoría de esta revisión corresponden estrictamente a este estado exacto del código, sin reutilización de salidas de ejecuciones previas.
 
---- Rutas Segregadas del Sistema ---
-Código Instalado:      D:\JESSYCA 3.0\asistente-jessyca (Solo Lectura)
-Configuración Usuario: C:\Users\PC\AppData\Roaming\jessyca
-Datos y Memoria:       C:\Users\PC\AppData\Local\jessyca\data
-Logs y Auditoría:      C:\Users\PC\AppData\Local\jessyca\logs
-Cachés Efímeras:       C:\Users\PC\AppData\Local\jessyca\cache
-Modelos Locales:       C:\Users\PC\AppData\Local\jessyca\models
+### B. Corrección Técnica sobre Git y Reversión Específica:
+> [!CAUTION]
+> **Aclaración sobre la Protección de Ramas:**
+> Los cambios no confirmados (**sin commit**) en el árbol de trabajo (`working tree`) o en el área de preparación (`staging/index`) **NO están protegidos por ninguna rama**.
+> `git checkout` **NO es un mecanismo de reversión de modificaciones sin commit**. Ejecutar `git checkout <otra_rama>` con cambios sin commit abortará si hay conflictos con archivos modificados, o arrastrará los cambios modificando inadvertidamente la otra rama.
 
-[OK] Diagnóstico completado sin fallos críticos.
-============================================================
-```
+### Instrucciones de Reversión para el Estado Real:
+1. **Para descartar modificaciones sin commit en el árbol de trabajo actual:**
+   ```powershell
+   git restore core/local_agent/response_synthesizer.py skills/documents_skills.py tests/documents/test_document_routes_and_guarantees.py
+   ```
+   *(O bien `git restore .` para descartar todas las modificaciones no confirmadas en archivos bajo seguimiento).*
+
+2. **Para preservar el trabajo actual sin confirmarlo antes de inspeccionar otra rama:**
+   ```powershell
+   git stash push -u -m "wip: correcciones de auditoria 2026"
+   # Para recuperarlas al volver:
+   git stash pop
+   ```
+
+3. **Para revertir el commit `14b5f1d` en el historial preservando la trazabilidad:**
+   ```powershell
+   git revert 14b5f1d6f14c2302561152bda22f8f05b49fd679
+   ```
+
+4. **Para inspeccionar las diferencias exactas de la rama de auditoría contra la rama base:**
+   ```powershell
+   git diff fix/baseline-diagnostico...audit/integral-corrective
+   ```
 
 ---
 
-## 2. INVENTARIO DETALLADO DE COMPONENTES REVISADOS Y NO REVISADOS
+## 2. ANÁLISIS DE CÓDIGO REDUNDANTE Y RETIRADA ACOTADA DE JARVIS-PY
 
-A continuación se detalla el análisis de código propio frente a su estado de conexión, activación, redundancias y motivos de conservación:
+### A. Matriz de Conflictos y Duplicaciones Detectadas:
 
-| Componente / Subsistema | Estado Revisión | Clasificación | Hallazgo Técnico | Acción / Motivo de Conservación |
+| Capacidad en `jarvis-py` | Implementación Duplicada en Jarvis | Implementación Nativa de JESSYCA | Consumidores Reales | Evaluación y Decisión |
 |---|---|---|---|---|
-| **`core/jde/` (JDE Engine, Authority, Models)** | Revisado | Conectado / Activo | Motor central de gobernanza de permisos y sellado de recibos irrevocables. | Conservado intacto; es la invariante de seguridad no negociable. |
-| **`core/execution/` (Verifier, Idempotency)** | Revisado | Conectado / Activo | Verificación determinista post-ejecución contra el kernel de Windows. | Conservado; previene falsos éxitos en todo el pipeline. |
-| **`core/local_agent/local_agent.py`** | Revisado | Corregido / Conectado | Desconexión en intenciones documentales (`create_document`, `read_document`) y captura de rutas con espacios/tildes. | Corregido: Mapeo formal a `documents.create` y `documents.read`; propagación de slots y metadatos. |
-| **`skills/documents_skills.py`** | Revisado | Corregido / Activo | `DocumentsCreateSkill` carecía de validación de rutas críticas, anti-sobrescritura y generación de Office nativo. | Corregido: Implementadas las 5 garantías de seguridad, generación estructurada Word/Excel/PPTX y verificación física. |
-| **`core/documents/` (Word, Excel, PPTX)** | Revisado | Corregido / Activo | Inestabilidad RPC (`0x80010108`) en verificación COM opcional de PowerPoint; firmas de slides. | Corregido: Normalización de `slides_data` y desvinculación explícita de punteros OLE antes de `Quit()`. |
-| **`core/integration/adapters/jarvis_adapter.py`** | Revisado | Inactivo / Redundante | Exponía 5 capacidades de Shaan-alpha/jarvis-py v3.5.2 (`system_status`, `volume`, `clipboard`, `files`, `apps`). | **Inactivo por diseño**. Duplica skills nativas con menor nivel de observabilidad. Conservado para fallback de hub y tests de aislamiento. |
-| **`core/anydoc/` (AnyDocGovernedOrchestrator)** | Revisado | Corregido / Conectado | Falta del alias `AnyDocOrchestrator` rompía compatibilidad con clientes existentes. | Corregido: Exportado el alias canónico en `orchestrator.py` e `__init__.py`. |
-| **`core/integration/adapters/mobile_adapter.py`** | Revisado | Corregido / Conectado | No se autoregistraba en `IntegrationHub` y comprobaba binario `adb` con `importlib`. | Corregido: Autoregistro incorporado y separación de dependencias Python vs binario de sistema. |
-| **`interfaces/modo_voz.py` y `services/voice/`** | Revisado | Conectado / Activo (PTT) | Motor Wake Word openWakeWord carece de pesos acústicos en español para "Jessyca". | Conservado modo Pulsar para Hablar (PTT) como ruta principal segura y funcional. |
-| **`interfaces/webui_bridge/`** | Revisado | Conectado / Activo | Servidor FastAPI compatible OpenAI para conexión con Open WebUI. | Conservado; probado extremo a extremo mediante tests canónicos. |
-| **`core/orca_ade/` (Code Assistant)** | Revisado | Conectado / Activo | Diagnóstico, cálculo de diffs unificados y validación de patches con pytest real. | Conservado; verificado mediante tests funcionales. |
-| **Hardware Android Físico por USB** | No Revisado (Ausente) | Bloqueado por Hardware | Contrato y driver implementados; `adb.exe` reporta 0 dispositivos físicos conectados. | **No revisado con hardware real** por ausencia de teléfono USB físico conectado al host. |
+| `jarvis.system_status` | Lectura CPU/RAM con `psutil` básico. | `core.diagnostics.monitor.SystemMonitor` y `tools.system` con métricas integradas y registro estructurado. | Ningún flujo de agente; únicamente suites de prueba de adaptadores. | **Redundante.** No aporta observabilidad adicional. |
+| `jarvis.volume_control` | Emulación de pulsación ciega `pyautogui.press("volume...")` sin nivel real ni confirmación. | `skills/windows_skills.py` (`windows.audio`) vía `pycaw` sobre Win32 Core Audio APIs (ajuste exacto 0-100%, mute, lectura determinista de dB). | Solo tests de adapter. | **Redundante e Inferior.** Carece de verificación física de nivel. |
+| `jarvis.clipboard` | Wrapper sobre librería externa `pyperclip`. | `skills/windows_skills.py` (`windows.clipboard`) accediendo a la API nativa de portapapeles de Windows y sanitización. | Solo tests de adapter. | **Redundante.** Dependencia innecesaria. |
+| `jarvis.workspace_files` | Operaciones confinadas arbitrariamente a `%LOCALAPPDATA%/jarvis/workspace`. | `skills/files_skills.py` (`files.create`, `files.read`, `files.search`, `files.copy`) con sandbox transversal y gobernanza JDE. | Solo tests de adapter. | **Redundante.** Fragmenta el filesystem en un subdirectorio aislado no gobernado. |
+| `jarvis.app_control` | Diccionario fijo de alias (`notepad`, `calc`) y `taskkill /f /im`. | `skills/apps_skill.py` (`windows.apps`) con soporte para Win32 y UWP, seguimiento de PID, verificación de handles HWND y cierre ordenado `WM_CLOSE`. | Solo tests de adapter. | **Redundante e Inferior.** `taskkill /f` puede causar pérdida de datos sin aviso. |
+
+### B. Justificación Técnica y Propuesta de Retirada Acotada de Jarvis:
+- **Tener tests no justifica su permanencia:** La existencia de 30 tests unitarios en `tests/test_jarvis_adapter.py` solo prueba que el adaptador cumple su interfaz aislada, pero **no demuestra ninguna necesidad funcional** en producción.
+- **Consumidores en Producción: CERO.** Ni `main.py`, ni `JessycaLocalAgent`, ni `FastRouter`, ni los coordinadores invocan `JarvisAdapter`. El adaptador permanece deshabilitado por defecto (`enabled=False`).
+- **Propuesta de Retirada Acotada (Plan de Deprecación):**
+  1. **Fase 1 (Inmediata / Estado Actual):** Mantener `enabled=False` por defecto en el `IntegrationHub`, registrar marca de `@deprecated` y advertencia en logs ante cualquier intento de instanciación.
+  2. **Fase 2 (Siguiente Versión Menor):** Sustituir las pruebas de interoperabilidad de adaptadores en `IntegrationHub` por un mock genérico desacoplado (`MockThirdPartyAdapter`), eliminar `core/integration/adapters/jarvis_adapter.py` y `tests/test_jarvis_adapter.py`, y retirar las dependencias secundarias `pyautogui` y `pyperclip` que no sean usadas por otros subsistemas nativos.
 
 ---
 
-## 3. ANÁLISIS DE JARVIS-PY: ESTADO, CAPACIDADES Y COBERTURA NATIVA
+## 3. TRAZABILIDAD Y GOBERNANZA DE SOBRESCRITURA
 
-### ¿Por qué Jarvis-py está inactivo?
-1. **Redundancia Funcional:** El adaptador `JarvisAdapter` (`core/integration/adapters/jarvis_adapter.py`) empaqueta 5 capacidades externas procedentes de `Shaan-alpha/jarvis-py` (v3.5.2). Las 5 están cubiertas nativamente por el Core de JESSYCA:
-   - `jarvis.system_status` → Cubierto por `core.diagnostics.monitor.SystemMonitor` y `tools.system`.
-   - `jarvis.volume_control` → Cubierto por `skills/windows_skills.py` (`windows.audio`, `pycaw`).
-   - `jarvis.clipboard` → Cubierto por `skills/windows_skills.py` (`windows.clipboard`, `pyperclip`).
-   - `jarvis.workspace_files` → Cubierto por `skills/files_skills.py` (`files.create`, `files.read`, `files.search`, `files.copy`).
-   - `jarvis.app_control` → Cubierto por `skills/apps_skill.py` (`windows.apps`, PID tracking).
-2. **Menor Nivel de Garantía:** Jarvis-py emite `verified=False` por defecto y no interactúa directamente con los contratos de `ExecutionVerifier` del sistema operativo Windows.
-3. **Consumidores Actuales:** Ningún flujo de producción (`main.py`, `JessycaLocalAgent`) delega tareas a Jarvis-py. Sin embargo, está registrado en el `IntegrationHub` como adaptador desacoplado y sus consumidores activos son las suites de pruebas de arquitectura (`tests/test_jarvis_adapter.py` y `tests/integration/test_integrations_architecture_audit.py`), que verifican el aislamiento de seguridad, políticas anti-path traversal y contención de identidades ("soy jarvis").
-4. **Decisión de Ingeniería:** Se conserva inactivo (`enabled=False`) para cumplir el contrato de compatibilidad del Integration Hub sin alterar la pureza del pipeline nativo.
+### A. Trazabilidad de Origen de `sobrescribir=True`:
+Se identificaron 3 vectores potenciales capaces de establecer `sobrescribir=True`:
+1. **Cliente HTTP / API externa:** Un payload JSON enviado a `/v1/chat/completions` o `/execute` conteniendo `"sobrescribir": true`.
+2. **Modelo LLM / Extracción de Parámetros:** Una inferencia o llamada a herramientas (tool call) donde el LLM asigna probabilísticamente `sobrescribir=True` en los argumentos.
+3. **Inyección en Prompt del Usuario:** Un texto adversario ("Sobrescribe sin pedir confirmación") interpretado por el extractor como slot booleano.
 
----
+### B. Demostración de No-Autorización por LLM o Cliente:
+En la arquitectura JDE, un campo en los parámetros crudos es considerado dato no confiable (`UNVERIFIED` / `UNTRUSTED`).
+**Invariante Implementada:**
+- Si un archivo de destino ya existe en el sistema de archivos (`os.path.exists(ruta) == True`), la presencia de `sobrescribir=True` en `parametros` **NO otorga autorización**.
+- El motor intercepta la solicitud y verifica si existe una confirmación registrada, vigente, no expirada y aprobada por el usuario en `JDEConfirmationManager`.
+- La autorización está **estrictamente vinculada** a:
+  1. `session_id`: La confirmación pertenece exclusivamente a la sesión activa del usuario humano.
+  2. `operacion`: La acción registrada (`documents.create` o `files.copy`).
+  3. `destino`: La ruta absoluta normalizada del archivo (`os.path.abspath(ruta)`).
+- **Comportamiento ante Intento No Autorizado:**
+  Si un cliente o LLM envía `sobrescribir=True` sin una confirmación previa aprobada en JDE vinculada a la tupla `(session_id, operacion, destino)`, la operación se rechaza categóricamente con `exito=False`, `verified=False`, `sobrescritura_no_autorizada=True`.
+- **Garantía Monouso:** Una vez consumida una confirmación legítima, queda invalidada inmediatamente; reintentos posteriores sin nueva aprobación son rechazados.
 
-## 4. COMANDOS DE ARRANQUE Y ANÁLISIS DEL MODO `--demo`
-
-### Comandos de Arranque y sus Backends:
-1. **`python main.py doctor`**: Ejecuta el diagnóstico físico de Windows (GPU, VRAM, audio, Office, Ollama). No ejecuta simulaciones.
-2. **`python main.py run "<instrucción>"` / `python main.py chat`**: Cliente CLI determinista directo conectado al Core real (`JessycaLocalAgent.interact()`). **Este es el comando recomendado para pruebas personales de aceptación funcionales**, ya que evalúa de forma determinista la instrucción sin latencias de captura ni dependencias de audio.
-3. **`python main.py --voice --ptt`**: Arranca la interfaz de voz real con captura de micrófono Windows bajo demanda (Pulsar para Hablar), transcripción Whisper y EdgeTTS/SAPI.
-4. **`python main.py --webui` (o `main.py serve`)**: Inicia el servicio Core compartido mediante API HTTP OpenAI-compatible en `127.0.0.1:8000`.
-5. **`python main.py --mcp`**: Inicia el servidor standalone FastMCP exponiendo herramientas reales del sistema operativo a clientes externos.
-
-### ¿Qué activa `--demo` y por qué NO se recomienda para pruebas de aceptación?
-El flag `--demo` (ejecutado por defecto al invocar `python main.py` sin argumentos):
-- Inicializa el Agente Local en memoria.
-- Lanza un servidor MCP en un hilo en segundo plano (`MCPDemoRuntime`).
-- Inicia el **bucle interactivo de voz continuo** (`iniciar_modo_voz`), mostrando el banner de bienvenida DEMO.
-- **Razón técnica para no usarlo en aceptación:** El modo `--demo` combina en un solo proceso un servidor MCP y una sesión de escucha de audio continuo. Si el usuario no interactúa por micrófono con una palabra clave afinada o si el entorno de ejecución carece de entrada continua de voz, la sesión parece pausada o en espera. No introduce código falso, pero añade capas asíncronas no deterministas que interfieren con la verificación técnica directa.
+### C. Regresión Automatizada Añadida:
+Se incorporó el test `test_rejection_of_unauthorized_overwrite_injection_and_session_binding` en [`tests/documents/test_document_routes_and_guarantees.py`](file:///d:/JESSYCA%203.0/asistente-jessyca/tests/documents/test_document_routes_and_guarantees.py):
+- Valida que `sobrescribir=True` enviado por un atacante o LLM falle sin aprobación JDE (**PASSED**).
+- Valida que una confirmación de `Sesión A` sea rechazada si se intenta usar desde `Sesión B` (**PASSED**).
+- Valida que una confirmación para `archivo_x.docx` sea rechazada si se intenta aplicar a `archivo_y.docx` (**PASSED**).
+- Valida que una confirmación gastada no pueda ser reutilizada (**PASSED**).
 
 ---
 
-## 5. PROVEEDOR Y MODELOS LLM CONFIGURADOS
+## 4. VERIFICACIÓN DOCUMENTAL PROFUNDA Y PROPAGACIÓN DE RESULTADOS
 
-* **Proveedor:** Ollama Local en `127.0.0.1:11434` (sin llamadas a nubes de pago).
-* **Catálogo Formal en `ModelRegistry` (`core/llm/model_registry.py`):**
-  1. `llama3.2` (Prioridad 1, ~2.5 GB VRAM) — Diálogo rápido y clasificación.
-  2. `llama3.1` (Prioridad 2, ~5.5 GB VRAM) — Instrucciones estructuradas.
-  3. `qwen3:8b` (Prioridad 3, ~5.7 GB VRAM) — Razonamiento y código.
-  4. `qwen3-vl:4b` (Prioridad 2, ~3.6 GB VRAM) — Visión multimodal.
-  5. `gemma4:e4b` (Fallback / default en `core/brain.py`) — Tareas ligeras.
-* **Distinción entre Pruebas:**
-  - **Pruebas Deterministas:** Las suites de aceptación (`tests/acceptance/`), documentos (`tests/documents/`), sistema de archivos y contratos JDE son **completamente deterministas**. Validan la lógica del sistema, procesamiento de archivos, verificación en el sistema operativo y árboles de decisión sin depender de inferencia probabilística.
-  - **Pruebas de Inferencia:** Pruebas de asistencia de código o enrutamiento adaptativo (`tests/orca_ade/`, benchmarks) que consultan el endpoint de Ollama si está disponible o recurren al modo de degradación controlada / shadow routing.
+### A. Superación de la Verificación Superficial:
+Se eliminó la comprobación trivial que validaba el cumplimiento únicamente por existencia física y tamaño (`os.path.exists(ruta) and os.path.getsize(ruta) > 0`).
 
----
+### B. Protocolo de Reapertura e Integridad por Formato:
+1. **Documentos Word (.docx):**
+   - Se reabre el archivo con `python-docx` (`docx.Document(ruta)`).
+   - Se comprueba la integridad de la estructura OpenXML (párrafos y tablas accesibles sin corrupción).
+   - Se verifica la presencia del título esperado y de las viñetas/datos suministrados en el cuerpo textual.
+2. **Hojas de Cálculo Excel (.xlsx):**
+   - Se reabre el libro con `openpyxl` (`load_workbook(ruta, data_only=False)`).
+   - Se comprueba que las hojas existan y que las fórmulas nativas (`=C5*D5`, `=SUM(...)`) estén escritas físicamente en las celdas de cálculo (`formula_written: True`).
+   - Se ejecuta una validación matemática independiente para comprobar que las reglas de negocio coinciden con el total calculado esperado ($11,682.00 USD).
+3. **Presentaciones PowerPoint (.pptx):**
+   - Se reabre la presentación con `python-pptx` (`pptx.Presentation(ruta)`).
+   - Se comprueba que el número de diapositivas cargadas sea mayor o igual al solicitado.
+   - Se recorren las formas con texto para validar la presencia de los títulos y viñetas de cada diapositiva.
+4. **Documentos de Texto / Markdown (.md / .txt):**
+   - Se reabre el archivo en modo lectura UTF-8 comprobando que el contenido escrito coincide íntegramente con el solicitado.
 
-## 6. PRUEBAS DE CREACIÓN DE DOCUMENTOS CON CONTENIDO ESPECÍFICO Y GARANTÍAS
+### C. Distinción Rigurosa de Estados y Propagación al Usuario:
+El resultado emitido por la habilidad distingue formalmente tres dimensiones:
+- **`archivo_creado` (`bool`):** Confirmación física en el sistema de archivos (existencia y tamaño > 0).
+- **`contenido_verificado` (`bool`):** Confirmación semántica tras reapertura e inspección de estructura interna.
+- **`calculo_verificado` (`bool` | `None`):** Para hojas de cálculo, comprobación de fórmulas sintácticas y concordancia de reglas de negocio; `None` para formatos donde no aplican fórmulas.
 
-Se implementó y ejecutó una suite exhaustiva dedicada: [`tests/documents/test_document_routes_and_guarantees.py`](file:///d:/JESSYCA%203.0/asistente-jessyca/tests/documents/test_document_routes_and_guarantees.py).
-
-### A. Resultados de Creación y Verificación de Contenido Específico:
-1. **Documento Word (.docx) con Título y 3 Datos Específicos:**
-   - **Ruta:** `Campaña de Verano y Producción 2026.docx` (probado con espacios y tildes).
-   - **Título:** `"Plan Estratégico de Operaciones"`.
-   - **Datos Suministrados:**
-     * *"Presupuesto asignado: $45,000 USD para infraestructura"*
-     * *"Personal requerido: 12 ingenieros senior en telecomunicaciones"*
-     * *"Fecha de entrega definitiva: 15 de diciembre de 2026"*
-   - **Verificación Física:** Creación exitosa en disco (36,810 bytes). Reabierto con `DocumentsReadSkill` / `python-docx` confirmando que el título y los 3 datos aparecen de forma íntegra.
-2. **Hoja de Cálculo Excel (.xlsx) con Fórmulas y Distinción de Recálculo:**
-   - **Ruta:** `Presupuesto de Adquisición y Logística 2026.xlsx`.
-   - **Datos:**
-     * 4 Servidores GPU RTX 3060 a $1,200.00 c/u (Subtotal: $4,800.00).
-     * 10 Licencias Software Enterprise a $350.00 c/u (Subtotal: $3,500.00).
-     * 2 Servicios de Soporte Especializado a $800.00 c/u (Subtotal: $1,600.00).
-   - **Fórmulas Nativas Escritas:** `=C5*D5`, `=C6*D6`, `=C7*D7`, `=SUM(E5:E7)`, `=E8*0.18`, `=E8+E9`.
-   - **Distinción de Recálculo:** La suite confirma la **escritura física de fórmulas sintácticas** (`formula_written: True`) y calcula de forma independiente el total esperado ($11,682.00 USD), distinguiendo el almacenamiento de la fórmula de su cálculo dinámico por el motor de hoja de cálculo.
-3. **Presentación PowerPoint (.pptx) con Múltiples Diapositivas:**
-   - **Ruta:** `Presentación Estratégica de Innovación Tecnológica.pptx`.
-   - **Estructura Comprobada:** 3 diapositivas estructuradas en relación 16:9 con tarjetas de contenido:
-     * Diapositiva 1: Portada con título y categoría `ESTRATEGIA`.
-     * Diapositiva 2: Hitos de Operaciones con 3 viñetas verificadas al reabrir.
-     * Diapositiva 3: Métricas de Calidad con disponibilidad 99.9% comprobada al reabrir.
-
-### B. Garantías de Seguridad Verificadas:
-1. **Destino Permitido:** Intentos de crear documentos en rutas sensibles (`C:\Windows\System32\documento.docx`) son rechazados con `Acceso denegado: Intento de escritura en ruta crítica de Windows` (`test_security_guarantee_critical_path_blocked`: **PASSED**).
-2. **Extensión Segura:** Intentos de crear scripts ejecutables con la skill documental (`script.bat`) son rechazados con `Seguridad: Extensión peligrosa bloqueada` (`test_security_guarantee_forbidden_extension_blocked`: **PASSED**).
-3. **Protección Anti-sobrescritura Silenciosa:** Si un archivo ya existe y se intenta crear sin `sobrescribir=True`, la operación falla informando que el archivo ya existe y requiere autorización expresa (`test_security_guarantee_anti_silent_overwrite`: **PASSED**).
-4. **Verificación Física del Resultado:** Toda operación documental comprueba `os.path.exists(ruta)` y `os.path.getsize(ruta) > 0` antes de emitir `ExecutionEvidence.is_verified = True`.
+**Propagación al Usuario (`ResponseSynthesizer`):**
+La respuesta en lenguaje natural y síntesis de voz propaga estos resultados de forma transparente y verídica:
+- Si archivo y contenido son íntegros: *"Listo, creé '[nombre]'. Archivo creado y contenido verificado en disco (con cálculo de fórmulas verificado si aplica)."*
+- Si el archivo fue escrito pero falla la verificación de contenido al reabrir: *"El archivo '[nombre]' fue creado en disco, pero falló la verificación de integridad de su contenido al reabrirlo."*
+- Si la sobrescritura es denegada por falta de confirmación: *"No se autorizó la sobrescritura del archivo existente sin confirmación previa del usuario vinculada a la sesión y destino."*
 
 ---
 
-## 7. BATERÍA DE PRUEBAS EJECUTADAS TRAS EL ÚLTIMO CAMBIO
+## 5. PRUEBAS DE INFERENCIA, DISPONIBILIDAD Y DECLARACIÓN DE FALLBACK
 
-Comandos ejecutados directamente en Windows PowerShell con el código final:
+### A. Ejecución de Petición al Proveedor Configurado:
+- **Proveedor Configurado:** `OllamaProvider` (`core/llm/inference.py`).
+- **Endpoint Configurado:** `http://localhost:11434/api/generate`.
+- **Modelo Solicitado:** `llama3.2` (Prioridad 1 en `ModelRegistry`).
+- **Petición Ejecutada:** `InferenceRequest(prompt="Responde brevemente: ¿cuál es la capital de Francia?", model_name="llama3.2")`.
 
-1. **Suite Específica de Rutas y Garantías Documentales:**
-   - **Comando:** `pytest tests/documents/test_document_routes_and_guarantees.py -v`
-   - **Salida:** `6 passed in 1.57s (100%)`.
-2. **Suite Completa de Procesamiento de Documentos:**
-   - **Comando:** `pytest tests/documents/ -v`
-   - **Salida:** `11 passed in 14.66s (100%)`.
-3. **Trazas E2E desde Lenguaje Natural:**
-   - **Comando:** `pytest tests/acceptance/test_natural_language_e2e_traces.py -v`
-   - **Salida:** `4 passed in 2.63s (100%)`.
-4. **Matriz Funcional de Aceptación:**
-   - **Comando:** `pytest tests/acceptance/test_functional_acceptance_matrix.py -v`
-   - **Salida:** `13 passed in 23.67s (100%)`.
-5. **Auditoría de Arquitectura de Integraciones:**
-   - **Comando:** `pytest tests/integration/test_integrations_architecture_audit.py -v`
-   - **Salida:** `17 passed in 0.55s (100%)`.
-6. **Contrato de Jarvis-py:**
-   - **Comando:** `pytest tests/test_jarvis_adapter.py -v`
-   - **Salida:** `30 passed in 1.04s (100%)`.
+### B. Resultado de la Petición y Registro Sanitizado de Errores:
+- **Disponibilidad del Proveedor (`provider.is_available()`):** `False`.
+- **Resultado:** Fallo determinista por indisponibilidad del servicio de inferencia local.
+- **Excepción Capturada:** `ProviderConnectionError`.
+- **Detalle de Error Sanitizado (sin secretos ni tokens):**
+  ```text
+  [PROVIDER_CONNECTION_ERROR] No se pudo conectar con el proveedor 'ollama' en 'http://localhost:11434'.
+  Details: {'provider': 'ollama', 'host': 'http://localhost:11434', 'original_error': 'HTTPConnectionPool(host=\'localhost\', port=11434): Max retries exceeded with url: /api/generate (Caused by NewConnectionError("HTTPConnection(host=\'localhost\', port=11434): Failed to establish a new connection: [WinError 10061] No se puede establecer una conexión ya que el equipo de destino denegó expresamente dicha conexión"))'}
+  ```
+- **Causa Raíz Comprobada:** El proceso del servidor Ollama no estaba en ejecución en el puerto 11434 en el momento de la prueba.
 
-**Total acumulado de pruebas de regresión ejecutadas exitosamente:** **81 pruebas aprobadas con código de salida 0**.
+### C. Declaración Explícita de Fallback:
+- Cuando el proveedor original no responde, el sistema recurre al mecanismo de degradación controlada (`FakeLLMProvider` / reglas deterministas).
+- **Declaración:**
+  > [!IMPORTANT]
+  > El resultado del fallback (`FakeLLMProvider`, contenido: `"París"`) **NO se contabiliza ni se declara como prueba de inferencia del proveedor original Ollama**. Corresponde exclusivamente al subsistema de contingencia y aislamiento para pruebas sin backend.
+- **Archivo de Evidencia Generado:** [`reports/evidencia_inferencia_2026.json`](file:///d:/JESSYCA%203.0/asistente-jessyca/reports/evidencia_inferencia_2026.json).
 
 ---
 
-## 8. CAPACIDADES LISTAS PARA PRUEBAS PERSONALES VS BLOQUEADAS
+## 6. CONTABILIDAD RIGUROSA DE PRUEBAS Y DISTINCIÓN DE CASOS ÚNICOS
 
-### Capacidades 100% Listas para Tus Pruebas Personales:
-1. **Creación y Lectura de Documentos Word (.docx):**
-   - Comando sugerido: `python main.py run "Crea un documento word llamado informe_proyecto.docx con título Avance Semanal y datos: Completada Fase 1; Pruebas de integración listas"`
-2. **Creación de Libros Excel con Fórmulas (.xlsx):**
-   - Generación de presupuestos con estilos, fórmulas de subtotal y gráficos nativos.
+### A. Diagnóstico de la Contabilidad Previa y Solapamiento Detectado:
+En el informe anterior se sumaron 6 pruebas de `tests/documents/test_document_routes_and_guarantees.py` y 11 pruebas de `tests/documents/`, reportando 81 pruebas totales.
+**Comprobación Técnica:**
+Las pruebas de `test_document_routes_and_guarantees.py` están **100% contenidas** dentro del directorio `tests/documents/`. Por tanto, se produjo una doble contabilización de esas pruebas.
+
+### B. Contabilidad Exacta Actualizada por Node IDs (Pytest):
+
+| Suite de Pruebas | Archivo / Directorio | Pruebas Ejecutadas | Duración | Node IDs Distintos |
+|---|---|:---:|:---:|:---:|
+| **1. Garantías Documentales** | `tests/documents/test_document_routes_and_guarantees.py` | 7 | 1.86s | 7 (incluidos en suite 2) |
+| **2. Suite Documentos Completa** | `tests/documents/` | 12 | 12.77s | 12 (7 garantías + 5 capacidades reales) |
+| **3. Trazas E2E Lenguaje Natural** | `tests/acceptance/test_natural_language_e2e_traces.py` | 4 | 3.12s | 4 |
+| **4. Matriz Funcional de Aceptación** | `tests/acceptance/test_functional_acceptance_matrix.py` | 13 | 27.34s | 13 |
+| **5. Arquitectura de Integraciones** | `tests/integration/test_integrations_architecture_audit.py` | 17 | 0.57s | 17 |
+| **6. Adaptador Jarvis-py** | `tests/test_jarvis_adapter.py` | 30 | 1.06s | 30 |
+
+### Resumen Consolidado de Contabilidad:
+- **Total de ejecuciones de prueba realizadas:** **83 ejecuciones** (todas con código de salida 0).
+- **Total de casos de prueba ÚNICOS (Node IDs distintos):** **76 casos de prueba únicos**.
+- **Solapamiento / doble ejecución identificado:** **7 pruebas** (las 7 pruebas de `test_document_routes_and_guarantees.py` ejecutadas de forma independiente y dentro del directorio `tests/documents/`).
+- **Archivo de Evidencia de Node IDs y Métricas:** [`reports/evidencia_pruebas_y_estado_2026.json`](file:///d:/JESSYCA%203.0/asistente-jessyca/reports/evidencia_pruebas_y_estado_2026.json).
+
+### Node IDs de las 7 Pruebas Documentales Incluidas en las 12:
+1. `tests/documents/test_document_routes_and_guarantees.py::test_word_creation_with_specific_content_and_accents`
+2. `tests/documents/test_document_routes_and_guarantees.py::test_excel_creation_formulas_and_recalculation_distinction`
+3. `tests/documents/test_document_routes_and_guarantees.py::test_powerpoint_multiple_slides_with_accents_and_spaces`
+4. `tests/documents/test_document_routes_and_guarantees.py::test_security_guarantee_critical_path_blocked`
+5. `tests/documents/test_document_routes_and_guarantees.py::test_security_guarantee_forbidden_extension_blocked`
+6. `tests/documents/test_document_routes_and_guarantees.py::test_security_guarantee_anti_silent_overwrite`
+7. `tests/documents/test_document_routes_and_guarantees.py::test_rejection_of_unauthorized_overwrite_injection_and_session_binding` *(Nueva regresión añadida)*
+
+---
+
+## 7. ESTADO DE CAPACIDADES FUNCIONALES EVALUADAS
+
+*(Nota: Se retira toda afirmación categórica de "100 % listo" en cumplimiento de los estándares de rigor de la auditoría).*
+
+### Capacidades Funcionales Verificadas para Pruebas del Usuario:
+1. **Creación, Lectura y Verificación de Documentos Word (.docx):**
+   - Rutas con espacios y tildes, generación con `python-docx`, comprobación de integridad y contenido tras reapertura.
+   - Comando directo sugerido: `python main.py run "Crea un documento word llamado informe_proyecto.docx con título Avance Semanal y datos: Completada Fase 1; Pruebas de integración listas"`
+2. **Hojas de Cálculo Excel con Fórmulas (.xlsx):**
+   - Escritura sintáctica de fórmulas (`=C5*D5`, `=SUM(...)`), comprobación matemática independiente del presupuesto.
 3. **Presentaciones PowerPoint Panorámicas (.pptx):**
-   - Presentaciones de alta fidelidad 16:9 con múltiples tarjetas y viñetas.
-4. **Gestión del Sistema de Archivos de Windows:**
-   - Búsqueda, lectura, copia, movimiento, renombramiento y creación de carpetas con sandbox de protección y anti-sobrescritura.
-5. **Navegación y Búsqueda Web Segura:**
-   - Búsqueda en Google/Bing y extracción de contenido bajo política de lista blanca.
+   - Generación de presentaciones 16:9 con múltiples tarjetas y reapertura verificando diapositivas.
+4. **Protección Anti-sobrescritura y Gobernanza de Archivos:**
+   - Detención preventiva ante colisión de destino y exigencia de confirmación humana vinculada a `(session_id, operacion, destino)` en JDE.
+5. **Navegación Web Segura:**
+   - Búsqueda y extracción bajo lista blanca estricta.
 6. **Control de Aplicaciones y Ventanas de Windows:**
-   - Apertura y cierre de Notepad, Calculadora y procesos registrados con PID verificado.
+   - Apertura y cierre de Notepad y Calculadora con seguimiento de PID.
 7. **Control del Sistema Host de Windows:**
-   - Consulta y ajuste de volumen del sistema (`pycaw`), portapapeles (`pyperclip`), notificaciones Toast de Windows y resolución de pantalla.
-8. **Memoria Jerárquica y Preferencias:**
-   - Almacenamiento, consulta, versionado (v1 → v2) y borrado definitivo de preferencias personales en SQLite.
-9. **Modo Voz por Pulsar para Hablar (PTT):**
-   - Interacción por voz utilizando el micrófono físico de Windows y síntesis EdgeTTS/SAPI.
+   - Ajuste y lectura de volumen con `pycaw`, portapapeles y notificaciones del sistema.
+8. **Memoria Jerárquica y Preferencias de Usuario:**
+   - Persistencia estructurada en SQLite con versionado y borrado definitivo.
+9. **Interacción por Voz mediante Pulsar para Hablar (PTT):**
+   - Captura de micrófono Windows bajo demanda y síntesis EdgeTTS/SAPI.
 10. **Asistencia de Programación (Orca/ADE):**
-    - Diagnóstico de código, diffs y ejecución de pruebas locales con pytest.
+    - Diagnóstico de código, diffs unificados y ejecución de pruebas con pytest.
 
-### Capacidades Bloqueadas / Condicionadas:
+### Capacidades con Restricciones Técnicas o Dependientes de Hardware:
 1. **Control de Teléfono Android por USB:**
-   - *Motivo del Bloqueo:* Falta de hardware físico conectado. El contrato y el driver están probados, pero `adb devices` no detecta ningún teléfono conectado por cable USB al host.
-2. **Palabra de Activación Local en Español ("Jessyca"):**
-   - *Motivo del Bloqueo:* El modelo de red neuronal de openWakeWord solo tiene pesos entrenados para fonemas en inglés. Se debe utilizar el modo Pulsar para Hablar (PTT) hasta que se compile el modelo ONNX en español.
-3. **Evaluación Dinámica de Fórmulas Excel sin Microsoft Excel Instalado:**
-   - *Condición:* Las fórmulas se escriben 100% de forma sintáctica nativa (`=SUM`, `=C*D`). Si la máquina no tiene Microsoft Excel o un motor COM de cálculo activo, el recálculo dinámico solo ocurre al abrir el archivo en la aplicación.
+   - *Condición:* Requiere dispositivo físico conectado con depuración USB habilitada. `adb devices` reporta 0 teléfonos conectados al host.
+2. **Palabra de Activación en Español ("Jessyca"):**
+   - *Condición:* El modelo base de openWakeWord no incluye pesos entrenados para este fonema en español. Se debe operar en modo Pulsar para Hablar (PTT).
+3. **Inferencia Local LLM sin Demonio Activo:**
+   - *Condición:* Requiere que el servicio `ollama serve` esté levantado y escuchando en el puerto 11434. De lo contrario, opera en modo de degradación controlada / shadow.
+4. **Recálculo Dinámico de Celdas Excel en Máquinas sin Microsoft Excel:**
+   - *Condición:* Las fórmulas se almacenan sintácticamente. Si la máquina no cuenta con la suite ofimática instalada para disparar el motor COM de recálculo, los valores evaluados se calculan al abrir el archivo en el visor de usuario.
 
 ---
 
-## 9. INSTRUCCIONES DE REVERSIÓN SEGURA (ROLLBACK)
+## 8. CORRECCIÓN Y VERIFICACIÓN ESTRUCTURADA DE LITERALES MONETARIOS WORD
 
-Todos los cambios de esta auditoría están estrictamente contenidos y protegidos en la rama local `audit/integral-corrective`.
+### A. Diagnóstico y Corrección del Registro Previo:
+- **Primer caso Word (`informe_datos.docx`):**
+  La inspección física estructurada mediante `python-docx` en entorno aislado de Python demostró que **este archivo perdió el importe monetario**.
+  - Contenido real en disco: `Presupuesto ; 5 servidores activos; fecha límite 30 de noviembre`.
+  - Causa técnica verificada: Al ejecutarse la invocación mediante PowerShell utilizando comillas dobles (`"..."`), la subcadena `"$10000"` fue interpolada por la shell de Windows como una variable inexistente, expandiéndose a una cadena vacía antes de ser recibida por la aplicación.
+  - **Corrección obligatoria del registro:** Se anula la aseveración anterior. El primer archivo Word (`informe_datos.docx`) perdió efectivamente el importe monetario.
 
-Para volver a la rama base previa en cualquier momento sin alterar ni descartar ningún archivo:
-```powershell
-git checkout fix/baseline-diagnostico
-```
-
-Para volver a la rama de auditoría y retomar las pruebas con todas las correcciones activas:
-```powershell
-git checkout audit/integral-corrective
-```
-
-> [!IMPORTANT]
-> **Protección de Datos:** No se deben ejecutar comandos destructivos como `git reset --hard` ni `git branch -D`. La rama `audit/integral-corrective` preserva de forma independiente todo el trabajo y la evidencia técnica sin interferir con la rama base.
+### B. Comprobación del Nuevo Caso (`informe_operativo_presupuestario_2026.docx`):
+- **Nuevo caso generado:** Generado sin sobrescribir el archivo anterior y preservando el literal monetario.
+- **Comprobación física estructurada (`tests/documents/test_monetary_literal_preservation.py`):**
+  - Contenido real en disco: `Presupuesto $10000; 5 servidores activos; fecha límite 30 de noviembre`.
+  - Importe literal: **`$10000` conservado íntegramente**.
+- **Garantía metodológica:** La prueba se codificó en un archivo `.py` estructurado sin pasar por la evaluación de cadenas de PowerShell, garantizando que el valor esperado de la aserción no sufra expansión ni alteración.

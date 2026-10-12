@@ -61,7 +61,8 @@ class FilesSearchSkill(BaseSkill):
             or ""
         ).strip().lower()
 
-        if not nombre_archivo:
+        is_wildcard = (not nombre_archivo) or nombre_archivo in ("*.*", "*", "todos", "documentos", "archivos", "ficheros")
+        if not nombre_archivo and not parametros.get("ruta") and not parametros.get("path"):
             return {"exito": False, "mensaje": "Debe especificar el nombre o patrón del archivo a buscar."}
 
         ruta_base = str(parametros.get("ruta") or parametros.get("path") or os.getcwd()).strip()
@@ -88,7 +89,8 @@ class FilesSearchSkill(BaseSkill):
                     continue
 
                 for f in files:
-                    if nombre_archivo in f.lower():
+                    es_coincidente = is_wildcard or (nombre_archivo in f.lower())
+                    if es_coincidente:
                         full_path = os.path.join(root, f)
                         try:
                             tamano = os.path.getsize(full_path)
@@ -106,9 +108,11 @@ class FilesSearchSkill(BaseSkill):
                 if len(coincidencias) >= max_resultados:
                     break
 
+            nombres_encontrados = [c["nombre"] for c in coincidencias]
+            resumen_encontrados = f": {', '.join(nombres_encontrados)}" if nombres_encontrados else "."
             return {
                 "exito": True,
-                "mensaje": f"Búsqueda finalizada. Se encontraron {len(coincidencias)} archivo(s).",
+                "mensaje": f"Búsqueda finalizada. Se encontraron {len(coincidencias)} archivo(s){resumen_encontrados}",
                 "coincidencias": coincidencias,
                 "total": len(coincidencias),
             }

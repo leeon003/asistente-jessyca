@@ -147,8 +147,10 @@ class EdgeTTSService:
         text: str,
         voice: str | None = None,
         cancellation_token: CancellationToken | None = None,
+        rate: str | None = None,
+        pitch: str | None = None,
     ) -> TTSResult:
-        """Sintetiza texto a audio MP3 utilizando edge-tts."""
+        """Sintetiza texto a audio MP3 utilizando edge-tts con control de ritmo y tono."""
         if not text or not text.strip():
             return TTSResult(
                 audio_bytes=b"",
@@ -160,7 +162,12 @@ class EdgeTTSService:
         if cancellation_token and cancellation_token.is_cancelled:
             raise VoiceCancelledError("Síntesis de voz cancelada antes de iniciar.")
 
+        from config.manager import get_settings
+
+        settings = get_settings()
         selected_voice = voice or self.default_voice
+        selected_rate = rate or getattr(settings, "VOICE_TTS_RATE", "+0%")
+        selected_pitch = pitch or getattr(settings, "VOICE_TTS_PITCH", "+0Hz")
 
         try:
             # En un entorno real se ejecuta el generador asíncrono de edge-tts
@@ -170,7 +177,12 @@ class EdgeTTSService:
             import edge_tts
 
             async def _run_edge_tts() -> bytes:
-                communicate = edge_tts.Communicate(text, selected_voice)
+                communicate = edge_tts.Communicate(
+                    text,
+                    selected_voice,
+                    rate=selected_rate,
+                    pitch=selected_pitch,
+                )
                 chunks: list[bytes] = []
                 async for chunk in communicate.stream():
                     if cancellation_token and cancellation_token.is_cancelled:

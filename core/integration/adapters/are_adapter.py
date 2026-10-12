@@ -15,6 +15,8 @@ Principios Obligatorios:
 
 from __future__ import annotations
 
+import os
+import re
 import time
 from collections import defaultdict, deque
 from dataclasses import dataclass, field
@@ -323,16 +325,44 @@ class AREAdapter(IntegrationAdapter):
         ctx = params.get("context", {}) or {}
 
         # ── OBJETIVO 1: Localizar documento y resumirlo con referencias ──
-        if ("localiza" in goal_lower or ("busca" in goal_lower and "documento" in goal_lower)) and ("resume" in goal_lower or "referencia" in goal_lower):
+        if (
+            ("localiza" in goal_lower or "busca" in goal_lower or "resume" in goal_lower)
+            and ("documento" in goal_lower or "contenido" in goal_lower or "referencia" in goal_lower or bool(re.search(r'\.(?:docx|xlsx|pptx|pdf|txt|md)', goal_lower)))
+        ):
             doc_dir = ctx.get("directory") or params.get("directory") or "."
-            doc_query = ctx.get("query") or ctx.get("pattern") or ctx.get("filename") or "documento"
             explicit_path = ctx.get("file_path") or params.get("file_path")
 
+            m_f = re.search(r'([a-zA-Z0-9_\-\.]+\.(?:docx|xlsx|pptx|pdf|txt|md|json))', goal_clean, flags=re.IGNORECASE)
+            explicit_fname = m_f.group(1).strip() if m_f else None
+            if not explicit_path and explicit_fname:
+                if os.path.exists(explicit_fname):
+                    explicit_path = os.path.abspath(explicit_fname)
+
+            # Referencia inequívoca de sesión
+            session_ref = (
+                ctx.get("active_document")
+                or ctx.get("session_document")
+                or ctx.get("current_document")
+                or ctx.get("current_file")
+                or params.get("session_reference")
+            )
+            if session_ref and os.path.exists(str(session_ref)):
+                session_ref = os.path.abspath(str(session_ref))
+            else:
+                session_ref = None
+
+            candidate_q = ctx.get("query") or ctx.get("pattern") or ctx.get("filename")
+            if candidate_q and not any(k in str(candidate_q).lower() for k in ("resume", "contenido", "localiza", "busca")):
+                doc_query = explicit_fname or str(candidate_q).strip()
+            else:
+                doc_query = explicit_fname or "documento"
+
+            # Caso A: Con ruta explícita autorizada
             if explicit_path:
                 graph.add_node(
                     TaskNode(
                         id="step_1_read",
-                        title="Leer documento localizado",
+                        title="Leer documento autorizado explícito",
                         action_type="documents.read",
                         parameters={"file_path": str(explicit_path)},
                         depends_on=[],
@@ -353,11 +383,40 @@ class AREAdapter(IntegrationAdapter):
                         is_critical=True,
                     )
                 )
+
+            # Caso B: Con referencia inequívoca de sesión
+            elif session_ref:
+                graph.add_node(
+                    TaskNode(
+                        id="step_1_read",
+                        title="Leer documento activo de la sesión",
+                        action_type="documents.read",
+                        parameters={"file_path": str(session_ref)},
+                        depends_on=[],
+                        is_critical=True,
+                    )
+                )
+                graph.add_node(
+                    TaskNode(
+                        id="step_2_summarize",
+                        title="Sintetizar documento de sesión con referencias",
+                        action_type="documents.summarize",
+                        parameters={
+                            "content": "$step_1_read.output.content",
+                            "file_path": "$step_1_read.output.file_path",
+                            "max_points": 5,
+                        },
+                        depends_on=["step_1_read"],
+                        is_critical=True,
+                    )
+                )
+
+            # Caso C: Sin referencia previa -> buscar y seleccionar (solicita aclaración si hay múltiples candidatos)
             else:
                 graph.add_node(
                     TaskNode(
                         id="step_1_search",
-                        title="Localizar documento en directorio",
+                        title="Localizar documentos candidatos en directorio",
                         action_type="files.search",
                         parameters={"directory": str(doc_dir), "query": str(doc_query)},
                         depends_on=[],
@@ -366,25 +425,35 @@ class AREAdapter(IntegrationAdapter):
                 )
                 graph.add_node(
                     TaskNode(
-                        id="step_2_read",
-                        title="Leer contenido del documento localizado",
-                        action_type="documents.read",
-                        parameters={"file_path": "$step_1_search.output.found_files[0]"},
+                        id="step_2_select",
+                        title="Seleccionar documento autorizado sin ambigüedad",
+                        action_type="documents.select",
+                        parameters={"candidates": "$step_1_search.output.found_files"},
                         depends_on=["step_1_search"],
                         is_critical=True,
                     )
                 )
                 graph.add_node(
                     TaskNode(
-                        id="step_3_summarize",
+                        id="step_3_read",
+                        title="Leer contenido del documento seleccionado",
+                        action_type="documents.read",
+                        parameters={"file_path": "$step_2_select.output.selected_file"},
+                        depends_on=["step_2_select"],
+                        is_critical=True,
+                    )
+                )
+                graph.add_node(
+                    TaskNode(
+                        id="step_4_summarize",
                         title="Sintetizar contenido con referencias auditables",
                         action_type="documents.summarize",
                         parameters={
-                            "content": "$step_2_read.output.content",
-                            "file_path": "$step_2_read.output.file_path",
+                            "content": "$step_3_read.output.content",
+                            "file_path": "$step_3_read.output.file_path",
                             "max_points": 5,
                         },
-                        depends_on=["step_2_read"],
+                        depends_on=["step_3_read"],
                         is_critical=True,
                     )
                 )

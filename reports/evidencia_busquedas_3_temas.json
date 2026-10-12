@@ -1,0 +1,62 @@
+{
+  "temas_produccion": [
+    {
+      "consulta": "Python 3.12",
+      "url": "https://www.bing.com/search?q=Python%203.12",
+      "resultados_leidos": true,
+      "respuesta_elaborada": true,
+      "urls_extraidas": [
+        "https://es.wikipedia.org/wiki/Python",
+        "https://es.wikipedia.org/wiki/Historia_de_Python",
+        "https://es.wikipedia.org/wiki/Python_bivittatus"
+      ],
+      "fragmentos": [
+        "Python es un lenguaje de alto nivel de programación interpretado cuya filosofía hace hincapié en la legibilidad de su código. Se trata de un lenguaje de",
+        "2006 Python 2.6 - 1 de octubre de 2008 Python 2.7 - 3 de julio de 2010 Python 3.0 - 3 de diciembre de 2008 Python 3.1 - 27 de junio de 2009 Python 3.2 -",
+        "La pitón de Birmania (Python bivittatus) es una especie de serpiente perteneciente a la familia Pythonidae, propia de la Región indomalaya.​ Es una serpiente"
+      ],
+      "mensaje": "Información recuperada sobre 'Python 3.12':\n• Python: Python es un lenguaje de alto nivel de programación interpretado cuya filosofía hace hincapié en la legibilidad de su código. Se trata de un lenguaje de\n  Fuente oficial / URL: https://es.wikipedia.org/wiki/Python\n• Historia de Python: 2006 Python 2.6 - 1 de octubre de 2008 Python 2.7 - 3 de julio de 2010 Python 3.0 - 3 de diciembre de 2008 Python 3.1 - 27 de junio de 2009 Python 3.2 -\n  Fuente oficial / URL: https://es.wikipedia.org/wiki/Historia_de_Python\n• Python bivittatus: La pitón de Birmania (Python bivittatus) es una especie de serpiente perteneciente a la familia Pythonidae, propia de la Región indomalaya.​ Es una serpiente\n  Fuente oficial / URL: https://es.wikipedia.org/wiki/Python_bivittatus"
+    },
+    {
+      "consulta": "Computación cuántica",
+      "url": "https://www.bing.com/search?q=Computaci%C3%B3n%20cu%C3%A1ntica",
+      "resultados_leidos": true,
+      "respuesta_elaborada": true,
+      "urls_extraidas": [
+        "https://es.wikipedia.org/wiki/Computaci%C3%B3n_cu%C3%A1ntica",
+        "https://es.wikipedia.org/wiki/Informaci%C3%B3n_y_comunicaci%C3%B3n_cu%C3%A1ntica",
+        "https://es.wikipedia.org/wiki/Computaci%C3%B3n_cu%C3%A1ntica_%C3%B3ptica"
+      ],
+      "fragmentos": [
+        "La computación cuántica o informática cuántica​ es un paradigma de computación distinto al de la informática clásica. Se basa en el uso de bits cuánticos",
+        "y efectos de la mecánica cuántica. Su desarrollo se basa principalmente en la criptografía cuántica y la computación cuántica. Se proyecta como un nuevo",
+        "La computación cuántica óptica es una propuesta experimental y teórica que pretende servir como base para el desarrollo de la computación cuántica. Consiste"
+      ],
+      "mensaje": "Información recuperada sobre 'Computación cuántica':\n• Computación cuántica: La computación cuántica o informática cuántica​ es un paradigma de computación distinto al de la informática clásica. Se basa en el uso de bits cuánticos\n  Fuente oficial / URL: https://es.wikipedia.org/wiki/Computaci%C3%B3n_cu%C3%A1ntica\n• Información y comunicación cuántica: y efectos de la mecánica cuántica. Su desarrollo se basa principalmente en la criptografía cuántica y la computación cuántica. Se proyecta como un nuevo\n  Fuente oficial / URL: https://es.wikipedia.org/wiki/Informaci%C3%B3n_y_comunicaci%C3%B3n_cu%C3%A1ntica\n• Computación cuántica óptica: La computación cuántica óptica es una propuesta experimental y teórica que pretende servir como base para el desarrollo de la computación cuántica. Consiste\n  Fuente oficial / URL: https://es.wikipedia.org/wiki/Computaci%C3%B3n_cu%C3%A1ntica_%C3%B3ptica"
+    },
+    {
+      "consulta": "Telescopio James Webb",
+      "url": "https://www.bing.com/search?q=Telescopio%20James%20Webb",
+      "resultados_leidos": true,
+      "respuesta_elaborada": true,
+      "urls_extraidas": [
+        "https://es.wikipedia.org/wiki/Telescopio_espacial_James_Webb",
+        "https://es.wikipedia.org/wiki/Parasol_del_Telescopio_Espacial_James_Webb",
+        "https://es.wikipedia.org/wiki/Primer_campo_profundo_del_Webb"
+      ],
+      "fragmentos": [
+        "El telescopio espacial James Webb (en inglés, James Webb Space Telescope (JWST)) es un observatorio espacial desarrollado a través de la colaboración",
+        "Telescopio Espacial James Webb (JWST) es un sistema de control térmico que es desplegado después de su lanzamiento para proteger al mismo telescopio y",
+        "que es la de mayor resolución jamás tomada del universo primitivo. El telescopio espacial James Webb (JWST) es un telescopio diseñado para captar fotones"
+      ],
+      "mensaje": "Información recuperada sobre 'Telescopio James Webb':\n• Telescopio espacial James Webb: El telescopio espacial James Webb (en inglés, James Webb Space Telescope (JWST)) es un observatorio espacial desarrollado a través de la colaboración\n  Fuente oficial / URL: https://es.wikipedia.org/wiki/Telescopio_espacial_James_Webb\n• Parasol del Telescopio Espacial James Webb: Telescopio Espacial James Webb (JWST) es un sistema de control térmico que es desplegado después de su lanzamiento para proteger al mismo telescopio y\n  Fuente oficial / URL: https://es.wikipedia.org/wiki/Parasol_del_Telescopio_Espacial_James_Webb\n• Primer campo profundo del Webb: que es la de mayor resolución jamás tomada del universo primitivo. El telescopio espacial James Webb (JWST) es un telescopio diseñado para captar fotones\n  Fuente oficial / URL: https://es.wikipedia.org/wiki/Primer_campo_profundo_del_Webb"
+    }
+  ],
+  "busqueda_sin_lectura": {
+    "consulta": "termino_no_indexable_abc_999",
+    "url": "https://www.bing.com/search?q=termino_no_indexable_abc_999",
+    "resultados_leidos": false,
+    "respuesta_elaborada": false,
+    "mensaje": "Abrí la búsqueda para 'termino_no_indexable_abc_999' en el navegador."
+  }
+}

@@ -90,7 +90,12 @@ class BaseSkill(ABC):
             exec_id = context.execution_id
 
         try:
-            res_dict = self.ejecutar(params)
+            import inspect
+            sig = inspect.signature(self.ejecutar)
+            if "context" in sig.parameters:
+                res_dict = self.ejecutar(params, context=context)
+            else:
+                res_dict = self.ejecutar(params)
             elapsed_ms = (time.perf_counter() - start_time) * 1000.0
 
             success = bool(res_dict.get("exito", False))

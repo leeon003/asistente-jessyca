@@ -195,9 +195,10 @@ class JessycaResponse:
     tools_executed: list[str] = field(default_factory=list)
     security_verdict: str = "ALLOW"
     security_level: SecurityLevel = SecurityLevel.SAFE
-    requires_confirmation: bool = False
     requires_clarification: bool = False
     clarification_question: str | None = None
+    original_transcript: str | None = None
+    proposed_interpretation: str | None = None
     output_data: Any = None
     error: str | None = None
     metrics: LocalAgentMetrics = field(default_factory=LocalAgentMetrics)
@@ -223,6 +224,8 @@ class JessycaResponse:
             "requires_confirmation": self.requires_confirmation,
             "requires_clarification": self.requires_clarification,
             "clarification_question": self.clarification_question,
+            "original_transcript": self.original_transcript,
+            "proposed_interpretation": self.proposed_interpretation,
             "output_data": self.output_data,
             "error": self.error,
             "metrics": self.metrics.to_dict(),

@@ -13,9 +13,11 @@ Mantiene el hilo conversacional multi-turno sin comprometer la seguridad:
 
 from __future__ import annotations
 
+import os
 import re
 import threading
 import uuid
+from pathlib import Path
 from typing import Any
 
 from core.local_agent.conversation_models import (
@@ -287,7 +289,13 @@ class ConversationContextManager:
                 from core.jde.confirmation import get_confirmation_manager
                 conf_mgr = get_confirmation_manager()
 
-                if lower in ("sí", "si", "confirmo", "autorizo", "adelante", "de acuerdo", "procede", "afirmativo", "sí autorizo", "si autorizo"):
+                if (
+                    lower in (
+                        "sí", "si", "confirmo", "autorizo", "adelante", "de acuerdo", "procede", "afirmativo",
+                        "sí autorizo", "si autorizo", "confirmar", "confirma", "sí confirmo", "si confirmo",
+                    )
+                    or lower.startswith("confirmar")
+                ):
                     pending = dict(session.pending_confirmation)
                     session.clear_pending_confirmation()
                     session.dialogue_state = DialogueState.EXECUTING
@@ -420,8 +428,13 @@ class ConversationContextManager:
                 session.set_context_item("last_search_query", query_yt, relevance=0.95)
                 return "youtube_search", {"query": query_yt, "motor": "youtube"}, False, None
 
-            # 4.0.0.2 APERTURA DIRECTA: "Abre YouTube"
-            if lower in ("abre youtube", "abrir youtube", "youtube", "pon youtube", "inicia youtube", "abrir la app de youtube"):
+            # 4.0.0.2 APERTURA DIRECTA: "Abre YouTube" (soporte para prefijos y variaciones conversacionales)
+            clean_yt = re.sub(r"^(?:pero\s+|y\s+|entonces\s+|bueno\s+|por\s+favor\s+|a\s+ver\s+)?(?:que\s+)?", "", lower).strip()
+            clean_yt = re.sub(r"^(?:puedes\s+|podr[ií]as\s+|quiero\s+que\s+)?", "", clean_yt).strip()
+            if (
+                clean_yt in ("abre youtube", "abrir youtube", "abra youtube", "abras youtube", "abreme youtube", "ábreme youtube", "youtube", "pon youtube", "inicia youtube", "abrir la app de youtube", "abre el youtube", "abra el youtube", "abra su youtube", "abre su youtube")
+                or bool(re.match(r"^(?:abre|abrir|abra|abras|abreme|ábreme|inicia|iniciar|pon|poner)\s+(?:el\s+|la\s+|su\s+|mi\s+)?youtube\b", clean_yt))
+            ):
                 session.set_context_item("current_application", "edge", relevance=1.0)
                 session.set_context_item("last_app", "edge", relevance=1.0)
                 session.set_context_item("last_referenced_entity", "YouTube", relevance=1.0)
@@ -605,8 +618,9 @@ class ConversationContextManager:
                 return "delete_file", {"path": path or "C:\\Data\\temp.tmp"}, False, None
 
             # 4.0.0.3.1 INVESTIGACIÓN / ANÁLISIS MULTI-PASO ("Investiga sobre...", "Analiza...")
-            if any(w in lower for w in ("investiga", "investigar", "informe", "reporte", "analiza", "analizar")):
-                topic = re.sub(r"^(?:jessyca,?\s*|jessica,?\s*)?(?:investiga|investigar|analiza|analizar)\s+(?:sobre\s+|este\s+|el\s+|esta\s+)?", "", text, flags=re.IGNORECASE).strip()
+            is_doc_cmd = any(k in lower for k in ("crea", "crear", "guarda", "guardar", "escribe", "escribir", "documento", ".docx", ".xlsx", ".pptx"))
+            if not is_doc_cmd and any(w in lower for w in ("investiga", "investigar", "analiza", "analizar", "haz un informe", "haz una investigación")):
+                topic = re.sub(r"^(?:jessyca,?\s*|jessica,?\s*)?(?:investiga|investigar|analiza|analizar|haz un informe sobre|haz una investigación sobre)\s+(?:sobre\s+|este\s+|el\s+|esta\s+)?", "", text, flags=re.IGNORECASE).strip()
                 return "multistep_research", {"topic": topic or "tecnología"}, False, None
 
             # 4.0.0.3.2 BÚSQUEDA DE ARCHIVOS LOCALES ("Busca mis documentos", "Busca el archivo...")
@@ -614,10 +628,21 @@ class ConversationContextManager:
                 any(w in lower for w in ("busca", "buscar", "encuentra", "localiza"))
                 and any(w in lower for w in ("archivo", "archivos", "documento", "documentos", "carpeta", "carpetas", "pdf", "txt", "docx"))
             ):
+                m_folder = re.search(r'(?:en(?:\s+(?:la\s+carpeta|el\s+directorio))?|dentro\s+de)\s+["\']?([a-zA-Z]:[^\r\n"\'*?<>|]+|[^\s"\'*?<>|]+)["\']?', text, flags=re.IGNORECASE)
+                folder_target = m_folder.group(1).strip().rstrip(".,;:") if m_folder else None
+
                 q_file = re.sub(r"^(?:jessyca,?\s*|jessica,?\s*)?(?:busca|buscar|encuentra|localiza)\s+(?:mis\s+|los\s+|el\s+|la\s+)?", "", text, flags=re.IGNORECASE).strip()
-                session.set_context_item("last_search_query", q_file, relevance=0.95)
-                session.set_context_item("last_referenced_entity", q_file, relevance=0.95)
-                return "search_file", {"query": q_file or "documentos"}, False, None
+                if m_folder:
+                    q_file = re.sub(r'(?:en(?:\s+(?:la\s+carpeta|el\s+directorio))?|dentro\s+de)\s+["\']?[^"\'\r\n]+["\']?', "", q_file, flags=re.IGNORECASE).strip()
+
+                q_clean = q_file.replace("documentos", "").replace("archivos", "").strip() or "*.*"
+                params_ret: dict[str, Any] = {"query": q_clean}
+                if folder_target:
+                    params_ret["ruta"] = folder_target
+
+                session.set_context_item("last_search_query", q_clean, relevance=0.95)
+                session.set_context_item("last_referenced_entity", q_clean, relevance=0.95)
+                return "search_file", params_ret, False, None
 
             # 4.0.0.4 BÚSQUEDA WEB O MULTIMEDIA ("Busca física cuántica", "Busca La Yerba del Rey")
             if lower.startswith("busca ") or lower.startswith("buscar "):
@@ -828,6 +853,59 @@ class ConversationContextManager:
                     app_name = lower.replace("el ", "").replace("la ", "").replace("un ", "").replace("una ", "").strip()
                     return "open_application", {"app_name": app_name, "target": app_name}, False, None
 
+                # Caso: Selección contextual de documento tras ambigüedad
+                if pending_intent == "summarize_document":
+                    candidates = partial_params.get("candidates", [])
+                    selected_cand = None
+
+                    # 1. Por número (ej: "1", "2")
+                    num_match = re.search(r"\b(\d+)\b", lower)
+                    if num_match:
+                        idx = int(num_match.group(1)) - 1
+                        if 0 <= idx < len(candidates):
+                            selected_cand = candidates[idx]
+
+                    # 2. Por ordinal (ej: "el primero", "el segundo")
+                    if not selected_cand:
+                        if any(w in lower for w in ("primero", "primera", "el 1")):
+                            if len(candidates) >= 1:
+                                selected_cand = candidates[0]
+                        elif any(w in lower for w in ("segundo", "segunda", "el 2")):
+                            if len(candidates) >= 2:
+                                selected_cand = candidates[1]
+                        elif any(w in lower for w in ("tercero", "tercera", "el 3")):
+                            if len(candidates) >= 3:
+                                selected_cand = candidates[2]
+
+                    # 3. Por coincidencia en el nombre del archivo
+                    if not selected_cand:
+                        for cand in candidates:
+                            c_name = os.path.basename(cand).lower()
+                            if c_name in lower or lower in c_name:
+                                selected_cand = cand
+                                break
+
+                    # 4. Si el usuario escribió directamente una ruta o nombre
+                    if not selected_cand:
+                        selected_cand = text.strip().strip("\"'")
+
+                    # Comprobar existencia (referencias que ya no existen)
+                    if not os.path.exists(selected_cand):
+                        err_msg = f"El documento seleccionado '{selected_cand}' no existe o la referencia ya no está disponible."
+                        return "summarize_document", {"error": "file_not_found", "immediate_response": err_msg}, False, err_msg
+
+                    # Comprobar autorización estricta (existencia != autorización)
+                    from core.documents.summarizer import check_document_authorization
+                    session_auth_root = getattr(session, "trusted_root", None)
+                    is_auth, sec_msg = check_document_authorization(selected_cand, trusted_root=session_auth_root)
+                    if not is_auth:
+                        return "summarize_document", {"error": "access_denied", "immediate_response": sec_msg}, False, sec_msg
+
+                    session.set_context_item("last_summarized_document", selected_cand, relevance=1.0)
+                    session.set_context_item("active_document", selected_cand, relevance=1.0)
+                    session.set_context_item("current_document", selected_cand, relevance=1.0)
+                    return "summarize_document", {"ruta": selected_cand}, False, None
+
                 # Caso: Completitud de investigación / búsqueda
                 if pending_intent in ("multistep_research", "browser_search", "search_file"):
                     return pending_intent, {expected_slot: text.strip()}, False, None
@@ -1011,6 +1089,10 @@ class ConversationContextManager:
         intent: str,
     ) -> None:
         """Actualiza el contexto corto con las entidades mencionadas en el turno."""
+        # Evitar contaminar el contexto si el turno fue una aclaración por baja confianza STT
+        if intent in ("unknown", "clarification_request", "low_stt_confidence"):
+            return
+
         prompt_lower = prompt.lower()
 
         # Aplicación activa

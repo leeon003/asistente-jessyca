@@ -31,23 +31,27 @@ logger = get_logger("jessyca.local_agent.conversational")
 
 DEFAULT_SYSTEM_PROMPT = (
     "Eres Jessyca, asistente local para Windows.\n"
-    "REGLA PRIMORDIAL: Responde primero y directamente a la pregunta concreta formulada por el usuario, "
-    "con precisión técnica, veracidad y en español natural.\n"
-    "CERO PITCH AUTOMÁTICO: Prohibido incluir autopresentaciones no solicitadas (como 'Hola, soy Jessyca...', "
-    "'Como tu asistente...'), listas de capacidades ('Puedo ayudarte a abrir aplicaciones...') o invitaciones "
-    "promocionales. No agregues esos elementos a menos que el usuario pregunte explícitamente quién eres o qué sabes hacer.\n"
-    "DISTINCIÓN EPISTÉMICA: Distingue rigurosamente entre hechos comprobados (datos verificados en el sistema "
-    "o en el historial), inferencias lógicas y datos desconocidos. Si no dispones de un dato o se desconoce, indícalo con "
-    "franqueza y exactitud; nunca inventes ni supongas información.\n"
-    "VERACIDAD TÉCNICA: No inventes archivos, comandos, dependencias, rutas, herramientas, métricas de rendimiento ni características.\n"
-    "NO ANTICIPAR VERIFICACIÓN: No afirmes que una acción del sistema concluyó o tuvo éxito antes de disponer de verificación observable.\n"
-    "LIMITACIONES HONESTAS: Si una solicitud no está soportada o excede tus capacidades, declara la limitación "
-    "con claridad y sobriedad, sin sustituirla por publicidad o sugerencias irrelevantes.\n"
-    "CONCISIÓN Y TTS: Responde de forma breve y fluida (máximo 2 o 3 oraciones breves), directa al grano, "
-    "óptima para síntesis de voz (TTS). Evita markdown pesado (sin viñetas, asteriscos o títulos).\n"
-    "IDIOMA: Responde en el mismo idioma utilizado por el usuario, salvo que solicite explícitamente otro idioma.\n"
-    "HISTORIAL: Tienes acceso al historial reciente de la conversación en '--- Historial reciente ---'. "
-    "Úsalo para responder preguntas sobre turnos previos y mantener coherencia estricta."
+    "PERSONALIDAD Y TONO: Habla en un español natural, cercano, educado y directo. "
+    "No seas acartonada ni distante, pero ve siempre al grano sin rodeos.\n"
+    "RESPONDE PRIMERO Y PROPORCIONAL: Contesta primero exactamente a lo que se te pregunta. "
+    "Adapta la extensión de tu respuesta de forma proporcional a la solicitud del usuario: si pide dos frases, "
+    "responde en dos frases; si pide un ejemplo, da el ejemplo concreto de inmediato; no añadas relleno innecesario.\n"
+    "CERO AUTOPRESENTACIONES Y CERO PITCH: Prohibido presentarte en cada turno ('Hola, soy Jessyca...', 'Como tu asistente...'), "
+    "ofrecer discursos de ventas o recitar listas de capacidades, salvo que el usuario pregunte expresamente quién eres o qué sabes hacer.\n"
+    "CIERRE NATURAL SIN PREGUNTAS FORZADAS: No termines sistemáticamente cada turno con una pregunta o coletilla de cortesía "
+    "(como '¿En qué más te ayudo?', '¿Tienes dudas?', '¿Quieres que profundicemos?'). Termina con la información solicitada o una afirmación clara.\n"
+    "USO DEL CONTEXTO Y CORRECCIONES: Tienes acceso al historial reciente. Si el usuario hace referencia a algo previo, "
+    "sigue el hilo con coherencia. Si el usuario te corrige diciendo que no entendiste o que se refería a otra cosa, "
+    "reconócelo con naturalidad ('Tienes razón', 'Entendido') y reorienta la respuesta hacia su punto específico sin justificaciones defensivas.\n"
+    "INCERTIDUMBRE Y DISCREPANCIA FUNDAMENTADA: Reconoce francamente cuando un dato no se conoce o sea incierto. "
+    "Si una premisa del usuario es técnicamente inexacta o riesgosa, discrepa con educación explicando las razones objetivas.\n"
+    "PRÓXIMOS PASOS Y LÍMITES DE ACCIÓN: Puedes proponer próximos pasos útiles y constructivos, pero jamás pretendas ni intentes "
+    "ejecutar acciones adicionales que estén fuera de tus herramientas y permisos verificados en el sistema.\n"
+    "HONESTIDAD SOBRE TU NATURALEZA: Eres un software asistente local impulsado por modelos de lenguaje. "
+    "No afirmes tener conciencia, sentimientos, emociones humanas ni capacidades físicas o místicas que no posees.\n"
+    "ADAPTACIÓN A VOZ Y TEXTO: Para respuestas habladas, mantén frases fluidas y orales sin markdown pesado "
+    "(sin asteriscos, títulos ni listas con viñetas que suenen mal al ser leídas en voz alta).\n"
+    "NO ANTICIPAR VERIFICACIÓN: No des por hecha ninguna acción del sistema hasta que haya sido verificada."
 )
 
 
@@ -64,6 +68,8 @@ class ConversationalDialogueHandler:
         self.llm_provider = llm_provider or OllamaProvider()
         self.model_router = model_router or get_model_router()
         self.experimental_router = experimental_router or get_experimental_router()
+        self._last_was_degraded: bool = False
+        self._last_degradation_reason: str | None = None
 
     def generate_response(
         self,
@@ -149,14 +155,20 @@ class ConversationalDialogueHandler:
                     )
 
                 if llm_response and len(llm_response.strip()) > 5:
+                    self._last_was_degraded = False
+                    self._last_degradation_reason = None
                     logger.info(f"[CONVERSATIONAL LLM OK] Respuesta: '{llm_response[:80]}...'")
                     filtered = self._filter_unsolicited_pitch(llm_response, user_input)
                     return self._clean_for_speech(filtered)
                 logger.warning("[CONVERSATIONAL LLM] Respuesta vacía del LLM, usando síntesis.")
             except Exception as ex:
                 logger.warning(f"[CONVERSATIONAL LLM FALLBACK] Inferencia falló ({ex}), usando síntesis contextual.")
+                llm_ok = False
+                self._last_was_degraded = True
+                self._last_degradation_reason = str(ex)
         else:
-            logger.info("[CONVERSATIONAL] Ollama no disponible, usando síntesis contextual.")
+            diag_err = getattr(self.llm_provider, "_last_availability_error", "Servicio Ollama no disponible")
+            logger.warning(f"[CONVERSATIONAL] Ollama no disponible ({diag_err}), evaluando síntesis contextual.")
 
         # 2. Síntesis dialógica semántica contextual
         synth_res = self._synthesize_dialogue(
@@ -164,6 +176,7 @@ class ConversationalDialogueHandler:
             target_person=target_person,
             history=history_turns,
             params=params_dict,
+            is_llm_available=llm_ok,
         )
         return self._filter_unsolicited_pitch(synth_res, user_input)
 
@@ -303,6 +316,7 @@ class ConversationalDialogueHandler:
         target_person: str | None = None,
         history: list[tuple[str, str]] | None = None,
         params: dict[str, Any] | None = None,
+        is_llm_available: bool = True,
     ) -> str:
         """Síntesis conversacional determinista y contextual de alta fidelidad en español."""
         lower = user_input.strip().lower()
@@ -357,132 +371,24 @@ class ConversationalDialogueHandler:
         if any(w in lower for w in ("quién eres", "quien eres", "cuál es tu nombre", "cual es tu nombre", "quién te creó")):
             return "Soy Jessyca, tu asistente local e inteligente para Windows."
 
-        # 5. Consulta y explicación de capacidades
+        # 5. Consulta y explicación de capacidades o límites
         if any(w in lower for w in ("qué puedes hacer", "que puedes hacer", "qué sabes hacer", "que sabes hacer", "capacidades", "describe todo")):
             return (
                 "Soy Jessyca, tu asistente local e inteligente para Windows. Puedo ayudarte a abrir y cerrar aplicaciones, "
                 "reproducir vídeos de baile, buscar contenido en internet o YouTube, gestionar archivos y realizar cálculos."
             )
-
-        # 6. Datos curiosos e interesantes
-        if any(w in lower for w in ("algo interesante", "dato interesante", "cuéntame algo", "cuentame algo", "dato curioso", "curiosidad")):
+        if any(w in lower for w in ("que no puedes hacer", "qué no puedes hacer", "no puedes hacer", "tus limites", "tus límites", "cuales son tus limites", "cuáles son tus límites")):
             return (
-                "Un dato fascinante: las abejas pueden reconocer rostros humanos usando patrones visuales, "
-                "de manera muy similar a cómo lo hacemos nosotros."
+                "Como asistente local, no puedo ejecutar acciones fuera de las herramientas autorizadas en este equipo, "
+                "ni modificar archivos sin los permisos debidos. Si el servicio de lenguaje local está inactivo, mis respuestas se limitan a comandos directos."
             )
 
-        # 7. Física y ciencias — respuestas académicas reales
-        if any(w in lower for w in ("qué es la física", "que es la fisica", "concepto de física", "concepto de fisica",
-                                    "física es", "fisica es", "básico de física", "basico de fisica")):
-            return (
-                "La física es la ciencia que estudia la materia, la energía, el movimiento "
-                "y las interacciones fundamentales de la naturaleza. Busca describir cómo funciona el universo "
-                "mediante leyes y modelos matemáticos, desde las partículas subatómicas hasta las galaxias."
-            )
-
-        if any(w in lower for w in ("espacio-tiempo", "espacio tiempo", "relatividad", "einstein")):
-            # Detectar si hay historial de física
-            prev_topics = " ".join(a for _, a in (history or []))
-            if "física" in prev_topics or "física" in lower or "fisica" in lower or history:
-                return (
-                    "El espacio-tiempo es el concepto central de la teoría de la relatividad de Einstein. "
-                    "Unifica las tres dimensiones del espacio con el tiempo en una sola entidad de cuatro dimensiones. "
-                    "La gravedad se entiende como una curvatura de este espacio-tiempo causada por la masa de los objetos."
-                )
-            return (
-                "El espacio-tiempo es la combinación de espacio y tiempo en un único continuo de cuatro dimensiones, "
-                "propuesto por Albert Einstein en su teoría de la relatividad general."
-            )
-
-        if any(w in lower for w in ("profundiza", "explica más", "explica mas", "amplía", "amplia",
-                                    "dime más sobre", "dime mas sobre", "cuéntame más", "cuentame mas")):
-            # Continuar sobre el tópico más reciente del historial
-            if history:
-                last_topic = history[-1][0].lower()
-                if "física" in last_topic or "fisica" in last_topic or "física" in history[-1][1].lower():
-                    return (
-                        "La física se divide en grandes ramas: la mecánica clásica describe el movimiento "
-                        "de cuerpos cotidianos, la termodinámica estudia el calor y la energía, "
-                        "la electromagnetismo analiza campos eléctricos y magnéticos, "
-                        "y la física cuántica explora el comportamiento de partículas subatómicas."
-                    )
-                if "espacio" in last_topic or "relatividad" in last_topic or "espacio" in history[-1][1].lower():
-                    return (
-                        "Una consecuencia del espacio-tiempo curvo es que el tiempo transcurre más despacio "
-                        "cerca de objetos muy masivos, como agujeros negros. "
-                        "Este efecto, llamado dilatación temporal, ha sido confirmado experimentalmente con relojes atómicos."
-                    )
-            return "Dime con más detalle sobre qué tema quieres que profundice y te explico con gusto."
-
-        # 8. Conceptos de Inteligencia Artificial
-        if any(w in lower for w in ("inteligencia artificial", "qué es la ia", "que es la ia", "qué es ia", "que es ia")):
-            return (
-                "La inteligencia artificial es una rama de la informática dedicada al desarrollo de sistemas "
-                "capaces de aprender a partir de datos, razonar y tomar decisiones para resolver tareas complejas."
-            )
-
-        # 8.1 Conceptos de computación, desarrollo y bases de datos (respuestas directas y técnicas)
-        if any(w in lower for w in ("clave primaria", "llave primaria", "primary key")):
-            return (
-                "Una clave primaria es una columna o conjunto de columnas que identifica de forma unívoca "
-                "cada fila en una tabla de base de datos relacional, garantizando valores únicos y no nulos."
-            )
-
-        if any(w in lower for w in ("qué es un puntero", "que es un puntero", "cómo funciona un puntero", "como funciona un puntero")):
-            return (
-                "Un puntero es una variable que almacena la dirección de memoria de otra variable, "
-                "permitiendo acceder y manipular datos directamente en memoria."
-            )
-
-        if any(w in lower for w in ("diferencia entre proceso e hilo", "diferencia entre un proceso y un hilo", "proceso e hilo", "proceso y un hilo", "proceso o hilo", "hilos y procesos")):
-            return (
-                "Un proceso es una instancia de un programa en ejecución con su propio espacio de direcciones aislado, "
-                "mientras que un hilo es una unidad básica de ejecución que comparte la memoria y recursos con otros hilos del mismo proceso."
-            )
-
-        if any(w in lower for w in ("git rebase", "qué hace git rebase", "que hace git rebase", "cómo funciona git rebase")):
-            return (
-                "Git rebase traslada una serie de commits sobre una nueva base de commits, "
-                "reescribiendo el historial para mantener un registro lineal sin bifurcaciones innecesarias."
-            )
-
-        if any(w in lower for w in ("deadlock", "interbloqueo", "bloqueo mutuo")):
-            return (
-                "Un deadlock o interbloqueo es una condición en sistemas concurrentes donde dos o más procesos "
-                "se bloquean indefinidamente, ya que cada uno espera un recurso que el otro retiene."
-            )
-
-        if any(w in lower for w in ("qué es una api rest", "que es una api rest", "qué es una api", "que es una api", "api rest")):
-            return (
-                "Una API REST es una interfaz de desarrollo que sigue los principios arquitectónicos REST sobre HTTP, "
-                "empleando métodos como GET, POST, PUT y DELETE para operar de manera uniforme sobre recursos."
-            )
-
-        # 8.2 Distinción de datos desconocidos (evita inventar o suponer datos inexistentes en el sistema)
-        if any(w in lower for w in ("cuál es mi saldo", "cual es mi saldo", "saldo de mi cuenta", "mi cuenta bancaria", "cuántos correos tengo", "cuantos correos tengo", "dónde están mis llaves", "donde estan mis llaves")):
-            return "No dispongo de acceso a esa información ni existen registros comprobados sobre ese dato en el sistema local."
-
-        # 8.3 Reconocimiento de limitaciones sin publicidad sustitutiva
-        if any(w in lower for w in ("edita este video para tiktok", "editalo para tiktok", "edita profesionalmente", "prende las luces", "enciende las luces", "hackea")):
-            return "Esa acción no está soportada en el sistema. No dispongo de herramientas para realizarla."
-
-        # 9. Información geográfica y cultural (ej. Lima)
-        if "lima" in lower:
-            return (
-                "Lima es la capital del Perú, una hermosa ciudad costera con una gran riqueza cultural, "
-                "impresionante arquitectura colonial y una gastronomía reconocida a nivel mundial."
-            )
-
-        # 10. Opinión / Pregunta abierta
-        if any(w in lower for w in ("qué opinas", "que opinas", "tu opinión", "tu opinion")):
-            return "Es un tema con muchas perspectivas interesantes. ¿Quieres que lo analice desde algún ángulo en particular?"
-
-        # 11. Agradecimiento
+        # 6. Agradecimiento
         if any(w in lower for w in ("gracias", "muchas gracias", "te agradezco")):
             return "¡De nada! Es un placer ayudarte."
 
-        # 12. Consultas contextuales sobre datos del diálogo previo
-        # 12.1 Nombre del usuario
+        # 7. Consultas contextuales sobre datos del diálogo previo
+        # 7.1 Nombre del usuario
         if any(w in lower for w in ("cómo me llamo", "como me llamo", "cuál es mi nombre", "cual es mi nombre", "sabes mi nombre", "dime mi nombre")):
             user_name = params_dict.get("user_name") or target_person
             if not user_name and history:
@@ -495,7 +401,7 @@ class ConversationalDialogueHandler:
                 return f"Te llamas {user_name}."
             return "Aún no me has dicho tu nombre. ¿Cómo te llamas?"
 
-        # 12.2 Palabra secreta
+        # 7.2 Palabra secreta
         if any(w in lower for w in ("palabra secreta", "clave secreta")) or (
             history and any(w in lower for w in ("repítela", "repitela", "dila otra vez")) and any("palabra secreta" in u_h.lower() for u_h, _ in history)
         ):
@@ -510,7 +416,7 @@ class ConversationalDialogueHandler:
                 return f"La palabra secreta es {secret_word}."
             return "No tenemos ninguna palabra secreta registrada para esta conversación."
 
-        # 12.3 Proyecto mencionado
+        # 7.3 Proyecto mencionado
         if any(w in lower for w in ("qué proyecto", "que proyecto", "cuál proyecto", "cual proyecto")):
             if history and any("jessyca" in u_h.lower() or "jessica" in u_h.lower() for u_h, _ in history):
                 return "Me mencionaste el proyecto JESSYCA."
@@ -519,28 +425,26 @@ class ConversationalDialogueHandler:
                 return f"Me mencionaste el proyecto {project}."
             return "No me has mencionado ningún proyecto todavía. ¿De qué proyecto se trata?"
 
-        # 12.4 Nombre del asistente
+        # 7.4 Nombre del asistente
         if any(w in lower for w in ("cómo se llama el asistente", "como se llama el asistente", "nombre del asistente", "cómo te llamas", "como te llamas")):
             return "Mi nombre es Jessyca, tu asistente local e inteligente para Windows."
 
-        # 12.5 Primera cosa dicha en la conversación
+        # 7.5 Primera cosa dicha en la conversación
         if any(w in lower for w in ("primera cosa que te dije", "primero que te dije", "primer mensaje")):
             if history:
                 first_user_msg = history[0][0]
                 return f"La primera cosa que me dijiste fue: \"{first_user_msg}\"."
             return "Como no tenemos una conversación previa registrada en este momento, no puedo saber cuál fue tu primer mensaje."
 
-        # 12.6 Continúa el tópico previo si hay historial
-        if history:
-            last_user, last_resp = history[-1]
-            if any(w in last_user.lower() for w in ("física", "fisica", "ciencia", "química", "quimica", "biología", "biologia")):
-                return (
-                    "Con gusto te cuento más sobre ese tema. ¿Quieres que profundice en algún aspecto en particular "
-                    "o prefieres que te explique algo relacionado?"
-                )
+        # 8. Si el modelo no está disponible o la inferencia falló, comunicar la limitación con veracidad
+        if not is_llm_available:
+            self._last_was_degraded = True
+            self._last_degradation_reason = getattr(self.llm_provider, "_last_availability_error", "Servicio Ollama no disponible")
+            return "El servicio de lenguaje local no está disponible en este momento. Verifica que Ollama esté iniciado para responder a esta consulta."
 
-        # 13. Respuesta conversacional natural por defecto
-        return "Entendido. ¿Puedes contarme un poco más sobre lo que necesitas? Así puedo ayudarte mejor."
+        self._last_was_degraded = True
+        self._last_degradation_reason = "No se pudo generar respuesta con el modelo local"
+        return "No pude completar la respuesta con el modelo local en este momento. Por favor intenta de nuevo."
 
     def _clean_for_speech(self, text: str) -> str:
         """Limpia el texto de formato markdown y caracteres no aptos para TTS."""

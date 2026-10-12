@@ -638,6 +638,18 @@ class ARERuntime:
                 error="JDE missing",
             )
 
+        if context is None:
+            context = {}
+        if hasattr(agent, "context_manager") and agent.context_manager and sess_id:
+            sess = agent.context_manager.get_session(sess_id)
+            if sess:
+                for k in ("active_document", "session_document", "current_document", "current_file"):
+                    val = sess.active_context.get(k)
+                    if not val and k in sess.context_items:
+                        val = sess.context_items[k].value
+                    if val and k not in context:
+                        context[k] = val
+
         # 1. Descomposición y evaluación estructural del plan (ARE DAG)
         try:
             plan = self.decompose_and_plan(goal=goal, context=context, task_id=req_id)
@@ -991,6 +1003,19 @@ class ARERuntime:
                     step_output = resolved_act.execute(resolved_params, {"session_id": sess_id, "request_id": req_id})
                     step_success = True
                     step_error = None
+                except PlanClarificationRequired as pcr:
+                    logger.info(f"[ARE RUNTIME - CLARIFICATION REQUIRED] Paso '{step.step_id}' requiere aclaración: {pcr.prompt}")
+                    exec_state.record_step_blocked(step.step_id, step.action_type, f"Aclaración requerida: {pcr.prompt}")
+                    return JessycaResponse(
+                        request_id=req_id,
+                        session_id=sess_id,
+                        success=True,
+                        status=AgentExecutionState.AWAITING_CLARIFICATION,
+                        response_text=f"Aclaración requerida: {pcr.prompt}",
+                        requires_clarification=True,
+                        tools_executed=executed_steps,
+                        output_data={"execution_state": exec_state.to_dict(), "explanation": exec_state.explain_state()},
+                    )
                 except Exception as exc:
                     step_success = False
                     step_error = str(exc)
@@ -1151,12 +1176,31 @@ class ARERuntime:
         exec_state.mark_plan_completed()
         step_outputs["execution_state"] = exec_state.to_dict()
         step_outputs["explanation"] = exec_state.explain_state()
+
+        # Entregar el resumen o resultado sustantivo generado en vez de sólo el conteo de pasos
+        final_resp = f"Tarea compleja completada exitosamente ({len(executed_steps)} pasos ejecutados)."
+        for s in reversed(plan.steps):
+            out = step_outputs.get(s.step_id)
+            if isinstance(out, dict):
+                if out.get("summary"):
+                    final_resp = str(out["summary"])
+                    break
+                elif out.get("resumen"):
+                    final_resp = str(out["resumen"])
+                    break
+                elif out.get("preview"):
+                    final_resp = str(out["preview"])
+                    break
+                elif out.get("message") and "Tarea compleja" not in str(out.get("message")):
+                    final_resp = str(out["message"])
+                    break
+
         return JessycaResponse(
             request_id=req_id,
             session_id=sess_id,
             success=True,
             status=AgentExecutionState.COMPLETED,
-            response_text=f"Tarea compleja completada exitosamente ({len(executed_steps)} pasos ejecutados).",
+            response_text=final_resp,
             tools_executed=executed_steps,
             output_data=step_outputs,
         )

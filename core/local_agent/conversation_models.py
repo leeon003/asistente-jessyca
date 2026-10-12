@@ -19,6 +19,7 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import StrEnum
+from pathlib import Path
 from typing import Any
 
 from core.local_agent.local_agent_models import InputModality
@@ -73,6 +74,10 @@ FORBIDDEN_CONTEXT_KEYS: set[str] = {
     "bypass_security",
     "admin_access",
     "root",
+    "trusted_root",
+    "granted_scope",
+    "authorized_root",
+    "scope",
 }
 
 
@@ -182,7 +187,20 @@ class ConversationSession:
     expected_slot: str | None = None
     pending_confirmation: dict[str, Any] | None = None
     last_action_context: Any | None = None
+    granted_scope: str | None = None
     max_turns: int = 20
+
+    def grant_scope(self, scope: Any) -> None:
+        """Concede explícitamente un alcance de acceso confiable a la sesión."""
+        if scope:
+            self.granted_scope = str(Path(str(scope)).resolve())
+        else:
+            self.granted_scope = None
+
+    @property
+    def trusted_root(self) -> str | None:
+        """Retorna el alcance concedido a la sesión, o None si no se ha otorgado."""
+        return self.granted_scope
 
     def touch(self) -> None:
         """Actualiza la marca de tiempo de última actividad."""

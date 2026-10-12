@@ -75,14 +75,25 @@ def _handle_files_search(params: dict[str, Any], ctx: dict[str, Any]) -> dict[st
         return {"found_files": [], "count": 0, "directory": str(p_dir), "error": "Directorio no encontrado"}
 
     found: list[str] = []
+    doc_extensions = {".docx", ".xlsx", ".pptx", ".pdf", ".txt", ".md", ".json"}
+    is_generic_doc = query in ("documento", "documentos", "doc", "archivo", "archivos", "*")
+
     for entry in sorted(p_dir.rglob("*")):
         if entry.is_file():
             rel = str(entry.relative_to(p_dir))
             name = entry.name.lower()
+            if name.startswith("~"):
+                continue
             if ext and not name.endswith(ext.lower()):
                 continue
-            if query == "*" or query in name or query in rel.lower():
+            if is_generic_doc:
+                if entry.suffix.lower() in doc_extensions:
+                    found.append(str(entry.resolve()))
+            elif query == "*" or query in name or query in rel.lower():
                 found.append(str(entry.resolve()))
+
+    # Priorizar archivos del directorio raíz y más recientes
+    found.sort(key=lambda p: (0 if Path(p).parent == p_dir else 1, -Path(p).stat().st_mtime))
 
     return {
         "found_files": found,
@@ -103,8 +114,17 @@ def _handle_files_read(params: dict[str, Any], ctx: dict[str, Any]) -> dict[str,
         raise FileNotFoundError(f"Archivo no existe: {p_file}")
 
     max_bytes = params.get("max_bytes", 1024 * 1024)
-    with open(p_file, "r", encoding="utf-8", errors="replace") as f:
-        content = f.read(max_bytes)
+    if p_file.suffix.lower() == ".docx":
+        try:
+            import docx
+            doc = docx.Document(p_file)
+            content = "\n".join(p.text.strip() for p in doc.paragraphs if p.text.strip())
+        except Exception:
+            with open(p_file, "r", encoding="utf-8", errors="replace") as f:
+                content = f.read(max_bytes)
+    else:
+        with open(p_file, "r", encoding="utf-8", errors="replace") as f:
+            content = f.read(max_bytes)
 
     return {
         "content": content,
@@ -249,56 +269,98 @@ def _handle_browser_read(params: dict[str, Any], ctx: dict[str, Any]) -> dict[st
 
 def _handle_documents_summarize(params: dict[str, Any], ctx: dict[str, Any]) -> dict[str, Any]:
     """Resume un documento y genera referencias estructuradas con trazabilidad verificable."""
-    content = params.get("content")
-    file_path = params.get("file_path") or params.get("source_path")
+    from core.documents.summarizer import extractive_summarize
 
-    if not content and file_path:
-        p_file = Path(file_path).resolve()
-        if p_file.exists():
-            with open(p_file, "r", encoding="utf-8", errors="replace") as f:
-                content = f.read()
+    content = params.get("content") or ""
+    file_path = params.get("file_path") or params.get("source_path") or ""
+    max_points = int(params.get("max_points", 5))
+    
+    # 1. Base confiable del contexto de ejecución de ARE
+    trusted_root = (
+        ctx.get("trusted_root")
+        or ctx.get("authorized_root")
+        or ctx.get("sandbox_dir")
+        or ctx.get("workspace")
+    )
+    # 2. Alcance solicitado desde parámetros (untrusted input)
+    requested_root = params.get("authorized_root") or params.get("sandbox_dir") or params.get("scope")
 
-    if not content:
+    if not content and not file_path:
         raise ValueError("Parámetro 'content' o 'file_path' requerido para documents.summarize.")
 
-    lines = content.splitlines()
-    max_points = int(params.get("max_points", 5))
+    try:
+        res = extractive_summarize(
+            content=str(content),
+            file_path=str(file_path),
+            max_points=max_points,
+            authorized_root=requested_root,
+            trusted_root=trusted_root,
+        )
+    except (PermissionError, FileNotFoundError, Exception) as exc:
+        return {
+            "exito": False,
+            "error": str(exc),
+            "verified": False,
+        }
+    return res
 
-    # Extracción analítica determinista de puntos clave y referencias
-    key_points: list[str] = []
-    references: list[str] = []
 
-    for i, line in enumerate(lines, start=1):
-        clean = line.strip()
-        if not clean:
-            continue
-        # Identificar encabezados, directivas o frases informativas
-        if clean.startswith(("#", "-", "*", "1.", "2.", "3.", "4.", "5.")) or len(clean) > 20:
-            if len(key_points) < max_points:
-                ref_label = f"Línea {i}"
-                if clean.startswith("#"):
-                    ref_label += f" ({clean.lstrip('#').strip()})"
-                key_points.append(clean)
-                references.append(f"{ref_label}: {clean[:60]}...")
+def _handle_documents_select(params: dict[str, Any], ctx: dict[str, Any]) -> dict[str, Any]:
+    """Selecciona un documento autorizado garantizando que no haya ambigüedad entre candidatos."""
+    from core.are.exceptions import PlanClarificationRequired
 
-    if not key_points and lines:
-        key_points.append(lines[0].strip())
-        references.append(f"Línea 1: {lines[0].strip()[:60]}...")
+    explicit_path = params.get("explicit_path") or params.get("file_path") or params.get("path")
+    session_ref = params.get("session_reference") or params.get("active_document")
+    candidates = params.get("candidates") or params.get("found_files") or []
 
-    summary_text = (
-        f"Resumen ({len(key_points)} puntos clave):\n"
-        + "\n".join(f"• {pt}" for pt in key_points)
-        + "\n\nReferencias Documentales:\n"
-        + "\n".join(f"[{ref}]" for ref in references)
+    # 1. Con ruta explícita: validar y utilizar ese archivo autorizado
+    if explicit_path:
+        p_exp = Path(explicit_path).resolve()
+        if p_exp.exists() and p_exp.is_file():
+            return {
+                "selected_file": str(p_exp),
+                "selection_source": "EXPLICIT_PATH",
+                "verified": True,
+            }
+        raise FileNotFoundError(f"El documento explícito no existe en disco: {explicit_path}")
+
+    # 2. Con referencia inequívoca de sesión: utilizar esa referencia
+    if session_ref:
+        p_sess = Path(session_ref).resolve()
+        if p_sess.exists() and p_sess.is_file():
+            return {
+                "selected_file": str(p_sess),
+                "selection_source": "SESSION_REFERENCE",
+                "verified": True,
+            }
+
+    # 3. Sin referencia previa: evaluar lista de candidatos encontrados
+    if not candidates:
+        raise PlanClarificationRequired(
+            message="No se encontró ningún documento coincidente.",
+            prompt="No localicé ningún documento en la ubicación especificada. Por favor indica la ruta o nombre del archivo que deseas procesar.",
+            missing_resource="selected_file",
+        )
+
+    if len(candidates) == 1:
+        p_cand = Path(candidates[0]).resolve()
+        return {
+            "selected_file": str(p_cand),
+            "selection_source": "SINGLE_CANDIDATE",
+            "verified": True,
+        }
+
+    # Múltiples candidatos y ninguna referencia inequívoca previa: SOLICITAR ACLARACIÓN
+    candidate_names = [Path(c).name for c in candidates[:6]]
+    cand_list_str = ", ".join(candidate_names)
+    if len(candidates) > 6:
+        cand_list_str += f" (y {len(candidates) - 6} más)"
+
+    raise PlanClarificationRequired(
+        message="Múltiples documentos encontrados sin referencia inequívoca.",
+        prompt=f"Se encontraron múltiples documentos candidatos ({cand_list_str}). Por favor especifica cuál deseas resumir.",
+        missing_resource="selected_file",
     )
-
-    return {
-        "summary": summary_text,
-        "key_points": key_points,
-        "references": references,
-        "source_ref": str(file_path) if file_path else "en_memoria",
-        "verified": len(references) > 0 and len(summary_text) > 0,
-    }
 
 
 def _handle_files_preview_organize(params: dict[str, Any], ctx: dict[str, Any]) -> dict[str, Any]:
@@ -1101,6 +1163,35 @@ class ActionCatalog:
                 risk_level=RiskLevel.READ_ONLY,
                 verification_strategy=ActionVerificationStrategy.CONTENT_VERIFIED,
                 handler=_handle_documents_summarize,
+            )
+        )
+
+        # 6.b documents.select
+        self.register_action(
+            ExecutableAction(
+                action_id="documents.select",
+                description="Selecciona un documento autorizado garantizando que no haya ambigüedad entre candidatos.",
+                input_schema={
+                    "type": "object",
+                    "properties": {
+                        "candidates": {"type": "array", "items": {"type": "string"}},
+                        "found_files": {"type": "array", "items": {"type": "string"}},
+                        "explicit_path": {"type": "string"},
+                        "session_reference": {"type": "string"},
+                    },
+                },
+                output_schema={
+                    "type": "object",
+                    "properties": {
+                        "selected_file": {"type": "string"},
+                        "selection_source": {"type": "string"},
+                        "verified": {"type": "boolean"},
+                    },
+                    "required": ["selected_file", "verified"],
+                },
+                risk_level=RiskLevel.READ_ONLY,
+                verification_strategy=ActionVerificationStrategy.STATE_MATCH,
+                handler=_handle_documents_select,
             )
         )
 
