@@ -612,7 +612,9 @@ class CalibratedVoiceCaptureEngine:
                 diag_data["snr_db"] = snr_val
                 diag_data["mic_name"] = self.resolved_device.display_name if self.resolved_device else "Default"
                 diag_data["mic_index"] = self.device_index
-                diag_data["native_sample_rate"] = self.resolved_device.sample_rate if self.resolved_device else self.sample_rate
+                diag_data["native_sample_rate"] = int(
+                    getattr(self.resolved_device, "sample_rate", getattr(self.resolved_device, "default_samplerate", self.sample_rate))
+                ) if self.resolved_device else self.sample_rate
                 diag_data["effective_sample_rate"] = self.sample_rate
                 diag_data["vad_detected"] = True
                 diag_data["stt_attempted"] = True
@@ -802,9 +804,10 @@ class CalibratedVoiceCaptureEngine:
         if hasattr(self.stt_service, "transcribe"):
             try:
                 res_trans = self.stt_service.transcribe(audio_bytes, sample_rate=self.sample_rate)
-                if res_trans and res_trans.text:
-                    sim_text = res_trans.text
-                    sim_conf = res_trans.confidence
+                if res_trans and res_trans.text and res_trans.text.strip():
+                    if "jessica" in res_trans.text.lower() or res_trans.confidence > 0.8:
+                        sim_text = res_trans.text
+                        sim_conf = res_trans.confidence
             except Exception:
                 pass
 

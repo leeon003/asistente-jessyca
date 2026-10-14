@@ -599,6 +599,9 @@ def iniciar_modo_voz(
                 speaker.speak(despedida)
                 voice_session.end_session()
                 break
+            except (VoiceCancelledError, VoiceInterruptedError) as vce:
+                logger.info(f"[MODO VOZ] Interrupción o cancelación del turno: {vce}")
+                continue
             except Exception as e:
                 logger.error(f"[MODO VOZ] Error en el ciclo de interacción: {e}")
                 print(f"  [Error inesperado: {e}]")

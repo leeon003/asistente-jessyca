@@ -86,6 +86,11 @@ class ResolvedAudioDevice:
             "timestamp": self.timestamp.isoformat(),
         }
 
+    @property
+    def sample_rate(self) -> int:
+        """Alias para default_samplerate como entero (retrocompatibilidad)."""
+        return int(self.default_samplerate) if self.default_samplerate else 16000
+
 
 class VoiceDeviceResolver:
     """Descubre y resuelve el mejor dispositivo de micrófono disponible con validación de señal."""

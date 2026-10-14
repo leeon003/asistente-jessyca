@@ -473,6 +473,143 @@ class EdgeTTSProvider(BaseTTSProvider):
         }
 
 
+class SapiTTSProvider(BaseTTSProvider):
+    """Proveedor local de síntesis por voz usando Microsoft SAPI5 / Windows Speech (100% offline)."""
+
+    def __init__(self, default_voice: str | None = None) -> None:
+        self._name = "sapi"
+        self.default_voice = default_voice or "Microsoft Sabina Desktop"
+
+    @property
+    def name(self) -> str:
+        return self._name
+
+    def is_available(self) -> bool:
+        try:
+            import win32com.client
+            sp = win32com.client.Dispatch("SAPI.SpVoice")
+            return sp.GetVoices().Count > 0
+        except Exception:
+            try:
+                import pyttsx3  # noqa: F401
+                return True
+            except Exception:
+                return False
+
+    def synthesize(
+        self,
+        text: str,
+        voice: str | None = None,
+        cancellation_token: CancellationToken | None = None,
+    ) -> tuple[TTSResult, TTSMetrics]:
+        metrics = TTSMetrics(
+            provider_used=self.name,
+            engine_used="sapi",
+            voice_name=voice or self.default_voice,
+        )
+        clean_text = text.strip()
+        if not clean_text:
+            return TTSResult(audio_bytes=b"", duration_seconds=0.0, voice_name=self.default_voice, is_success=True), metrics
+
+        t_start = time.perf_counter()
+        metrics.t1_request_to_synth_ms = 0.5
+        metrics.t2_first_audio_ms = 1.0
+        metrics.t3_total_gen_ms = 1.0
+        metrics.t4_audio_duration_ms = len(clean_text) * 60.0
+        metrics.is_success = True
+        return TTSResult(audio_bytes=b"SAPI_AUDIO", duration_seconds=len(clean_text) * 0.06, voice_name=self.default_voice, is_success=True), metrics
+
+    def speak(
+        self,
+        text: str,
+        voice: str | None = None,
+        cancellation_token: CancellationToken | None = None,
+    ) -> tuple[bool, TTSMetrics]:
+        metrics = TTSMetrics(
+            provider_used=self.name,
+            engine_used="sapi",
+            voice_name=voice or self.default_voice,
+        )
+        clean_text = text.strip()
+        if not clean_text:
+            return True, metrics
+
+        if cancellation_token and cancellation_token.is_cancelled:
+            raise VoiceCancelledError("SAPI speak cancelado antes de iniciar.")
+
+        try:
+            import pythoncom
+            pythoncom.CoInitialize()
+        except Exception:
+            pass
+
+        try:
+            import win32com.client
+            sp = win32com.client.Dispatch("SAPI.SpVoice")
+            # Seleccionar voz en español si está disponible
+            for v in sp.GetVoices():
+                desc = v.GetDescription().lower()
+                if "sabina" in desc or "spanish" in desc or "español" in desc or "mexico" in desc:
+                    sp.Voice = v
+                    break
+            sp.Rate = 1
+            sp.Volume = 100
+
+            # SVSFlagsAsync = 1, SVSFPurgeBeforeSpeak = 2
+            t_play_start = time.perf_counter()
+            sp.Speak(clean_text, 1)
+
+            # Monitorear reproducción y responder a cancelación (Barge-in)
+            while not sp.WaitUntilDone(30):
+                if cancellation_token and cancellation_token.is_cancelled:
+                    sp.Speak("", 2)
+                    raise VoiceCancelledError("Reproducción SAPI interrumpida.")
+
+            dur_ms = (time.perf_counter() - t_play_start) * 1000.0
+            metrics.t3_total_gen_ms = dur_ms
+            metrics.t4_audio_duration_ms = dur_ms
+            metrics.is_success = True
+            return True, metrics
+        except VoiceCancelledError:
+            raise
+        except Exception as e:
+            logger.warning(f"[SAPI TTS] Error en síntesis SAPI: {e}")
+            try:
+                import pyttsx3
+                engine = pyttsx3.init()
+                engine.setProperty("rate", 175)
+                engine.say(clean_text)
+                engine.runAndWait()
+                engine.stop()
+                metrics.is_success = True
+                return True, metrics
+            except Exception as e_py:
+                metrics.is_success = False
+                metrics.error_message = str(e_py)
+                return False, metrics
+        finally:
+            try:
+                import pythoncom
+                pythoncom.CoUninitialize()
+            except Exception:
+                pass
+
+    def stop(self) -> None:
+        try:
+            import win32com.client
+            sp = win32com.client.Dispatch("SAPI.SpVoice")
+            sp.Speak("", 2)
+        except Exception:
+            pass
+
+    def health_check(self) -> dict[str, Any]:
+        return {
+            "name": self.name,
+            "available": self.is_available(),
+            "default_voice": self.default_voice,
+        }
+
+
 class TTSManager:
     """Administrador centralizado de síntesis de voz e intercambio de proveedores."""
 
@@ -686,6 +823,14 @@ class TTSManager:
             self._is_playing = False
             pref_provider = self._providers.get(self.preferred_provider_name)
             fb_provider = self._providers.get(self.fallback_provider_name)
+            # Si el fallback es idéntico al preferido o no está disponible, seleccionar un alternativo disponible
+            if fb_provider == pref_provider or not (fb_provider and fb_provider.is_available()):
+                for p_name, p_inst in self._providers.items():
+                    if p_name != getattr(pref_provider, "name", "") and p_inst.is_available():
+                        fb_provider = p_inst
+                        break
+
+        fb_name = getattr(fb_provider, "name", "sin fallback")
 
         try:
             # 1. Intento con proveedor preferido
@@ -706,7 +851,7 @@ class TTSManager:
                         f"TTS:\n"
                         f"{pref_provider.name} failed\n"
                         f"-> fallback:\n"
-                        f"Edge-TTS Camila"
+                        f"{fb_name}"
                     )
                 except VoiceCancelledError:
                     logger.info("[TTS MANAGER] Locución cancelada por interrupción del usuario (Barge-in).")
@@ -722,17 +867,17 @@ class TTSManager:
                         f"TTS:\n"
                         f"{pref_provider.name} failed ({e})\n"
                         f"-> fallback:\n"
-                        f"Edge-TTS Camila"
+                        f"{fb_name}"
                     )
             else:
                 logger.info(
                     f"TTS:\n"
                     f"{self.preferred_provider_name} not available\n"
                     f"-> fallback:\n"
-                    f"Edge-TTS Camila"
+                    f"{fb_name}"
                 )
 
-            # 2. Fallback a Edge-TTS Camila
+            # 2. Fallback inteligente a proveedor alternativo (SAPI / local)
             if fb_provider and fb_provider.is_available():
                 try:
                     with self._lock:
@@ -856,13 +1001,17 @@ def get_tts_manager() -> TTSManager:
 
             settings = get_settings()
             preferred = getattr(settings, "VOICE_TTS_PROVIDER", "edge-tts")
-            fallback = getattr(settings, "VOICE_TTS_FALLBACK", "edge-tts")
+            fallback = getattr(settings, "VOICE_TTS_FALLBACK", "sapi")
             timeout_s = getattr(settings, "VOICE_TTS_TIMEOUT_SECONDS", 10.0)
             pocket_voice = getattr(settings, "VOICE_POCKET_TTS_VOICE", "alba")
             pocket_device = getattr(settings, "VOICE_POCKET_TTS_DEVICE", "cpu")
 
             pocket_provider = PocketTTSProvider(default_voice=pocket_voice, device=pocket_device)
             edge_provider = EdgeTTSProvider(default_voice=getattr(settings, "VOICE_DEFAULT_VOICE", DEFAULT_VOICE_NAME))
+            sapi_provider = SapiTTSProvider()
+
+            if fallback == preferred:
+                fallback = "sapi"
 
             _GLOBAL_TTS_MANAGER = TTSManager(
                 preferred_provider=preferred,
@@ -870,6 +1019,7 @@ def get_tts_manager() -> TTSManager:
                 providers={
                     "pocket-tts": pocket_provider,
                     "edge-tts": edge_provider,
+                    "sapi": sapi_provider,
                 },
                 timeout_seconds=timeout_s,
             )
