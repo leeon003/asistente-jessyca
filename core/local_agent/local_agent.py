@@ -124,6 +124,7 @@ class JessycaLocalAgent:
         jde_runtime_binding: JDERuntimeBinding | None = None,
         are_runtime: ARERuntime | None = None,
         response_synthesizer: ResponseSynthesizer | None = None,
+        long_term_memory: Any | None = None,
     ) -> None:
         self._lock = threading.RLock()
         self.emergency_stop_mgr = emergency_stop or get_emergency_stop_manager()
@@ -150,8 +151,40 @@ class JessycaLocalAgent:
         self.jde_runtime_binding = jde_runtime_binding or get_jde_runtime_binding()
         self.are_runtime = are_runtime or get_are_runtime()
 
+        from core.memory.long_term_memory import LongTermMemoryEngine, MemoryRecordType, MemorySensitivity
+        self.long_term_memory = long_term_memory or LongTermMemoryEngine()
+
         self._active_tokens: dict[str, CancellationToken] = {}
         self._latest_metrics: LocalAgentMetrics = LocalAgentMetrics()
+
+    def remember(
+        self,
+        fact: str,
+        category: str = "SEMANTIC_MEMORY",
+        source: str = "user_conversation",
+    ) -> Any:
+        """Almacena un hecho o preferencia de forma persistente y duradera."""
+        from core.memory.long_term_memory import MemoryRecordType, MemorySensitivity
+        try:
+            m_type = getattr(MemoryRecordType, category, MemoryRecordType.SEMANTIC_MEMORY)
+            rec = self.long_term_memory.store_record(
+                content=fact,
+                record_type=m_type,
+                source=source,
+                sensitivity=MemorySensitivity.INTERNAL,
+            )
+            return rec
+        except Exception as e:
+            logger.error(f"[MEMORY] Error guardando registro en memoria persistente: {e}")
+            return None
+
+    def recall(self, query: str, limit: int = 5) -> list[dict[str, Any]]:
+        """Recupera registros relevantes de memoria persistente según la consulta."""
+        try:
+            return self.long_term_memory.retrieve_records(query=query, limit=limit)
+        except Exception as e:
+            logger.error(f"[MEMORY] Error recuperando registros de memoria: {e}")
+            return []
 
     @classmethod
     def get_instance(cls) -> JessycaLocalAgent:
@@ -2444,6 +2477,34 @@ class JessycaLocalAgent:
                 return self._resolve_intent_and_slots(clean_corr, session_id)
             return pending["original_intent"], {"target": text, "app_name": text, "query": text}, False
 
+        # 1.5 Detección de Guardado / Recuperación de Memoria Persistente
+        if re.search(r"\b(recuerda\s+(?:que|esto:?)|guarda\s+(?:en\s+tu\s+memoria\s+que|esto:?))\b", lower):
+            fact_body = re.sub(r"^(?:jessyca,?\s*)?(?:por\s+favor,?\s*)?(?:recuerda\s+(?:que|esto:?)|guarda\s+(?:en\s+tu\s+memoria\s+que|esto:?))\s*", "", text, flags=re.IGNORECASE).strip()
+            if fact_body:
+                cat = "USER_PREFERENCES" if any(w in lower for w in ("prefiero", "mi ", "me gusta")) else "SEMANTIC_MEMORY"
+                self.remember(fact_body, category=cat)
+                return "remember_fact", {
+                    "fact": fact_body,
+                    "immediate_response": f"Entendido, he guardado en mi memoria permanente: '{fact_body}'."
+                }, False
+
+        if re.search(r"\b(qu[eé]\s+recuerdas\s+(?:de|sobre)|qu[eé]\s+sabes\s+(?:de|sobre)|recuerdas\s+(?:mi|qui[eé]n))\b", lower):
+            query_topic = re.sub(r"^(?:jessyca,?\s*)?(?:qu[eé]\s+recuerdas\s+(?:de|sobre)?|qu[eé]\s+sabes\s+(?:de|sobre)?|recuerdas\s+)?\s*", "", text, flags=re.IGNORECASE).strip()
+            records = self.recall(query_topic or text, limit=3)
+            if records:
+                top_facts = [r["record"].content for r in records if "record" in r]
+                facts_str = "; ".join(top_facts)
+                return "recall_fact", {
+                    "query": query_topic,
+                    "records": top_facts,
+                    "immediate_response": f"De acuerdo a lo que recuerdo: {facts_str}"
+                }, False
+            else:
+                return "recall_fact", {
+                    "query": query_topic,
+                    "immediate_response": f"No encontré recuerdos previos almacenados sobre '{query_topic}'."
+                }, False
+
         # 2. Patrones de Reproducción Multimedia ("Jessyca, báilame" / play_random_video)
         lower_no_prefix = re.sub(r"^(jessyca|jessica)[,\s]+", "", lower).strip()
         if (
@@ -2879,8 +2940,8 @@ class JessycaLocalAgent:
 
     def _select_model_for_intent(self, intent: str) -> str:
         """Selecciona el modelo óptimo automáticamente según la intención."""
-        if intent in ("multistep_research", "complex_reasoning"):
-            return "qwen2.5-coder:7b"
+        if intent in ("multistep_research", "complex_reasoning", "technical_analysis"):
+            return "gemma4:e4b"
         if intent in (
             "open_application", "close_application", "type_text", "search_file",
             "browser_search", "play_random_video", "control_audio", "control_clipboard",
@@ -2889,7 +2950,7 @@ class JessycaLocalAgent:
             "list_files", "file_metadata", "open_folder",
         ):
             return "llama3.2"
-        return "auto-routed"
+        return "llama3.1"
 
     def _select_agent_for_intent(self, intent: str) -> str:
         """Selecciona el agente especialista responsable."""
@@ -2898,6 +2959,8 @@ class JessycaLocalAgent:
             "open_folder": "desktop_agent",
             "close_application": "desktop_agent",
             "type_text": "desktop_agent",
+            "computer_use": "desktop_agent",
+            "mouse_click": "desktop_agent",
             "play_random_video": "desktop_agent",
             "control_audio": "system_agent",
             "control_clipboard": "desktop_agent",
@@ -2935,6 +2998,10 @@ class JessycaLocalAgent:
             "read_document": "document_agent",
             "summarize_document": "document_agent",
             "convert_document": "document_agent",
+            "create_diagram": "architecture_agent",
+            "technical_diagram": "architecture_agent",
+            "remember_fact": "memory_agent",
+            "recall_fact": "memory_agent",
         }
         return agent_map.get(intent, "system_agent")
 
@@ -2945,6 +3012,9 @@ class JessycaLocalAgent:
             "open_folder": "windows.apps@1.0.0",
             "close_application": "windows.apps@1.0.0",
             "type_text": "windows.apps@1.0.0",
+            "computer_use": "windows.computer_use@1.0.0",
+            "mouse_click": "windows.computer_use@1.0.0",
+            "desktop_interaction": "windows.computer_use@1.0.0",
             "play_random_video": "windows.media@1.0.0",
             "control_audio": "windows.audio@1.0.0",
             "control_clipboard": "windows.clipboard@1.0.0",
@@ -2981,6 +3051,8 @@ class JessycaLocalAgent:
             "read_document": "documents.read@1.0.0",
             "summarize_document": "documents.summarize@1.0.0",
             "convert_document": "documents.convert@1.0.0",
+            "create_diagram": "tools.archify@2.0.0",
+            "technical_diagram": "tools.archify@2.0.0",
             "grant_folder_access": "security.permissions@1.0.0",
             "revoke_folder_access": "security.permissions@1.0.0",
         }

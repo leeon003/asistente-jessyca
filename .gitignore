@@ -36,6 +36,7 @@ data/*.db
 data/*.json
 data/anydoc/
 data/archify/
+data/memory_long_term/
 data/orca_worktrees/
 data/pruebas_documentales/
 data/pruebas_programacion/

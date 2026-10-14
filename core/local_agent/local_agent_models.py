@@ -195,6 +195,7 @@ class JessycaResponse:
     tools_executed: list[str] = field(default_factory=list)
     security_verdict: str = "ALLOW"
     security_level: SecurityLevel = SecurityLevel.SAFE
+    requires_confirmation: bool = False
     requires_clarification: bool = False
     clarification_question: str | None = None
     original_transcript: str | None = None

@@ -11,9 +11,11 @@ from __future__ import annotations
 
 from skills.apps import AbrirAplicacion, CerrarAplicacion
 from skills.apps_skill import WindowsAppsSkill
+from skills.archify_skill import ArchifySkill
 from skills.archivos import BuscarArchivo
 from skills.base_skill import BaseSkill
 from skills.browser_search_skill import BrowserSearchSkill
+from skills.computer_use_skill import WindowsComputerUseSkill
 from skills.browser_skills import (
     BrowserDownloadSkill,
     BrowserNavigateSkill,
@@ -229,6 +231,7 @@ SKILLS_DISPONIBLES: dict[str, BaseSkill] = {
     "windows.notifications": WindowsNotificationsSkill(),
     "windows.audio": WindowsAudioSkill(),
     "windows.display": WindowsDisplaySkill(),
+    "windows.computer_use": WindowsComputerUseSkill(),
     # ── 2. GRUPO FILES ──
     "files.search": FilesSearchSkill(),
     "files.read": FilesReadSkill(),
@@ -252,6 +255,8 @@ SKILLS_DISPONIBLES: dict[str, BaseSkill] = {
     "documents.create": DocumentsCreateSkill(),
     "documents.summarize": DocumentsSummarizeSkill(),
     "documents.convert": DocumentsConvertSkill(),
+    # ── 5. GRUPO TOOLS & DIAGRAMS ──
+    "tools.archify": ArchifySkill(),
     # ── LEGACY ALIASES ──
     "abrir_aplicacion": AbrirAplicacion(),
     "cerrar_aplicacion": CerrarAplicacion(),
@@ -278,6 +283,9 @@ __all__ = [
     "WindowsNotificationsSkill",
     "WindowsAudioSkill",
     "WindowsDisplaySkill",
+    "WindowsComputerUseSkill",
+    # Grupo Tools
+    "ArchifySkill",
     # Grupo Files
     "FilesSearchSkill",
     "FilesReadSkill",
