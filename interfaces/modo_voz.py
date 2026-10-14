@@ -406,202 +406,202 @@ def iniciar_modo_voz(
     try:
         while True:
             try:
-            # En modo Pulsar para Hablar (PTT), esperar activación explícita del usuario
-            if ptt_mode:
-                try:
-                    user_prompt = input("\n  [🎤 PULSAR PARA HABLAR: Presiona ENTER para grabar tu orden (o escribe 'salir')] > ")
-                    if user_prompt.strip().lower() in ("salir", "exit", "quit", "q", "adios", "adiós"):
-                        despedida = "¡Hasta luego! Modo voz detenido."
-                        print(f"\n  Jessyca: {despedida}\n")
-                        speaker.speak(despedida)
-                        voice_session.end_session()
+                # En modo Pulsar para Hablar (PTT), esperar activación explícita del usuario
+                if ptt_mode:
+                    try:
+                        user_prompt = input("\n  [🎤 PULSAR PARA HABLAR: Presiona ENTER para grabar tu orden (o escribe 'salir')] > ")
+                        if user_prompt.strip().lower() in ("salir", "exit", "quit", "q", "adios", "adiós"):
+                            despedida = "¡Hasta luego! Modo voz detenido."
+                            print(f"\n  Jessyca: {despedida}\n")
+                            speaker.speak(despedida)
+                            voice_session.end_session()
+                            break
+                    except (EOFError, KeyboardInterrupt):
                         break
-                except (EOFError, KeyboardInterrupt):
-                    break
-                print("  [🔴 Grabando audio bajo demanda... Habla ahora]")
-                capture_mode_str = VoiceSessionMode.CONVERSATION_ACTIVE.value
-            else:
-                # Comprobar expiración por inactividad
-                voice_session.check_timeout()
-                if voice_session.mode in (VoiceSessionMode.CONVERSATION_ACTIVE, VoiceSessionMode.WAITING_FOR_FOLLOWUP):
-                    print(f"\n  [Conversación Continua Activa — Turno {voice_session.turns_count + 1} | Habla directamente...]")
+                    print("  [🔴 Grabando audio bajo demanda... Habla ahora]")
+                    capture_mode_str = VoiceSessionMode.CONVERSATION_ACTIVE.value
                 else:
-                    print("\n  [En espera de 'Jessica' | Habla ahora...]")
-                capture_mode_str = voice_session.mode.value
+                    # Comprobar expiración por inactividad
+                    voice_session.check_timeout()
+                    if voice_session.mode in (VoiceSessionMode.CONVERSATION_ACTIVE, VoiceSessionMode.WAITING_FOR_FOLLOWUP):
+                        print(f"\n  [Conversación Continua Activa — Turno {voice_session.turns_count + 1} | Habla directamente...]")
+                    else:
+                        print("\n  [En espera de 'Jessica' | Habla ahora...]")
+                    capture_mode_str = voice_session.mode.value
 
-            logger.info(f"[VOICE_CAPTURE_STARTED] Modo: {capture_mode_str}...")
-            t_capture_start = time.perf_counter()
+                logger.info(f"[VOICE_CAPTURE_STARTED] Modo: {capture_mode_str}...")
+                t_capture_start = time.perf_counter()
 
-            def _on_listening() -> None:
-                if state_machine.current_state == SessionState.IDLE:
-                    state_machine.transition_to(SessionState.WAKEWORD)
-                    state_machine.transition_to(SessionState.LISTENING)
-                elif state_machine.current_state != SessionState.LISTENING:
-                    state_machine.transition_to(SessionState.LISTENING)
+                def _on_listening() -> None:
+                    if state_machine.current_state == SessionState.IDLE:
+                        state_machine.transition_to(SessionState.WAKEWORD)
+                        state_machine.transition_to(SessionState.LISTENING)
+                    elif state_machine.current_state != SessionState.LISTENING:
+                        state_machine.transition_to(SessionState.LISTENING)
 
-            def _on_transcribing() -> None:
-                if state_machine.current_state == SessionState.LISTENING:
-                    state_machine.transition_to(SessionState.TRANSCRIBING)
+                def _on_transcribing() -> None:
+                    if state_machine.current_state == SessionState.LISTENING:
+                        state_machine.transition_to(SessionState.TRANSCRIBING)
 
-            capture_result = capture_engine.capture_and_transcribe(
-                mode=capture_mode_str,
-                timeout=7.0,
-                on_listening_start=_on_listening,
-                on_transcribing_start=_on_transcribing,
-            )
-            stt_latency_ms = (time.perf_counter() - t_capture_start) * 1000.0
-            logger.info(f"[VOICE_CAPTURE_STOPPED] Captura finalizada. Descarte: {capture_result.discard_reason.value}")
-
-            # 3. Manejo de silencios normales en espera
-            if capture_result.discard_reason == VoiceDiscardReason.NO_AUDIO:
-                stt_event_adapter.process_transcript("")
-                consecutive_empty_count += 1
-                if consecutive_empty_count >= settings.VOICE_MAX_EMPTY_RETRIES:
-                    if voice_session.mode != VoiceSessionMode.IDLE:
-                        print("  [No se detectó actividad. Sesión en pausa hasta tu próxima llamada.]")
-                    consecutive_empty_count = 0
-                continue
-
-            # 4. Manejo de fallos con feedback diferenciado
-            if not capture_result.is_success:
-                stt_event_adapter.process_transcript("")
-                consecutive_empty_count += 1
-                if capture_result.user_feedback_message:
-                    print(f"  {capture_result.user_feedback_message}")
-                continue
-
-            # 5. Captura exitosa
-            consecutive_empty_count = 0
-            texto = capture_result.text
-
-            # 5.1 Descarte de eco acústico del altavoz en conversación continua
-            elapsed_since_speech = time.perf_counter() - last_spoken_time
-            if (
-                voice_session.mode in (VoiceSessionMode.CONVERSATION_ACTIVE, VoiceSessionMode.WAITING_FOR_FOLLOWUP)
-                and _is_acoustic_echo(texto, last_spoken_text, elapsed_since_speech)
-            ):
-                logger.warning(
-                    f"[VOICE_ECHO_DETECTED] Descartando eco acústico de la voz del asistente: '{texto}' "
-                    f"(último mensaje: '{last_spoken_text}' hace {elapsed_since_speech:.2f}s)"
+                capture_result = capture_engine.capture_and_transcribe(
+                    mode=capture_mode_str,
+                    timeout=7.0,
+                    on_listening_start=_on_listening,
+                    on_transcribing_start=_on_transcribing,
                 )
-                print(f"  [Eco acústico del altavoz detectado y descartado: '{texto}']")
-                continue
+                stt_latency_ms = (time.perf_counter() - t_capture_start) * 1000.0
+                logger.info(f"[VOICE_CAPTURE_STOPPED] Captura finalizada. Descarte: {capture_result.discard_reason.value}")
 
-            # Emitir evento UtteranceFinal y actualizar State Machine (Fase 67)
-            stt_event_adapter.process_transcript(texto, confidence=capture_result.confidence)
-            logger.info(f"[VOICE_TRANSCRIPT] Texto reconocido: '{texto}' (Confianza: {capture_result.confidence:.2f})")
-            print(f"\n  Tú (Voz): {texto}")
+                # 3. Manejo de silencios normales en espera
+                if capture_result.discard_reason == VoiceDiscardReason.NO_AUDIO:
+                    stt_event_adapter.process_transcript("")
+                    consecutive_empty_count += 1
+                    if consecutive_empty_count >= settings.VOICE_MAX_EMPTY_RETRIES:
+                        if voice_session.mode != VoiceSessionMode.IDLE:
+                            print("  [No se detectó actividad. Sesión en pausa hasta tu próxima llamada.]")
+                        consecutive_empty_count = 0
+                    continue
+
+                # 4. Manejo de fallos con feedback diferenciado
+                if not capture_result.is_success:
+                    stt_event_adapter.process_transcript("")
+                    consecutive_empty_count += 1
+                    if capture_result.user_feedback_message:
+                        print(f"  {capture_result.user_feedback_message}")
+                    continue
+
+                # 5. Captura exitosa
+                consecutive_empty_count = 0
+                texto = capture_result.text
+
+                # 5.1 Descarte de eco acústico del altavoz en conversación continua
+                elapsed_since_speech = time.perf_counter() - last_spoken_time
+                if (
+                    voice_session.mode in (VoiceSessionMode.CONVERSATION_ACTIVE, VoiceSessionMode.WAITING_FOR_FOLLOWUP)
+                    and _is_acoustic_echo(texto, last_spoken_text, elapsed_since_speech)
+                ):
+                    logger.warning(
+                        f"[VOICE_ECHO_DETECTED] Descartando eco acústico de la voz del asistente: '{texto}' "
+                        f"(último mensaje: '{last_spoken_text}' hace {elapsed_since_speech:.2f}s)"
+                    )
+                    print(f"  [Eco acústico del altavoz detectado y descartado: '{texto}']")
+                    continue
+
+                # Emitir evento UtteranceFinal y actualizar State Machine (Fase 67)
+                stt_event_adapter.process_transcript(texto, confidence=capture_result.confidence)
+                logger.info(f"[VOICE_TRANSCRIPT] Texto reconocido: '{texto}' (Confianza: {capture_result.confidence:.2f})")
+                print(f"\n  Tú (Voz): {texto}")
 
 
-            # Comando de salida
-            if texto.lower() in ("salir", "exit", "quit", "adios", "adiós", "terminar", "apágate", "cerrar"):
-                despedida = "¡Hasta luego! Que tengas un excelente día."
-                print(f"\n  Jessyca: {despedida}\n")
+                # Comando de salida
+                if texto.lower() in ("salir", "exit", "quit", "adios", "adiós", "terminar", "apágate", "cerrar"):
+                    despedida = "¡Hasta luego! Que tengas un excelente día."
+                    print(f"\n  Jessyca: {despedida}\n")
+                    speaker.speak(despedida)
+                    voice_session.end_session()
+                    break
+
+                print("  [Procesando con Agente Core...]")
+                logger.info(f"[VOICE_EXECUTION_STARTED] Procesando petición de voz: '{texto}'")
+
+                voice_session.on_processing_started()
+
+                # Procesamiento con Agente Local JESSYCA
+                t_interact_start = time.perf_counter()
+                req = JessycaRequest(
+                    session_id=session_id,
+                    user_input=texto,
+                    modality=InputModality.VOICE,
+                    metadata={
+                        "stt_confidence": capture_result.confidence,
+                        "original_transcript": texto,
+                    },
+                )
+                res = agent.interact(req)
+                _agent_latency_ms = (time.perf_counter() - t_interact_start) * 1000.0
+
+                logger.info(f"[VOICE_EXECUTION_COMPLETED] Estado: {res.status.value}, Intent: {res.intent}, Skill: {res.selected_skill}")
+
+                voice_session.on_speaking_started()
+                print("  [Sintetizando y respondiendo con voz...]")
+                t_tts_start = time.perf_counter()
+
+                if res.requires_clarification or res.status.value == "AWAITING_CLARIFICATION":
+                    msg = res.clarification_question or res.spoken_text or res.response_text or "¿Podrías aclararme qué deseas hacer?"
+                    if res.proposed_interpretation:
+                        print(f"  [Aclaración detectada | Transcripción: '{texto}' | Interpretación propuesta: '{res.proposed_interpretation}']")
+                    print(f"\n  Jessyca (Aclaración): {msg}")
+                    tts_metrics = speaker.speak(msg, session_id=session_id)
+                elif res.requires_confirmation:
+                    msg = f"Atención: {res.response_text}. ¿Deseas autorizar esta acción?"
+                    print(f"\n  Jessyca (Confirmación): {msg}")
+                    tts_metrics = speaker.speak(msg, session_id=session_id)
+                else:
+                    msg = res.spoken_text or res.response_text
+                    print(f"\n  Jessyca: {msg}")
+                    tts_metrics = speaker.speak(msg, session_id=session_id)
+
+                t_turn_end = time.perf_counter()
+                last_spoken_text = msg or ""
+                last_spoken_time = t_turn_end
+                voice_session.on_speaking_finished()
+
+                # Medición y registro formal de latencias estructuradas (Fase 75.2-B)
+                t_eos_ref = capture_result.eos_timestamp or (t_capture_start + 1.0)
+                eos_to_stt_val = capture_result.eos_to_stt_start_ms
+                stt_dur_val = capture_result.stt_duration_ms or stt_latency_ms
+                stt_to_intent_val = max(0.0, (t_interact_start - (t_capture_start + (stt_latency_ms / 1000.0))) * 1000.0)
+                intent_dur_val = res.metrics.intent_latency_ms
+                llm_dur_val = res.metrics.model_inference_latency_ms
+                intent_to_exec_val = res.metrics.execution_latency_ms
+                tts_dur_val = tts_metrics.duration_ms if tts_metrics else 0.0
+                tts_startup_val = tts_metrics.startup_latency_ms if tts_metrics else 0.0
+                audio_start_val = max(0.0, (t_tts_start + (tts_startup_val / 1000.0) - t_eos_ref) * 1000.0)
+                total_turn_ms = max(0.0, (t_turn_end - t_eos_ref) * 1000.0)
+
+                lat_trace = UtteranceLatencyTrace(
+                    utterance_id=capture_result.diagnostic.capture_id,
+                    eos_to_stt_start=eos_to_stt_val,
+                    stt_duration=stt_dur_val,
+                    stt_to_intent=stt_to_intent_val,
+                    intent_duration=intent_dur_val,
+                    llm_duration=llm_dur_val,
+                    intent_to_execution=intent_to_exec_val,
+                    tts_duration=tts_dur_val,
+                    audio_start=audio_start_val,
+                    total_response_time=total_turn_ms,
+                )
+                formatted_trace = lat_trace.format_trace()
+                logger.info(f"\n{formatted_trace}")
+                print(f"\n{formatted_trace}\n")
+
+                # Hitos canónicos de tiempo (fin de voz, fin de STT, respuesta del Core, primer audio reproducido, fin de reproducción)
+                t_first_audio_ms = (t_tts_start + (tts_startup_val / 1000.0) - t_eos_ref) * 1000.0
+                t_core_resp_ms = (t_interact_start + (_agent_latency_ms / 1000.0) - t_eos_ref) * 1000.0
+                logger.info(
+                    f"[TIMELINE MILESTONES] "
+                    f"1. Fin de voz (EOS): 0.0ms | "
+                    f"2. Fin de STT: +{stt_dur_val:.1f}ms | "
+                    f"3. Respuesta del Core: +{t_core_resp_ms:.1f}ms (Core dur: {_agent_latency_ms:.1f}ms) | "
+                    f"4. Primer audio reproducido: +{t_first_audio_ms:.1f}ms (TTS inicio: {tts_startup_val:.1f}ms) | "
+                    f"5. Fin de reproducción: +{total_turn_ms:.1f}ms (TTS dur: {tts_dur_val:.1f}ms)"
+                )
+
+                # Breve pausa de estabilización de audio para evitar que el micrófono capture el eco del altavoz
+                time.sleep(0.3)
+
+                if os.getenv("VOICE_DEBUG", "").lower() in ("1", "true", "yes"):
+                    print(f"  [DEBUG | Intent: {res.intent} | Agent: {res.selected_agent} | Skill: {res.selected_skill} | Estado: {res.status.value} | Latencia: {res.metrics.total_latency_ms:.1f}ms]")
+
+            except (KeyboardInterrupt, EOFError):
+                despedida = "¡Hasta luego! Modo voz detenido."
+                print(f"\n\n  Jessyca: {despedida}\n")
                 speaker.speak(despedida)
                 voice_session.end_session()
                 break
-
-            print("  [Procesando con Agente Core...]")
-            logger.info(f"[VOICE_EXECUTION_STARTED] Procesando petición de voz: '{texto}'")
-
-            voice_session.on_processing_started()
-
-            # Procesamiento con Agente Local JESSYCA
-            t_interact_start = time.perf_counter()
-            req = JessycaRequest(
-                session_id=session_id,
-                user_input=texto,
-                modality=InputModality.VOICE,
-                metadata={
-                    "stt_confidence": capture_result.confidence,
-                    "original_transcript": texto,
-                },
-            )
-            res = agent.interact(req)
-            _agent_latency_ms = (time.perf_counter() - t_interact_start) * 1000.0
-
-            logger.info(f"[VOICE_EXECUTION_COMPLETED] Estado: {res.status.value}, Intent: {res.intent}, Skill: {res.selected_skill}")
-
-            voice_session.on_speaking_started()
-            print("  [Sintetizando y respondiendo con voz...]")
-            t_tts_start = time.perf_counter()
-
-            if res.requires_clarification or res.status.value == "AWAITING_CLARIFICATION":
-                msg = res.clarification_question or res.spoken_text or res.response_text or "¿Podrías aclararme qué deseas hacer?"
-                if res.proposed_interpretation:
-                    print(f"  [Aclaración detectada | Transcripción: '{texto}' | Interpretación propuesta: '{res.proposed_interpretation}']")
-                print(f"\n  Jessyca (Aclaración): {msg}")
-                tts_metrics = speaker.speak(msg, session_id=session_id)
-            elif res.requires_confirmation:
-                msg = f"Atención: {res.response_text}. ¿Deseas autorizar esta acción?"
-                print(f"\n  Jessyca (Confirmación): {msg}")
-                tts_metrics = speaker.speak(msg, session_id=session_id)
-            else:
-                msg = res.spoken_text or res.response_text
-                print(f"\n  Jessyca: {msg}")
-                tts_metrics = speaker.speak(msg, session_id=session_id)
-
-            t_turn_end = time.perf_counter()
-            last_spoken_text = msg or ""
-            last_spoken_time = t_turn_end
-            voice_session.on_speaking_finished()
-
-            # Medición y registro formal de latencias estructuradas (Fase 75.2-B)
-            t_eos_ref = capture_result.eos_timestamp or (t_capture_start + 1.0)
-            eos_to_stt_val = capture_result.eos_to_stt_start_ms
-            stt_dur_val = capture_result.stt_duration_ms or stt_latency_ms
-            stt_to_intent_val = max(0.0, (t_interact_start - (t_capture_start + (stt_latency_ms / 1000.0))) * 1000.0)
-            intent_dur_val = res.metrics.intent_latency_ms
-            llm_dur_val = res.metrics.model_inference_latency_ms
-            intent_to_exec_val = res.metrics.execution_latency_ms
-            tts_dur_val = tts_metrics.duration_ms if tts_metrics else 0.0
-            tts_startup_val = tts_metrics.startup_latency_ms if tts_metrics else 0.0
-            audio_start_val = max(0.0, (t_tts_start + (tts_startup_val / 1000.0) - t_eos_ref) * 1000.0)
-            total_turn_ms = max(0.0, (t_turn_end - t_eos_ref) * 1000.0)
-
-            lat_trace = UtteranceLatencyTrace(
-                utterance_id=capture_result.diagnostic.capture_id,
-                eos_to_stt_start=eos_to_stt_val,
-                stt_duration=stt_dur_val,
-                stt_to_intent=stt_to_intent_val,
-                intent_duration=intent_dur_val,
-                llm_duration=llm_dur_val,
-                intent_to_execution=intent_to_exec_val,
-                tts_duration=tts_dur_val,
-                audio_start=audio_start_val,
-                total_response_time=total_turn_ms,
-            )
-            formatted_trace = lat_trace.format_trace()
-            logger.info(f"\n{formatted_trace}")
-            print(f"\n{formatted_trace}\n")
-
-            # Hitos canónicos de tiempo (fin de voz, fin de STT, respuesta del Core, primer audio reproducido, fin de reproducción)
-            t_first_audio_ms = (t_tts_start + (tts_startup_val / 1000.0) - t_eos_ref) * 1000.0
-            t_core_resp_ms = (t_interact_start + (_agent_latency_ms / 1000.0) - t_eos_ref) * 1000.0
-            logger.info(
-                f"[TIMELINE MILESTONES] "
-                f"1. Fin de voz (EOS): 0.0ms | "
-                f"2. Fin de STT: +{stt_dur_val:.1f}ms | "
-                f"3. Respuesta del Core: +{t_core_resp_ms:.1f}ms (Core dur: {_agent_latency_ms:.1f}ms) | "
-                f"4. Primer audio reproducido: +{t_first_audio_ms:.1f}ms (TTS inicio: {tts_startup_val:.1f}ms) | "
-                f"5. Fin de reproducción: +{total_turn_ms:.1f}ms (TTS dur: {tts_dur_val:.1f}ms)"
-            )
-
-            # Breve pausa de estabilización de audio para evitar que el micrófono capture el eco del altavoz
-            time.sleep(0.3)
-
-            if os.getenv("VOICE_DEBUG", "").lower() in ("1", "true", "yes"):
-                print(f"  [DEBUG | Intent: {res.intent} | Agent: {res.selected_agent} | Skill: {res.selected_skill} | Estado: {res.status.value} | Latencia: {res.metrics.total_latency_ms:.1f}ms]")
-
-        except (KeyboardInterrupt, EOFError):
-            despedida = "¡Hasta luego! Modo voz detenido."
-            print(f"\n\n  Jessyca: {despedida}\n")
-            speaker.speak(despedida)
-            voice_session.end_session()
-            break
-        except Exception as e:
-            logger.error(f"[MODO VOZ] Error en el ciclo de interacción: {e}")
-            print(f"  [Error inesperado: {e}]")
+            except Exception as e:
+                logger.error(f"[MODO VOZ] Error en el ciclo de interacción: {e}")
+                print(f"  [Error inesperado: {e}]")
     finally:
         try:
             from core.browser_session_manager import reset_shared_browser_adapter
