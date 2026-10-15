@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>CRM Registro de Leads - Mock Test</title>
+</head>
+<body>
+    <h1>Nuevo Lead Comercial</h1>
+    <form id="lead-form" onsubmit="event.preventDefault(); submitForm();">
+        <label for="nombre">Nombre:</label><br>
+        <input type="text" id="nombre" name="nombre"><br><br>
+
+        <label for="telefono">Teléfono:</label><br>
+        <input type="text" id="telefono" name="telefono"><br><br>
+
+        <label for="servicio">Servicio:</label><br>
+        <select id="servicio" name="servicio">
+            <option value="">--Seleccionar--</option>
+            <option value="Consultoría General">Consultoría General</option>
+            <option value="Asesoría Técnica">Asesoría Técnica</option>
+            <option value="Soporte Dedicado">Soporte Dedicado</option>
+        </select><br><br>
+
+        <label for="notas">Notas:</label><br>
+        <textarea id="notas" name="notas" rows="4" cols="50"></textarea><br><br>
+
+        <button type="submit" id="btn-submit">Registrar Lead</button>
+    </form>
+
+    <div id="resultado" style="margin-top:20px; font-weight:bold; color:green;"></div>
+
+    <!-- Modal emergente para BP-06 -->
+    <div id="modal-popup" style="display:none; position:fixed; top:20%; left:30%; background:#fff; border:2px solid #000; padding:20px; z-index:9999;">
+        <p id="modal-text">Aviso: Se requiere confirmación de política antes de continuar.</p>
+        <button id="modal-cancel" onclick="dismissModal()">Cancelar</button>
+        <button id="modal-ok" onclick="acceptModal()">Aceptar</button>
+    </div>
+
+    <script>
+        let modalActive = false;
+        function triggerModal() {
+            modalActive = true;
+            document.getElementById('modal-popup').style.display = 'block';
+        }
+        function dismissModal() {
+            modalActive = false;
+            document.getElementById('modal-popup').style.display = 'none';
+        }
+        function acceptModal() {
+            modalActive = false;
+            document.getElementById('modal-popup').style.display = 'none';
+        }
+        function submitForm() {
+            if (modalActive) {
+                alert("Bloqueado por modal!");
+                return;
+            }
+            const nom = document.getElementById('nombre').value;
+            const tel = document.getElementById('telefono').value;
+            const srv = document.getElementById('servicio').value;
+            const not = document.getElementById('notas').value;
+            if (nom && tel && srv && not) {
+                document.getElementById('resultado').innerText = "LEAD_REGISTRADO_OK";
+            } else {
+                document.getElementById('resultado').innerText = "ERROR_CAMPOS_INCOMPLETOS";
+            }
+        }
+    </script>
+</body>
+</html>
