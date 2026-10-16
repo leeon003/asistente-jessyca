@@ -40,9 +40,18 @@ FORBIDDEN_EXECUTABLE_EXTENSIONS: frozenset[str] = frozenset({
 
 
 def _is_path_critical(path: str) -> bool:
-    """Verifica si la ruta corresponde a una ubicación sensible del sistema operativo."""
+    """Verifica si la ruta corresponde a una ubicación sensible del sistema operativo o credenciales."""
     import tempfile
     path_norm = os.path.abspath(path).lower().replace("/", "\\")
+    base_name = os.path.basename(path_norm)
+
+    # 1. Protección absoluta contra acceso a credenciales y secretos en cualquier ruta
+    forbidden_credentials = {".env", "id_rsa", "id_ed25519", "id_ecdsa", "sam", "security", "ntds.dit"}
+    if base_name in forbidden_credentials or base_name.startswith(".env."):
+        return True
+    if "\\.ssh\\" in path_norm or path_norm.endswith("\\.ssh") or "\\.aws\\" in path_norm or path_norm.endswith("\\.aws"):
+        return True
+
     temp_dir = tempfile.gettempdir().lower().replace("/", "\\")
     # Las ubicaciones temporales legítimas para sandbox/pruebas no se consideran rutas críticas
     if path_norm.startswith(temp_dir) or "\\temp\\" in path_norm or "\\tmp\\" in path_norm:

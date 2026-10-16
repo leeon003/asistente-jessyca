@@ -112,6 +112,15 @@ class FakeApplicationAdapter(IApplicationAdapter):
         for desc in self.descriptors.values():
             if alias_clean == desc.app_id.lower() or alias_clean == desc.executable.lower() or alias_clean in [a.lower() for a in desc.aliases]:
                 return desc
+        if "." in os.path.basename(alias_clean) and not alias_clean.endswith(".exe"):
+            ext = os.path.splitext(alias_clean)[1].lower()
+            return ApplicationDescriptor(
+                app_id=f"doc_{ext[1:]}",
+                name=f"Document Handler ({ext})",
+                executable="explorer.exe",
+                aliases=(app_alias, alias_clean),
+                supports_single_instance=False,
+            )
         return None
 
     def find_existing_session(self, app_id: str) -> ApplicationSession | None:
@@ -188,6 +197,15 @@ class WindowsApplicationAdapter(IApplicationAdapter):
         for desc in self.descriptors.values():
             if alias_clean == desc.app_id.lower() or alias_clean == desc.executable.lower() or alias_clean in [a.lower() for a in desc.aliases]:
                 return desc
+        if "." in os.path.basename(alias_clean) and not alias_clean.endswith(".exe"):
+            ext = os.path.splitext(alias_clean)[1].lower()
+            return ApplicationDescriptor(
+                app_id=f"doc_{ext[1:]}",
+                name=f"Document Handler ({ext})",
+                executable="explorer.exe",
+                aliases=(app_alias, alias_clean),
+                supports_single_instance=False,
+            )
         return None
 
     def find_existing_session(self, app_id: str) -> ApplicationSession | None:

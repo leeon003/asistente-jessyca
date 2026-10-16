@@ -56,7 +56,7 @@ class ComputerUseAdapter(IntegrationAdapter):
         )
         try:
             import pyautogui
-            pyautogui.FAILSAFE = False
+            pyautogui.FAILSAFE = True
         except Exception:
             pass
         self._register_audited_capabilities()
@@ -231,6 +231,27 @@ class ComputerUseAdapter(IntegrationAdapter):
                 duration_ms=(time.perf_counter() - start_time) * 1000.0,
             )
 
+        # ── SEGURIDAD: Control de Cancelación y Parada de Emergencia Inmutable ──
+        from core.emergency_stop import EmergencyStopManager
+        if EmergencyStopManager.get_instance().is_stopped():
+            logger.warning(f"[CUA EMERGENCY STOP ACTIVE] Despacho rechazado para '{capability}'.")
+            return IntegrationExecutionResult(
+                executed=False,
+                status=ExecutionStatus.CANCELLED,
+                verified=False,
+                error="Operación abortada: Parada de Emergencia activa en el sistema",
+                duration_ms=(time.perf_counter() - start_time) * 1000.0,
+            )
+        if getattr(context, "cancellation_token", None) and context.cancellation_token.is_cancellation_requested():
+            logger.warning(f"[CUA CANCELLED] Despacho abortado por token de cancelación para '{capability}'.")
+            return IntegrationExecutionResult(
+                executed=False,
+                status=ExecutionStatus.CANCELLED,
+                verified=False,
+                error="Operación abortada por token de cancelación",
+                duration_ms=(time.perf_counter() - start_time) * 1000.0,
+            )
+
         try:
             if capability == "computer_use.observe_desktop":
                 return self._execute_observe_desktop(params, start_time)
@@ -252,6 +273,18 @@ class ComputerUseAdapter(IntegrationAdapter):
                 )
         except Exception as exc:
             dur = (time.perf_counter() - start_time) * 1000.0
+            import pyautogui
+            if isinstance(exc, getattr(pyautogui, "FailSafeException", ())) or "failsafe" in str(exc).lower():
+                from core.emergency_stop import EmergencyStopManager
+                EmergencyStopManager.get_instance().trigger_stop("FailSafe triggered by user moving cursor to corner", source="failsafe_corner")
+                logger.warning(f"[FAILSAFE TRIGGERED] Abortando acción '{capability}' por movimiento a esquina.")
+                return IntegrationExecutionResult(
+                    executed=False,
+                    status=ExecutionStatus.CANCELLED,
+                    verified=False,
+                    error="Acción abortada por FailSafe de esquina. Parada de emergencia activada.",
+                    duration_ms=dur,
+                )
             logger.error(f"Error inesperado al ejecutar '{capability}': {exc}", exc_info=True)
             return IntegrationExecutionResult(
                 executed=False,

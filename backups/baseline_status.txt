@@ -1,0 +1,17 @@
+ M benchmarks/real_world_benchmark_results.json
+ M config/settings.py
+ M core/integration/adapters/computer_use_adapter.py
+ M core/local_agent/local_agent.py
+ M data/learning_reports/report_2026-08-22_2da5114e.json
+ M data/learning_reports/report_2026-08-22_2da5114e.md
+ M data/scheduled_tasks.json
+ M data/sessions.db
+ M reports/anydoc_phase1_e2e.json
+ M skills/eval/eval_cua_skill.py
+?? Documentos/ESTADO_ACTUAL.md
+?? "Documentos/informe_ rob\303\263tica avanzada.md"
+?? backups/
+?? core/desktop/
+?? core/intent/
+?? tests/eval_fixtures/out_prd771.json
+?? tests/intent/

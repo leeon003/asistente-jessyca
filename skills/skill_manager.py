@@ -139,7 +139,7 @@ class SkillManager:
 
     def execute_skill(
         self,
-        skill_id: str,
+        skill_id: str | None = None,
         parameters: dict[str, Any] | None = None,
         session_id: str = "default_session",
         user: str = "user",
@@ -147,14 +147,16 @@ class SkillManager:
         metadata: dict[str, Any] | None = None,
         timeout_seconds: float = 60.0,
         budget: AgentBudget | None = None,
+        skill_name: str | None = None,
     ) -> SkillResult:
         """Ejecuta una Skill directamente por su identificador o versión."""
+        actual_id = skill_id or skill_name or ""
         with self._lock:
-            skill = self.registry.lookup(skill_id)
+            skill = self.registry.lookup(actual_id)
             if not skill:
-                logger.warning(f"[SKILL NOT FOUND] Skill '{skill_id}' no encontrada en el registro.")
+                logger.warning(f"[SKILL NOT FOUND] Skill '{actual_id}' no encontrada en el registro.")
                 return SkillResult(
-                    skill_id=skill_id,
+                    skill_id=actual_id,
                     success=False,
                     status=SkillStatus.FAILED,
                     error=f"La Skill '{skill_id}' no está registrada o disponible en el sistema.",

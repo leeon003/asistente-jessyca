@@ -10,7 +10,7 @@
       "input_path": "lab/anydoc/fixtures/simple.csv",
       "expected_status": "SUCCESS",
       "actual_status": "SUCCESS",
-      "latency_ms": 2.54529999983788,
+      "latency_ms": 3.117000000202097,
       "side_effects": 0,
       "passed": true
     },
@@ -20,7 +20,7 @@
       "input_path": "lab/anydoc/fixtures/simple.docx",
       "expected_status": "SUCCESS",
       "actual_status": "SUCCESS",
-      "latency_ms": 4.254499999660766,
+      "latency_ms": 4.881799999566283,
       "side_effects": 0,
       "passed": true
     },
@@ -30,7 +30,7 @@
       "input_path": "lab/anydoc/fixtures/simple.xlsx",
       "expected_status": "SUCCESS",
       "actual_status": "SUCCESS",
-      "latency_ms": 3.089299998464412,
+      "latency_ms": 3.5405999988142867,
       "side_effects": 0,
       "passed": true
     },
@@ -40,7 +40,7 @@
       "input_path": "lab/anydoc/fixtures/simple.pptx",
       "expected_status": "SUCCESS",
       "actual_status": "SUCCESS",
-      "latency_ms": 3.7926000004517846,
+      "latency_ms": 5.516900000657188,
       "side_effects": 0,
       "passed": true
     },
@@ -50,7 +50,7 @@
       "input_path": "lab/anydoc/fixtures/simple.pdf",
       "expected_status": "SUCCESS",
       "actual_status": "SUCCESS",
-      "latency_ms": 9.038099999088445,
+      "latency_ms": 8.71029999871098,
       "side_effects": 0,
       "passed": true
     },
@@ -60,7 +60,7 @@
       "input_path": "lab/anydoc/fixtures/simple.rtf",
       "expected_status": "SUCCESS",
       "actual_status": "SUCCESS",
-      "latency_ms": 3.6082999995414866,
+      "latency_ms": 3.987599999163649,
       "side_effects": 0,
       "passed": true
     },
@@ -70,7 +70,7 @@
       "input_path": "lab/anydoc/fixtures/simple.odt",
       "expected_status": "SUCCESS",
       "actual_status": "SUCCESS",
-      "latency_ms": 3.5425000005488982,
+      "latency_ms": 3.732899998794892,
       "side_effects": 0,
       "passed": true
     },
@@ -80,7 +80,7 @@
       "input_path": "lab/anydoc/fixtures/simple.epub",
       "expected_status": "SUCCESS",
       "actual_status": "SUCCESS",
-      "latency_ms": 2.7866000000358326,
+      "latency_ms": 3.208600001016748,
       "side_effects": 0,
       "passed": true
     },
@@ -90,7 +90,7 @@
       "input_path": "lab/anydoc/fixtures/disguised_docx.pdf",
       "expected_status": "SUCCESS",
       "actual_status": "SUCCESS",
-      "latency_ms": 4.212199999528821,
+      "latency_ms": 4.2848999983107205,
       "side_effects": 0,
       "passed": true
     },
@@ -100,7 +100,7 @@
       "input_path": "lab/anydoc/fixtures/zipbomb.docx",
       "expected_status": "RESOURCE_LIMIT",
       "actual_status": "RESOURCE_LIMIT",
-      "latency_ms": 2.118600001267623,
+      "latency_ms": 2.397999998720479,
       "side_effects": 0,
       "passed": true
     },
@@ -110,7 +110,7 @@
       "input_path": "lab/anydoc/fixtures/deepxml.docx",
       "expected_status": "RESOURCE_LIMIT",
       "actual_status": "RESOURCE_LIMIT",
-      "latency_ms": 2.360700000281213,
+      "latency_ms": 2.570700000433135,
       "side_effects": 0,
       "passed": true
     },
@@ -120,7 +120,7 @@
       "input_path": "lab/anydoc/fixtures/empty.docx",
       "expected_status": "MALFORMED",
       "actual_status": "MALFORMED",
-      "latency_ms": 1.971199999388773,
+      "latency_ms": 2.035999999861815,
       "side_effects": 0,
       "passed": true
     },
@@ -130,7 +130,7 @@
       "input_path": "lab/anydoc/fixtures/encrypted.odt",
       "expected_status": "ENCRYPTED",
       "actual_status": "ENCRYPTED",
-      "latency_ms": 1.9742000004043803,
+      "latency_ms": 2.133699999831151,
       "side_effects": 0,
       "passed": true
     },
@@ -140,7 +140,7 @@
       "input_path": "lab/anydoc/fixtures/scanned.pdf",
       "expected_status": "NEEDS_OCR",
       "actual_status": "NEEDS_OCR",
-      "latency_ms": 2.5960000002669403,
+      "latency_ms": 2.6729000001068925,
       "side_effects": 0,
       "passed": true
     },
@@ -150,7 +150,7 @@
       "input_path": "../../etc/passwd",
       "expected_status": "SECURITY_BLOCKED",
       "actual_status": "SECURITY_BLOCKED",
-      "latency_ms": 0.005099998816149309,
+      "latency_ms": 0.005899999450775795,
       "side_effects": 0,
       "passed": true
     }

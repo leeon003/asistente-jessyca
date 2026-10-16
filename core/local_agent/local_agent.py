@@ -125,6 +125,7 @@ class JessycaLocalAgent:
         are_runtime: ARERuntime | None = None,
         response_synthesizer: ResponseSynthesizer | None = None,
         long_term_memory: Any | None = None,
+        sai_intent_engine: Any | None = None,
     ) -> None:
         self._lock = threading.RLock()
         self.emergency_stop_mgr = emergency_stop or get_emergency_stop_manager()
@@ -150,6 +151,8 @@ class JessycaLocalAgent:
         self.jde_shadow_adapter = jde_shadow_adapter or get_jde_shadow_adapter()
         self.jde_runtime_binding = jde_runtime_binding or get_jde_runtime_binding()
         self.are_runtime = are_runtime or get_are_runtime()
+        from core.intent.sai_intent_engine import get_sai_intent_engine
+        self.sai_intent_engine = sai_intent_engine or get_sai_intent_engine()
 
         from core.memory.long_term_memory import LongTermMemoryEngine, MemoryRecordType, MemorySensitivity
         self.long_term_memory = long_term_memory or LongTermMemoryEngine()
@@ -249,7 +252,7 @@ class JessycaLocalAgent:
             )
 
         user_text = (req.user_input or "").strip()
-        intent, extracted_params, is_ambiguous = self._resolve_intent_and_slots(user_text, req.session_id)
+        intent, extracted_params, is_ambiguous = self._resolve_intent(user_text, req.session_id)
         dialogue_decision = self.dialogue_manager.evaluate_dialogue(
             user_input=user_text,
             intent=intent,
@@ -422,6 +425,66 @@ class JessycaLocalAgent:
 
     # ── PIPELINE INTERNO UNIFICADO ──
 
+    def _is_autonomous_engine_enabled(self) -> bool:
+        """Determina si el motor agéntico autónomo (Fase 3: JESSYCA 4.0) está activo."""
+        env_val = os.getenv("JESSYCA_ENABLE_AUTONOMOUS_AGENT", "").lower()
+        if env_val in ("false", "0", "no"):
+            return False
+        if env_val in ("true", "1", "yes"):
+            return True
+        if hasattr(self, "settings") and hasattr(self.settings, "ENABLE_AUTONOMOUS_AGENT_ENGINE"):
+            return bool(self.settings.ENABLE_AUTONOMOUS_AGENT_ENGINE)
+        return True
+
+    def _resolve_intent(self, user_text: str, session_id: str) -> tuple[str, dict[str, Any], bool]:
+        """Resuelve la intención usando el motor autónomo si está habilitado o fallback legacy."""
+        if not self._is_autonomous_engine_enabled():
+            return self._resolve_intent_and_slots(user_text, session_id)
+
+        try:
+            sess = (
+                self.context_manager.get_session(session_id)
+                if hasattr(self, "context_manager") and self.context_manager
+                else None
+            )
+            session_ctx: dict[str, Any] = {}
+            if sess:
+                if hasattr(sess, "metadata") and sess.metadata:
+                    session_ctx.update(sess.metadata)
+                if hasattr(sess, "turns") and sess.turns:
+                    last_turn = sess.turns[-1]
+                    if hasattr(last_turn, "target") and last_turn.target:
+                        session_ctx["last_target"] = last_turn.target
+                    if hasattr(last_turn, "output_data") and isinstance(last_turn.output_data, dict):
+                        session_ctx.update(last_turn.output_data)
+
+            sai_interp = self.sai_intent_engine.interpret(
+                user_text=user_text,
+                session_id=session_id,
+                session_context=session_ctx,
+            )
+            intent, extracted_params, is_ambiguous = sai_interp.to_legacy_tuple()
+
+            try:
+                leg_intent, leg_params, leg_ambig = self._resolve_intent_and_slots(user_text, session_id)
+                self.sai_intent_engine.log_shadow_comparison(
+                    raw_text=user_text,
+                    legacy_intent=leg_intent,
+                    legacy_params=leg_params,
+                    legacy_ambiguous=leg_ambig,
+                    sai_result=sai_interp,
+                )
+                # Prioridad determinista para comandos explícitos de memoria, captura y fallback cuando SAI devuelve general_query:
+                if leg_intent in ("remember_fact", "recall_fact", "take_screenshot") or (intent == "general_query" and leg_intent != "general_query"):
+                    intent, extracted_params, is_ambiguous = leg_intent, leg_params, leg_ambig
+            except Exception:
+                pass
+
+            return intent, extracted_params, is_ambiguous
+        except Exception as e:
+            logger.warning(f"[AUTONOMOUS_ENGINE_FALLBACK] Error en motor autónomo ({e}). Utilizando motor legacy.")
+            return self._resolve_intent_and_slots(user_text, session_id)
+
     def _execute_unified_pipeline(
         self,
         req: JessycaRequest,
@@ -575,7 +638,7 @@ class JessycaLocalAgent:
 
             # ── PASO 2: ANÁLISIS DE INTENCIÓN Y RESOLUCIÓN DE CONTEXTO ──
             t_intent_0 = time.perf_counter()
-            intent, extracted_params, is_ambiguous = self._resolve_intent_and_slots(user_text, req.session_id)
+            intent, extracted_params, is_ambiguous = self._resolve_intent(user_text, req.session_id)
             if req.metadata:
                 for m_k, m_v in req.metadata.items():
                     if m_k not in extracted_params or not extracted_params[m_k]:
@@ -830,7 +893,8 @@ class JessycaLocalAgent:
 
             # Evaluar si la solicitud califica como tarea compleja para ARE en modo CONTROLLED/SHADOW
             if (
-                hasattr(self, "are_runtime")
+                intent != "multistep_compound"
+                and hasattr(self, "are_runtime")
                 and self.are_runtime
                 and self.are_runtime.current_mode != ARERuntimeMode.DISABLED
                 and self.are_runtime.is_complex_task(user_text, intent, extracted_params)
@@ -2180,6 +2244,75 @@ class JessycaLocalAgent:
                 )
                 exec_success = True
 
+            # 6.11.3 Ejecución Secuencial de Plan Compuesto (JESSYCA 4.0 / SAI Multi-Step Plan)
+            elif intent == "multistep_compound":
+                raw_steps = extracted_params.get("steps", [])
+                executed_step_msgs: list[str] = []
+                step_errors: list[str] = []
+                all_succeeded = True
+                compound_tools_executed: list[str] = []
+
+                for idx, step_dict in enumerate(raw_steps, start=1):
+                    if token and token.is_cancelled:
+                        all_succeeded = False
+                        step_errors.append("Ejecución cancelada por el usuario.")
+                        break
+
+                    s_skill = step_dict.get("skill_name", "")
+                    s_params = step_dict.get("parameters", {})
+                    s_desc = step_dict.get("description", f"Paso {idx}")
+
+                    compound_tools_executed.append(s_skill)
+                    try:
+                        res = self.skill_manager.execute_skill(
+                            skill_id=s_skill,
+                            parameters=s_params,
+                            session_id=req.session_id,
+                        )
+                        if res.success:
+                            executed_step_msgs.append(f"{idx}. {s_desc}")
+                        else:
+                            all_succeeded = False
+                            err = res.error or "Error en ejecución"
+                            step_errors.append(f"{idx}. {s_desc} (Error: {err})")
+                            break
+                    except Exception as step_exc:
+                        all_succeeded = False
+                        step_errors.append(f"{idx}. {s_desc} (Excepción: {step_exc})")
+                        break
+
+                if all_succeeded:
+                    msg_out = "He completado las siguientes acciones:\n" + "\n".join(executed_step_msgs)
+                    exec_status = ExecutionStatus.SUCCEEDED
+                    exec_success = True
+                else:
+                    msg_out = "Plan parcialmente ejecutado:\n" + "\n".join(executed_step_msgs + step_errors)
+                    exec_status = ExecutionStatus.FAILED if not executed_step_msgs else ExecutionStatus.UNKNOWN
+                    exec_success = all_succeeded
+
+                evidence_obj = ExecutionEvidence(
+                    verification_type="compound_plan_execution",
+                    target=f"{len(raw_steps)}_steps",
+                    is_verified=all_succeeded,
+                    details={"steps_executed": executed_step_msgs, "errors": step_errors},
+                )
+                execution_result = ExecutionResult(
+                    status=exec_status,
+                    action=intent,
+                    target=evidence_obj.target,
+                    message=msg_out,
+                    evidence=evidence_obj,
+                    output={"steps_total": len(raw_steps), "steps_completed": len(executed_step_msgs), "exito": exec_success},
+                )
+                sys_resp = SystemResponse(
+                    task_id=req.request_id,
+                    correlation_id=req.request_id,
+                    success=exec_success,
+                    status="COMPLETED" if exec_success else "FAILED",
+                    output={"mensaje": msg_out, "tools": compound_tools_executed},
+                    error=None if exec_success else "; ".join(step_errors),
+                )
+
             # 6.12 Flujo Coordinado Multidimensional
             else:
                 sys_resp = self.coordinator.execute_user_request(
@@ -2454,7 +2587,99 @@ class JessycaLocalAgent:
         return self._resolve_intent_and_slots(text, session_id)
 
     def _resolve_intent_and_slots(self, text: str, session_id: str) -> tuple[str, dict[str, Any], bool]:
-        """Extrae la intención semántica y parámetros de la solicitud integrando contexto corto."""
+        """Extrae la intención semántica y parámetros de la solicitud integrando contexto corto y motor configurable (legacy, shadow, sai)."""
+        from config import get_settings
+        mode = os.getenv("INTENT_ENGINE_MODE") or getattr(get_settings(), "INTENT_ENGINE_MODE", "legacy")
+        mode = str(mode).lower().strip()
+
+        if mode == "sai":
+            try:
+                # 1. Comprobar contexto previo y preguntas pendientes (prioridad conversacional)
+                pending = self.context_manager.pop_pending_clarification(session_id)
+                lower = text.lower()
+                if pending:
+                    proposed = pending.get("partial_parameters", {}).get("proposed_interpretation")
+                    is_affirmative = lower in ("si", "sí", "claro", "exacto", "a eso", "eso", "por favor", "a él", "a ella", "sí por favor", "si por favor", "afirmativo", "correcto", "eso mismo")
+                    if proposed and is_affirmative:
+                        if proposed.startswith("abrir ") or proposed.startswith("abre "):
+                            return self._resolve_intent_and_slots(proposed, session_id)
+                        return "general_query", {"query": f"¿Quién es o qué es {proposed}?", "target": proposed, "confirmed_interpretation": proposed}, False
+                    elif proposed and lower.startswith(("no,", "no me referia", "no me refería", "no ")):
+                        clean_corr = re.sub(r"^(no[,\s]+(me refer[ií]a a\s+|quer[ií]a\s+|era\s+)?)", "", lower).strip()
+                        return self._resolve_intent_and_slots(clean_corr, session_id)
+                    return pending["original_intent"], {"target": text, "app_name": text, "query": text}, False
+
+                # 2. Obtener contexto de la sesión para correferencias
+                sess = self.context_manager.get_session(session_id)
+                last_app = (
+                    getattr(sess, "last_target_app", None)
+                    or (sess.active_context.get("last_target_app") if sess else None)
+                    or (sess.active_context.get("app_name") if sess else None)
+                ) if sess else None
+                session_ctx = {
+                    "last_target": last_app,
+                    "current_application": last_app,
+                    "last_target_app": last_app,
+                } if last_app else {}
+
+                # 3. Interpretar con SaiIntentEngine
+                interpretation = self.sai_intent_engine.interpret(
+                    user_text=text,
+                    session_id=session_id,
+                    session_context=session_ctx,
+                )
+
+                if interpretation.intent_type.value == "multi_step_plan":
+                    return (
+                        "multistep_compound",
+                        {
+                            **interpretation.unified_parameters,
+                            "steps": [s.__dict__ for s in interpretation.steps],
+                            "goal_summary": interpretation.goal_summary,
+                            "spoken_feedback": interpretation.spoken_feedback,
+                        },
+                        interpretation.requires_clarification,
+                    )
+                return interpretation.to_legacy_tuple()
+            except Exception as e:
+                logger.warning(f"[INTENT_ENGINE_FALLBACK] Error en SAI Intent Engine: {e}. Fallback automático a legacy.")
+                return self._resolve_legacy_intent_and_slots(text, session_id)
+
+        elif mode == "shadow":
+            legacy_res = self._resolve_legacy_intent_and_slots(text, session_id)
+            try:
+                sess = self.context_manager.get_session(session_id)
+                last_app = (
+                    getattr(sess, "last_target_app", None)
+                    or (sess.active_context.get("last_target_app") if sess else None)
+                    or (sess.active_context.get("app_name") if sess else None)
+                ) if sess else None
+                session_ctx = {
+                    "last_target": last_app,
+                    "current_application": last_app,
+                    "last_target_app": last_app,
+                } if last_app else {}
+                sai_res = self.sai_intent_engine.interpret(
+                    user_text=text,
+                    session_id=session_id,
+                    session_context=session_ctx,
+                )
+                self.sai_intent_engine.log_shadow_comparison(
+                    raw_text=text,
+                    legacy_intent=legacy_res[0],
+                    legacy_params=legacy_res[1],
+                    legacy_ambiguous=legacy_res[2],
+                    sai_result=sai_res,
+                )
+            except Exception as ex:
+                logger.debug(f"[INTENT_SHADOW_EXCEPTION] Error no bloqueante en shadow intent engine: {ex}")
+            return legacy_res
+
+        else:  # "legacy"
+            return self._resolve_legacy_intent_and_slots(text, session_id)
+
+    def _resolve_legacy_intent_and_slots(self, text: str, session_id: str) -> tuple[str, dict[str, Any], bool]:
+        """Extrae la intención semántica y parámetros de la solicitud integrando contexto corto (versión legacy regex)."""
         lower = text.lower()
 
         # 1. Comprobar contexto conversacional activo y preguntas pendientes
@@ -2837,9 +3062,11 @@ class JessycaLocalAgent:
             return "read_file", {"ruta": path}, False
 
         if any(w in lower for w in ("crea un archivo", "crear un archivo", "crea el archivo", "guarda un archivo", "escribe un archivo")):
-            m_path = re.search(r"(?:archivo|fichero)\s+(?:llamado\s+|con\s+nombre\s+)?([^\s]+)", text, flags=re.IGNORECASE)
+            m_path = re.search(r'(?:archivo|fichero)\s+(?:llamado\s+|con\s+nombre\s+)?([a-zA-Z]:\\[^\r\n"\'\s]+|[a-zA-Z]:/[^\r\n"\'\s]+|[^\s]+)', text, flags=re.IGNORECASE)
             path = m_path.group(1).strip() if m_path else "nuevo.txt"
-            return "create_file", {"ruta": path, "contenido": ""}, False
+            m_content = re.search(r"(?:con\s+(?:el\s+)?contenido|con\s+el\s+texto|con\s+texto|que\s+diga)\s+['\"]?([^'\"]+?)['\"]?$", text, flags=re.IGNORECASE)
+            content = m_content.group(1).strip() if m_content else ""
+            return "create_file", {"ruta": path, "contenido": content}, False
 
         if any(w in lower for w in ("copia el archivo", "copiar el archivo", "duplica el archivo")) or (
             ("copia " in lower or "copiar " in lower) and (" a " in lower or " en " in lower)
@@ -3047,6 +3274,7 @@ class JessycaLocalAgent:
             "pause_media": "browser.youtube@1.0.0",
             "resume_media": "browser.youtube@1.0.0",
             "multistep_research": "research_skill_pipeline@1.0.0",
+            "multistep_compound": "multistep.orchestrate@1.0.0",
             "create_document": "documents.create@1.0.0",
             "read_document": "documents.read@1.0.0",
             "summarize_document": "documents.summarize@1.0.0",
@@ -3097,6 +3325,7 @@ class JessycaLocalAgent:
             "pause_media": "browser.youtube",
             "resume_media": "browser.youtube",
             "multistep_research": "multistep.orchestrate",
+            "multistep_compound": "multistep.orchestrate",
             "create_document": "documents.create",
             "read_document": "documents.read",
             "summarize_document": "documents.summarize",

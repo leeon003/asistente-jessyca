@@ -108,6 +108,12 @@ from services.voice.voice_errors import (
     VoiceInterruptedError,
     WakeWordError,
 )
+from services.voice.natural_conversation_pipeline import (
+    ConversationTurn,
+    ConversationType,
+    ConversationalContext,
+    NaturalVoiceConversationPipeline,
+)
 from services.voice.voice_pipeline import (
     VoiceInteractionResult,
     VoicePipeline,
@@ -131,6 +137,10 @@ __all__ = [
     "BaseTTSProvider",
     "CalibratedVoiceCaptureEngine",
     "ContinuousVoiceSession",
+    "ConversationTurn",
+    "ConversationType",
+    "ConversationalContext",
+    "NaturalVoiceConversationPipeline",
     "DEFAULT_VOICE_NAME",
     "EdgeTTSProvider",
     "EdgeTTSService",

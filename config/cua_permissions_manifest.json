@@ -1,0 +1,108 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "manifest_version": "1.0.0",
+  "name": "JESSYCA 4.0 Bounded CUA & Desktop Permissions Manifest",
+  "mode": "bounded",
+  "allow_unrestricted": false,
+  "single_session_lock_required": true,
+  "max_action_timeout_seconds": 15.0,
+  "failsafe_corner_abort_enabled": true,
+  "governance": {
+    "engine": "JDE + RiskEngine + PermissionManager",
+    "zero_false_success_policy": true,
+    "max_retries_without_reobservation": 0
+  },
+  "authorized_capabilities": [
+    "desktop.screen.capture",
+    "desktop.window.enumerate",
+    "desktop.window.focus",
+    "desktop.accessibility.inspect",
+    "desktop.mouse.move",
+    "desktop.mouse.click",
+    "desktop.mouse.scroll",
+    "desktop.keyboard.type",
+    "desktop.keyboard.hotkey",
+    "desktop.app.open",
+    "desktop.app.close",
+    "desktop.audio.control",
+    "desktop.media.control"
+  ],
+  "authorized_applications": {
+    "calculator": {
+      "executables": ["calc.exe", "calculatorapp.exe", "calc"],
+      "risk_level": "SAFE",
+      "requires_confirmation": false
+    },
+    "notepad": {
+      "executables": ["notepad.exe", "notepad"],
+      "risk_level": "SAFE",
+      "requires_confirmation": false
+    },
+    "paint": {
+      "executables": ["mspaint.exe", "paint.exe"],
+      "risk_level": "SAFE",
+      "requires_confirmation": false
+    },
+    "edge": {
+      "executables": ["msedge.exe", "msedge"],
+      "risk_level": "LOW",
+      "requires_confirmation": false
+    },
+    "chrome": {
+      "executables": ["chrome.exe", "chrome"],
+      "risk_level": "LOW",
+      "requires_confirmation": false
+    },
+    "explorer": {
+      "executables": ["explorer.exe"],
+      "risk_level": "MODERATE",
+      "requires_confirmation": false
+    },
+    "wmplayer": {
+      "executables": ["wmplayer.exe", "vlc.exe", "mpc-hc.exe", "mpc-hc64.exe"],
+      "risk_level": "SAFE",
+      "requires_confirmation": false
+    }
+  },
+  "allowed_keys": [
+    "enter", "return", "tab", "space", "backspace", "delete", "esc", "escape",
+    "up", "down", "left", "right", "home", "end", "pageup", "pagedown",
+    "ctrl", "control", "alt", "shift", "win", "f1", "f2", "f3", "f4", "f5",
+    "f6", "f7", "f8", "f9", "f10", "f11", "f12", "capslock",
+    "a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m",
+    "n", "o", "p", "q", "r", "s", "t", "u", "v", "w", "x", "y", "z",
+    "0", "1", "2", "3", "4", "5", "6", "7", "8", "9",
+    "+", "-", "*", "/", "=", ".", ",", ":", ";", "(", ")"
+  ],
+  "protected_system_paths": [
+    "C:\\Windows",
+    "C:\\Windows\\System32",
+    "C:\\Windows\\SysWOW64",
+    "C:\\Program Files",
+    "C:\\Program Files (x86)",
+    "C:\\Boot",
+    "C:\\Recovery"
+  ],
+  "protected_user_paths": [
+    ".ssh",
+    ".aws",
+    ".azure",
+    ".gcp",
+    ".gitcredentials",
+    "AppData\\Local\\Google\\Chrome\\User Data",
+    "AppData\\Local\\Microsoft\\Edge\\User Data",
+    "AppData\\Roaming\\Mozilla\\Firefox\\Profiles",
+    "AppData\\Local\\Keyrings",
+    "AppData\\Local\\Microsoft\\Vault",
+    "AppData\\Roaming\\Microsoft\\Protect"
+  ],
+  "prohibited_actions": [
+    "unrestricted_shell_exec",
+    "delete_system_directory",
+    "permanent_uac_elevation",
+    "bypass_confirmation_modal",
+    "raw_disk_write",
+    "kill_security_daemon",
+    "exfiltrate_screen_to_external_ip"
+  ]
+}

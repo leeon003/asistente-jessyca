@@ -194,6 +194,8 @@ class ResponseSynthesizer:
                     if arc_ok and not cnt_ok:
                         return f"El archivo '{doc_name}' fue creado en disco, pero falló la verificación de integridad de su contenido al reabrirlo."
                     return f"Fallo al verificar la creación del documento '{doc_name}'."
+                elif intent in ("take_screenshot", "windows.screenshot"):
+                    return "No fue posible tomar la captura de pantalla o la sesión no cuenta con escritorio interactivo (BLOCKED_HEADLESS)."
                 elif any(k in intent for k in ("file", "archivo", "delete", "create", "write", "move", "copy")):
                     return "La acción sobre el archivo no pudo ser verificada en el sistema."
                 return f"La acción sobre {app_display} no pudo ser verificada en Windows."
@@ -242,6 +244,8 @@ class ResponseSynthesizer:
             query = params.get("query", "tu búsqueda")
             return f"He completado la búsqueda sobre '{query}' en el navegador."
         if intent == "multistep_research":
+            if params.get("synthesized_answer"):
+                return str(params["synthesized_answer"])
             topic = params.get("topic", "el tema solicitado")
             return f"He investigado sobre '{topic}' y consolidado los resultados."
 

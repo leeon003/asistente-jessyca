@@ -194,3 +194,26 @@ class PermissionManager:
         )
         res = self.evaluate_permission(req)
         return res.decision
+
+    def is_action_allowed(
+        self,
+        tool_name: str,
+        operation: str = "execute",
+        parameters: dict[str, Any] | None = None,
+        risk_assessment: Any | None = None,
+    ) -> bool:
+        """Determina de forma directa si una acción está permitida."""
+        from core.risk_engine import RiskAssessment
+        from core.security_architecture import SecurityContext, ToolSecurityMetadata, SecurityLevel
+        if risk_assessment is None:
+            risk_assessment = RiskAssessment(risk_level=SecurityLevel.SAFE)
+        req = PermissionRequest(
+            context=SecurityContext(user="user", tool_name=tool_name, parameters=parameters or {}),
+            metadata=ToolSecurityMetadata(tool_name=tool_name, category=operation, risk_level=risk_assessment.risk_level),
+            risk_assessment=risk_assessment,
+            tool_name=tool_name,
+            operation=operation,
+            parameters=parameters or {},
+        )
+        return self.evaluate_permission(req).is_allowed
+

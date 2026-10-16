@@ -329,8 +329,10 @@ async def test_perceive_and_act_cycle(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.mark.anyio
-async def test_strict_verification_separation() -> None:
+async def test_strict_verification_separation(monkeypatch: pytest.MonkeyPatch) -> None:
     """Verifica que ninguna acción física auto-certifique éxito (claims_success=False por defecto)."""
+    import pyautogui
+    monkeypatch.setattr(pyautogui, "write", lambda *args, **kwargs: None)
     adapter = ComputerUseAdapter()
     await adapter.initialize()
 

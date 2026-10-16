@@ -46,6 +46,31 @@ WINDOWS_CRITICAL_PATHS: set[str] = {
     "../",
 }
 
+# Patrones de credenciales, secretos y archivos de autenticación protegidos
+PROTECTED_CREDENTIAL_PATTERNS: set[str] = {
+    ".env",
+    ".ssh",
+    "id_rsa",
+    "id_ed25519",
+    "id_ecdsa",
+    ".aws",
+    "system32\\config\\sam",
+    "system32\\config\\system",
+    "system32\\config\\security",
+    "ntds.dit",
+}
+
+# Patrones de comandos de desactivación de seguridad, antivirus, firewall o elevación indebida
+SECURITY_TAMPER_PATTERNS: set[str] = {
+    "disablerealtimemonitoring",
+    "set-mppreference",
+    "netsh advfirewall",
+    "enablelua",
+    "vssadmin delete",
+    "-verb runas",
+    "runas /user",
+}
+
 
 class RiskFactor(StrEnum):
     """Factores de riesgo estructurados que influyen en la evaluación."""
@@ -195,6 +220,29 @@ class SystemPathRiskRule(RiskRule):
         args_repr = str(params).lower().replace("\\\\", "\\").replace("/", "\\")
         factors: set[RiskFactor] = set()
 
+        # 1. Comprobación de intento de desactivación de protecciones o elevación no supervisada
+        for tamper in SECURITY_TAMPER_PATTERNS:
+            if tamper in args_repr:
+                factors.add(RiskFactor.SYSTEM_CONFIGURATION)
+                factors.add(RiskFactor.ELEVATED_PRIVILEGES)
+                msg = f"Intento de desactivación de protecciones del sistema (Antivirus/Firewall/UAC) o elevación prohibida: '{tamper}'."
+                if isinstance(request, SecurityRequest):
+                    return (SecurityLevel.CRITICAL, factors, msg)
+                from core.security import RiskLevel
+                return RiskLevel.CRITICAL
+
+        # 2. Comprobación de credenciales sensibles y secretos
+        for cred in PROTECTED_CREDENTIAL_PATTERNS:
+            if cred in args_repr:
+                factors.add(RiskFactor.CREDENTIAL_ACCESS)
+                factors.add(RiskFactor.SYSTEM_CONFIGURATION)
+                msg = f"Acceso o manipulación de archivo de credenciales/claves protegidas detectado: '{cred}'."
+                if isinstance(request, SecurityRequest):
+                    return (SecurityLevel.CRITICAL, factors, msg)
+                from core.security import RiskLevel
+                return RiskLevel.CRITICAL
+
+        # 3. Comprobación de Registro de Windows (HKLM/HKCR)
         if "hkey_local_machine" in args_repr or "hkey_classes_root" in args_repr:
             factors.add(RiskFactor.REGISTRY_MODIFICATION)
             factors.add(RiskFactor.SYSTEM_CONFIGURATION)
@@ -207,6 +255,7 @@ class SystemPathRiskRule(RiskRule):
             from core.security import RiskLevel
             return RiskLevel.CRITICAL
 
+        # 4. Comprobación de rutas críticas de Windows
         for path in WINDOWS_CRITICAL_PATHS:
             norm_path = path.replace("/", "\\")
             if norm_path in args_repr:
@@ -359,6 +408,20 @@ class RiskEngine:
         self._rules.append(rule)
         logger.info(f"Nueva regla de riesgo registrada en RiskEngine: '{rule.name}'")
 
+    def evaluate(
+        self,
+        tool_or_request: Any,
+        arguments: dict[str, Any] | None = None,
+    ) -> SecurityLevel:
+        """Alias retrocompatible directo para obtener el SecurityLevel resultante."""
+        from core.security_architecture import SecurityContext, SecurityLevel
+        if isinstance(tool_or_request, str):
+            ctx = SecurityContext(user="system", tool_name=tool_or_request, parameters=arguments or {})
+            assessment = self.evaluate_risk(ctx, arguments)
+        else:
+            assessment = self.evaluate_risk(tool_or_request, arguments)
+        return assessment.risk_level if isinstance(assessment.risk_level, SecurityLevel) else normalize_to_security_level(assessment.risk_level)
+
     def evaluate_risk(
         self,
         request_or_profile: Any,
@@ -368,12 +431,23 @@ class RiskEngine:
 
         Soporta tanto `SecurityRequest` (Subetapa 04.2) como `ToolSecurityProfile` (compatibilidad previa).
         """
+        from core.security_architecture import SecurityContext, SecurityRequest
+        from core.permission_manager import PermissionRequest
+
         is_sec_req = isinstance(request_or_profile, SecurityRequest)
-        from core.security_architecture import SecurityContext
-        if is_sec_req:
+        if isinstance(request_or_profile, PermissionRequest):
+            request = SecurityRequest(
+                context=request_or_profile.context,
+                metadata=request_or_profile.metadata,
+                action=request_or_profile.operation,
+            )
+            is_sec_req = True
+            raw_profile = None
+            raw_args = request.context.parameters if request.context else {}
+        elif is_sec_req:
             request = request_or_profile
             raw_profile = None
-            raw_args = request.context.parameters
+            raw_args = request.context.parameters if request.context else {}
         elif isinstance(request_or_profile, SecurityContext):
             ctx = request_or_profile
             if isinstance(arguments, ToolSecurityMetadata):

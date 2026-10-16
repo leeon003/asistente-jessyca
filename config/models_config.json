@@ -1,0 +1,24 @@
+{
+  "active_model": "llama3.2:latest",
+  "reasoning_model": "qwen3:8b",
+  "vision_model": "qwen3-vl:4b",
+  "fast_conversational_model": "llama3.2:latest",
+  "ollama_endpoint": "http://127.0.0.1:11434",
+  "temperature": 0.4,
+  "max_tokens": 512,
+  "system_voice": {
+    "default_voice": "es-PE-CamilaNeural",
+    "alternative_voices": [
+      "es-MX-DaliaNeural",
+      "es-ES-ElviraNeural"
+    ],
+    "rate": "+0%",
+    "pitch": "+0Hz"
+  },
+  "conversation_policy": {
+    "anti_repetitive_pitch": true,
+    "short_action_acknowledgments": true,
+    "context_retention_turns": 10,
+    "idle_timeout_seconds": 12.0
+  }
+}

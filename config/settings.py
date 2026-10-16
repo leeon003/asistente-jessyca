@@ -62,6 +62,12 @@ class AppSettings(BaseSettings):
         description="Ruta personalizada para guardar los archivos de registro.",
     )
 
+    # Feature Flag: Motor Agéntico Autónomo JESSYCA 4.0 (Fase 3: Patrones SAI)
+    ENABLE_AUTONOMOUS_AGENT_ENGINE: bool = Field(
+        default=True,
+        description="Habilita el motor agéntico autónomo (Fase 3: JESSYCA 4.0 con patrones SAI).",
+    )
+
     # Configuración de Auditoría de Seguridad (Subetapa 04.6)
     AUDIT_ENABLED: bool = Field(
         default=True,
@@ -128,6 +134,12 @@ class AppSettings(BaseSettings):
     ARE_RUNTIME_MODE: str = Field(
         default="CONTROLLED",
         description="Modo de ejecución de ARE (DISABLED, SHADOW, CONTROLLED, ACTIVE).",
+    )
+
+    # Configuración de Intent Engine (JESSYCA 4.0 / Patrones SAI)
+    INTENT_ENGINE_MODE: str = Field(
+        default="legacy",
+        description="Modo del motor de intenciones: legacy (regex original), shadow (ejecuta SAI en paralelo para métricas sin alterar flujo), sai (activo con descomposición y catálogo progresivo).",
     )
 
     # Configuración de Sistema de Archivos Seguro (Subetapa 06.2)
@@ -1560,6 +1572,43 @@ class AppSettings(BaseSettings):
         if val not in allowed:
             raise ValueError(f"ANYDOC_BACKEND '{val}' no es válido. Opciones permitidas: {sorted(allowed)}")
         return val
+
+    @field_validator("INTENT_ENGINE_MODE", mode="before")
+    @classmethod
+    def validate_intent_engine_mode(cls, value: Any) -> str:
+        if not value:
+            return "legacy"
+        val = str(value).lower().strip()
+        allowed = {"legacy", "shadow", "sai"}
+        if val not in allowed:
+            raise ValueError(f"INTENT_ENGINE_MODE '{val}' no es válido. Opciones permitidas: {sorted(allowed)}")
+        return val
+
+    # WhatsApp Personal & Wake-on-LAN (Fase 6)
+    WHATSAPP_OWNER_PHONE_JID: str = Field(
+        default="51999999999@s.whatsapp.net",
+        description="JID o número de teléfono del propietario autorizado para WhatsApp Personal.",
+    )
+    WHATSAPP_AUTHORIZED_DEVICES: str = Field(
+        default="owner-primary-phone",
+        description="Lista separada por comas de identificadores de dispositivos móviles autorizados.",
+    )
+    WHATSAPP_REMOTE_SHARED_SECRET: str = Field(
+        default="jessyca-personal-default-secret-2026",
+        description="Clave secreta compartida para firma criptográfica HMAC de mensajes remotos.",
+    )
+    WOL_TARGET_MAC: str = Field(
+        default="04-7C-16-6E-B4-70",
+        description="Dirección MAC física de la tarjeta de red cableada del host para Wake-on-LAN.",
+    )
+    WOL_BROADCAST_IP: str = Field(
+        default="192.168.1.255",
+        description="Dirección IP de broadcast de la subred local para envío del Magic Packet.",
+    )
+    WOL_PORT: int = Field(
+        default=9,
+        description="Puerto UDP estándar para Wake-on-LAN (9 ó 7).",
+    )
 
     def get_effective_summary(self) -> dict[str, Any]:
         """Genera un diccionario de la configuración efectiva sanitizada,

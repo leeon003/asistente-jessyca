@@ -65,6 +65,7 @@ class IntegrationContext:
     parameters: dict[str, Any] = field(default_factory=dict)
     metadata: dict[str, Any] = field(default_factory=dict)
     timeout_seconds: float = 30.0
+    cancellation_token: Any = None
 
 
 @dataclass

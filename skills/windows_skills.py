@@ -262,7 +262,39 @@ class WindowsAudioSkill(BaseSkill):
                 }
             except ValueError:
                 return {"exito": False, "mensaje": f"Nivel de volumen '{nivel}' inválido."}
-        elif accion in ("silenciar", "mute", "toggle_mute"):
+        elif accion in ("silenciar", "mute"):
+            if endpoint is not None:
+                try:
+                    endpoint.SetMute(True, None)
+                    self._is_muted = True
+                except Exception as e:
+                    logger.warning(f"[AUDIO] Error fijando mute: {e}")
+                    self._is_muted = True
+            else:
+                self._is_muted = True
+
+            return {
+                "exito": True,
+                "mensaje": "Audio silenciado.",
+                "silenciado": True,
+            }
+        elif accion in ("desilenciar", "unmute", "activar"):
+            if endpoint is not None:
+                try:
+                    endpoint.SetMute(False, None)
+                    self._is_muted = False
+                except Exception as e:
+                    logger.warning(f"[AUDIO] Error desactivando mute: {e}")
+                    self._is_muted = False
+            else:
+                self._is_muted = False
+
+            return {
+                "exito": True,
+                "mensaje": "Audio activo.",
+                "silenciado": False,
+            }
+        elif accion in ("toggle_mute",):
             if endpoint is not None:
                 try:
                     curr_mute = bool(endpoint.GetMute())
