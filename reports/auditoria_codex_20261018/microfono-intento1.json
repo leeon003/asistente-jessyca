@@ -1,0 +1,11 @@
+{
+  "device": "MicrÃ³fono (G435 Wireless Gaming",
+  "sample_rate": 44100,
+  "rms": 3.404151678085327,
+  "peak": 80.0,
+  "transcript": "",
+  "confidence": 0.0,
+  "stt_ms": 117.25719999958528,
+  "action_success": false,
+  "reason": "No se reconoció la orden de baile con confianza suficiente; no se ejecutó nada."
+}

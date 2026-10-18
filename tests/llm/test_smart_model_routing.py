@@ -48,21 +48,21 @@ class TestSmartModelRouting2:
 
     def test_routing_by_task_type(self) -> None:
         """Verifica que cada tipo de tarea resuelva al modelo óptimo de su categoría."""
-        # Visión -> qwen3-vl:4b
+        # Visión -> qwen3.5:9b (o legacy qwen3-vl:4b)
         p_vision = self.router.select_model_for_task(TaskType.VISION)
-        assert p_vision.name == "qwen3-vl:4b"
+        assert p_vision.name in ("qwen3.5:9b", "qwen3-vl:4b")
 
-        # Razonamiento complejo -> qwen3:8b
+        # Razonamiento complejo -> qwen3.5:9b (o legacy qwen3:8b)
         p_reason = self.router.select_model_for_task(TaskType.REASONING, complexity=TaskComplexity.HIGH)
-        assert p_reason.name == "qwen3:8b"
+        assert p_reason.name in ("qwen3.5:9b", "qwen3:8b")
 
-        # Clasificación rápida -> llama3.2
+        # Clasificación rápida -> qwen3.5:9b (o legacy llama3.2)
         p_class = self.router.select_model_for_task(TaskType.CLASSIFICATION, complexity=TaskComplexity.LOW)
-        assert p_class.name == "llama3.2"
+        assert p_class.name in ("qwen3.5:9b", "llama3.2")
 
-        # Conversación general -> llama3.1
+        # Conversación general -> qwen3.5:9b (o legacy llama3.1/llama3.2)
         p_conv = self.router.select_model_for_task(TaskType.CONVERSATION)
-        assert p_conv.name in ("llama3.1", "llama3.2")
+        assert p_conv.name in ("qwen3.5:9b", "llama3.1", "llama3.2")
 
     # ── 2. REQUISITO ESTRICTO DE CAPACIDAD (CAPABILITY NON-NEGOTIABILITY) ──
 
@@ -79,8 +79,8 @@ class TestSmartModelRouting2:
         context = RoutingContext(task_type=TaskType.VISION, requires_vision=True)
         decision = self.router.route_smart(context)
 
-        # Debe seleccionar obligatoriamente qwen3-vl:4b porque es el único con visión
-        assert decision.selected_model.name == "qwen3-vl:4b"
+        # Debe seleccionar obligatoriamente un modelo con visión
+        assert decision.selected_model.name in ("qwen3.5:9b", "gemma4:e4b", "qwen3-vl:4b")
         assert decision.selected_model.supports_vision is True
 
     # ── 3. FALLBACK DETERMINISTA ANTE MODELO NO DISPONIBLE ──
@@ -90,13 +90,13 @@ class TestSmartModelRouting2:
         context = RoutingContext(
             task_type=TaskType.REASONING,
             complexity=TaskComplexity.HIGH,
-            excluded_model_ids=("qwen3:8b",),  # Excluir el primario
+            excluded_model_ids=("qwen3.5:9b", "qwen3:8b"),  # Excluir los primarios
         )
 
         decision = self.router.route_smart(context)
         # El fallback debe ser el siguiente compatible en razonamiento (gemma4:e4b o llama3.1)
         assert decision.selected_model.name in ("gemma4:e4b", "llama3.1")
-        assert decision.selected_model.name != "qwen3:8b"
+        assert decision.selected_model.name not in ("qwen3.5:9b", "qwen3:8b")
 
     def test_get_fallback_model_convenience_method(self) -> None:
         """Verifica que get_fallback_model() asigne automáticamente un reemplazo válido."""
@@ -142,7 +142,7 @@ class TestSmartModelRouting2:
 
         context = RoutingContext(
             task_type=TaskType.CLASSIFICATION,
-            excluded_model_ids=("llama3.2",),  # Forzar competencia entre gemma4 y llama3.1
+            excluded_model_ids=("qwen3.5:9b", "llama3.2"),  # Forzar competencia entre gemma4 y llama3.1
         )
         decision = self.router.route_smart(context)
         assert decision.selected_model.name == "gemma4:e4b"

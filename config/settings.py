@@ -68,6 +68,12 @@ class AppSettings(BaseSettings):
         description="Habilita el motor agéntico autónomo (Fase 3: JESSYCA 4.0 con patrones SAI).",
     )
 
+    # Feature Flag: JESSYCA BRAIN 1.0 (Núcleo Cognitivo Unificado)
+    USE_JESSYCA_BRAIN: bool = Field(
+        default=True,
+        description="Habilita JESSYCA BRAIN 1.0 como núcleo cognitivo unificado (Fase 7: Consolidado).",
+    )
+
     # Configuración de Auditoría de Seguridad (Subetapa 04.6)
     AUDIT_ENABLED: bool = Field(
         default=True,
@@ -305,6 +311,9 @@ class AppSettings(BaseSettings):
         default_factory=lambda: {
             "youtube.com",
             "www.youtube.com",
+            "googlevideo.com",
+            "ytimg.com",
+            "fonts.gstatic.com",
             "google.com",
             "www.google.com",
             "github.com",
@@ -1383,6 +1392,20 @@ class AppSettings(BaseSettings):
         description="Cantidad máxima de reintentos con backoff para errores transitorios de red.",
     )
 
+    # Configuración de Modelos Ollama Locales
+    OLLAMA_HOST: str = Field(
+        default="http://localhost:11434",
+        description="Endpoint del servidor local de Ollama.",
+    )
+    OLLAMA_MODEL: str = Field(
+        default="qwen3.5:9b",
+        description="Modelo principal predeterminado de Ollama (Fase 1: Consolidado).",
+    )
+    OLLAMA_BACKUP_MODEL: str = Field(
+        default="gemma4:e4b",
+        description="Modelo de respaldo predeterminado de Ollama.",
+    )
+
     # Router Inteligente (Fase 3: static, shadow, experimental / Fase 5 Controlled)
     MODEL_ROUTER_ENABLED: bool = Field(
         default=False,
@@ -1648,4 +1671,16 @@ class AppSettings(BaseSettings):
                 safe[k] = v
 
         return safe
+
+
+_settings_instance: AppSettings | None = None
+
+
+def get_settings() -> AppSettings:
+    """Retorna la instancia singleton de AppSettings."""
+    global _settings_instance
+    if _settings_instance is None:
+        _settings_instance = AppSettings()
+    return _settings_instance
+
 

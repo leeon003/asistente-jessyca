@@ -1,0 +1,324 @@
+[
+  {
+    "suite": "backend-matrix2",
+    "tests": 1013,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 114.97,
+    "passed": 1013,
+    "failed_cases": []
+  },
+  {
+    "suite": "extra-matrix",
+    "tests": 1142,
+    "failures": 12,
+    "errors": 0,
+    "skipped": 1,
+    "seconds": 151.37,
+    "passed": 1129,
+    "failed_cases": [
+      {
+        "name": "tests.anydoc.test_anydoc_phase1.TestAnyDocPhase1E2EScenarios::test_run_all_15_e2e_scenarios",
+        "message": "FileNotFoundError: [Errno 2] No such file or directory: 'reports\\\\anydoc_phase1_e2e.json'"
+      },
+      {
+        "name": "tests.are.test_are_e2e::test_case_b_complex_task_orchestrated_by_are",
+        "message": "AssertionError: assert <AgentExecutionState.FAILED: 'FAILED'> in (<AgentExecutionState.COMPLETED: 'COMPLETED'>, <AgentExecutionState.AWAITING_CONFIRMATION: 'AWAITING_CONFIRMATION'>)\n +  where <AgentExecutionState.FAILED: 'FAILED'> = JessycaResponse(request_id='req-586018b8', session_id='default', success=False, status=<AgentExecutionState.FAILED: 'F...post_action_feedback=None, created_at=datetime.datetime(2026, 10, 18, 7, 18, 3, 229808, tzinfo=datetime.timezone.utc))).status"
+      },
+      {
+        "name": "tests.are.test_are_e2e::test_case_d_anydoc_flow",
+        "message": "AssertionError: assert <AgentExecutionState.FAILED: 'FAILED'> in (<AgentExecutionState.COMPLETED: 'COMPLETED'>, <AgentExecutionState.AWAITING_CONFIRMATION: 'AWAITING_CONFIRMATION'>)\n +  where <AgentExecutionState.FAILED: 'FAILED'> = JessycaResponse(request_id='req-ecfc4056', session_id='default', success=False, status=<AgentExecutionState.FAILED: 'F...=1.0, wake_word_latency_ms=0.0, interruption_handled=False), timestamp=1792307887.3813827, action_intent_contract=None).status"
+      },
+      {
+        "name": "tests.are.test_are_e2e::test_case_g_require_review_awaiting_confirmation",
+        "message": "AssertionError: assert <AgentExecuti...LED: 'FAILED'> == <AgentExecuti...CONFIRMATION'>\n  \n  - AWAITING_CONFIRMATION\n  + FAILED"
+      },
+      {
+        "name": "tests.are.test_are_real_tools_workflows_phase13::test_objective_3_scan_preview_and_execute_authorized_organization",
+        "message": "assert 2 == 4"
+      },
+      {
+        "name": "tests.experience.test_experience_logger::test_local_agent_records_experience_on_execution",
+        "message": "AssertionError: assert False is True\n +  where False = JessycaResponse(request_id='req-e386b27b', session_id='agent-session-1', success=False, status=<AgentExecutionState.FA...=1.0, wake_word_latency_ms=0.0, interruption_handled=False), timestamp=1792307926.3991668, action_intent_contract=None).success"
+      },
+      {
+        "name": "tests.experience.test_experience_logger::test_local_agent_records_clarification_and_correction_experiences",
+        "message": "AssertionError: assert False is True\n +  where False = JessycaResponse(request_id='req-bd74190b', session_id='clarif-session', success=False, status=<AgentExecutionState.FAI...=1.0, wake_word_latency_ms=0.0, interruption_handled=False), timestamp=1792307928.4983926, action_intent_contract=None).success"
+      },
+      {
+        "name": "tests.jde.test_phase3a_false_success_fixes::test_browser_open_unverified_produces_unknown_and_no_success",
+        "message": "AssertionError: assert <AgentExecuti...LED: 'FAILED'> == <AgentExecuti...WN: 'UNKNOWN'>\n  \n  - UNKNOWN\n  + FAILED"
+      },
+      {
+        "name": "tests.jde.test_phase3a_false_success_fixes::test_browser_search_unverified_produces_unknown",
+        "message": "AssertionError: assert True is False\n +  where True = JessycaResponse(request_id='req-589c2c70', session_id='default_session', success=True, status=<AgentExecutionState.COM...ce=1.0, wake_word_latency_ms=0.0, interruption_handled=False), timestamp=1792307998.14469, action_intent_contract=None).success"
+      },
+      {
+        "name": "tests.jde.test_phase3a_false_success_fixes::test_browser_open_verified_positive_produces_success",
+        "message": "assert False is True\n +  where False = JessycaResponse(request_id='req-42c3a2e2', session_id='default_session', success=False, status=<AgentExecutionState.FA...mó que se haya abierto.\"), created_at=datetime.datetime(2026, 10, 18, 7, 20, 4, 342997, tzinfo=datetime.timezone.utc))).success"
+      },
+      {
+        "name": "tests.orca_ade.test_discovery.TestOrcaAdeDiscovery::test_license_and_origin_verification",
+        "message": "AssertionError: assert False\n +  where False = <function exists at 0x00000250D91DC7C0>('reports\\\\orca_ade_license_audit.md')\n +    where <function exists at 0x00000250D91DC7C0> = <module 'ntpath' (frozen)>.exists\n +      where <module 'ntpath' (frozen)> = os.path"
+      },
+      {
+        "name": "tests.orca_ade.test_discovery.TestOrcaAdeDiscovery::test_architecture_documentation_exists",
+        "message": "AssertionError: assert False\n +  where False = <function exists at 0x00000250D91DC7C0>('reports\\\\orca_ade_architecture.md')\n +    where <function exists at 0x00000250D91DC7C0> = <module 'ntpath' (frozen)>.exists\n +      where <module 'ntpath' (frozen)> = os.path"
+      }
+    ]
+  },
+  {
+    "suite": "root-matrix",
+    "tests": 540,
+    "failures": 9,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 97.26,
+    "passed": 531,
+    "failed_cases": [
+      {
+        "name": "tests.test_notepad_semantic_execution::test_compound_abre_block_de_notas_y_escribe",
+        "message": "assert False is True\n +  where False = JessycaResponse(request_id='req-26aaf387', session_id='test_sess_compound_1', success=False, status=<AgentExecutionSta...: 'un block de notas'.\"), created_at=datetime.datetime(2026, 10, 18, 7, 28, 43, 446036, tzinfo=datetime.timezone.utc))).success"
+      },
+      {
+        "name": "tests.test_notepad_semantic_execution::test_contextual_continuity_two_turns",
+        "message": "AssertionError: assert 'write_in_window' == 'type_text'\n  \n  - type_text\n  + write_in_window"
+      },
+      {
+        "name": "tests.test_phase17_precision_and_no_pitch::test_technical_question_git_rebase",
+        "message": "AssertionError: assert False is True\n +  where False = JessycaResponse(request_id='req-b54a5cdb', session_id='test_tech_rebase', success=False, status=<AgentExecutionState.F...=1.0, wake_word_latency_ms=0.0, interruption_handled=False), timestamp=1792308575.9113941, action_intent_contract=None).success"
+      },
+      {
+        "name": "tests.test_phase17_precision_and_no_pitch::test_capability_query_explains_truthful_capabilities_when_asked",
+        "message": "AssertionError: assert 'jessyca' in 'puedo ayudarte a controlar aplicaciones, trabajar con archivos y documentos, buscar información y reproducir tus videos locales. pediré los datos que falten y confirmaré las acciones según la evidencia disponible.'"
+      },
+      {
+        "name": "tests.test_phase17_precision_and_no_pitch::test_identity_query_answers_identity_when_asked",
+        "message": "AssertionError: assert False is True\n +  where False = JessycaResponse(request_id='req-e39491f9', session_id='test_identity', success=False, status=<AgentExecutionState.FAIL...=1.0, wake_word_latency_ms=0.0, interruption_handled=False), timestamp=1792308580.1513438, action_intent_contract=None).success"
+      },
+      {
+        "name": "tests.test_phase17_precision_and_no_pitch::test_unknown_emails_acknowledged_without_invention",
+        "message": "AssertionError: assert False is True\n +  where False = JessycaResponse(request_id='req-527592da', session_id='test_unknown_emails', success=False, status=<AgentExecutionStat...e=1.0, wake_word_latency_ms=0.0, interruption_handled=False), timestamp=1792308585.864065, action_intent_contract=None).success"
+      },
+      {
+        "name": "tests.test_phase17_precision_and_no_pitch::test_unsupported_action_stated_clearly_without_ad_replacement",
+        "message": "AssertionError: assert False is True\n +  where False = JessycaResponse(request_id='req-e8b83086', session_id='test_unsupported_video', success=False, status=<AgentExecutionS...=1.0, wake_word_latency_ms=0.0, interruption_handled=False), timestamp=1792308587.9546013, action_intent_contract=None).success"
+      },
+      {
+        "name": "tests.test_phase17_precision_and_no_pitch::test_default_system_prompt_contains_precision_and_no_pitch_rules",
+        "message": "AssertionError: assert ('cero pitch automático' in 'eres jessyca, asistente local para windows.\\npersonalidad y tono: habla en un español natural, cercano, educado y dir... en voz alta).\\nno anticipar verificación: no des por hecha ninguna acción del sistema hasta que haya sido verificada.' or 'prohibido el pitch' in 'eres jessyca, asistente local para windows.\\npersonalidad y tono: habla en un español natural, cercano, educado y dir... en voz alta).\\nno anticipar verificación: no des por hecha "
+      },
+      {
+        "name": "tests.test_ui_and_browser_observation_provenance_phase09::test_browser_agent_in_production_declares_unavailable_without_session_manager",
+        "message": "assert True is False\n +  where True = <core.agents.browser_agent.BrowserAgent object at 0x000002106F832990>._browser_available"
+      }
+    ]
+  },
+  {
+    "suite": "root-final",
+    "tests": 540,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 89.88,
+    "passed": 540,
+    "failed_cases": []
+  },
+  {
+    "suite": "catalog",
+    "tests": 529,
+    "failures": 22,
+    "errors": 0,
+    "skipped": 2,
+    "seconds": 139.03,
+    "passed": 505,
+    "failed_cases": [
+      {
+        "name": "tests.skills.test_browser_youtube_skill::test_local_agent_end_to_end_no_general_query",
+        "message": "AssertionError: assert 'play_youtube' == 'youtube_play'\n  \n  - youtube_play\n  + play_youtube"
+      },
+      {
+        "name": "tests.skills.test_initial_skill_catalog.TestInitialSkillCatalog::test_catalog_manifests_validation",
+        "message": "AssertionError: assert <SecurityLevel.DANGEROUS: 'DANGEROUS'> in (<SecurityLevel.SAFE: 'SAFE'>, <SecurityLevel.WARNING: 'WARNING'>)\n +  where <SecurityLevel.DANGEROUS: 'DANGEROUS'> = SkillDefinition(skill_id='windows.computer_use', name='Windows Computer Use Controller', version='1.0.0', description=...o=datetime.timezone.utc)), created_at=datetime.datetime(2026, 10, 18, 5, 11, 52, 196120, tzinfo=datetime.timezone.utc)).risk_level"
+      },
+      {
+        "name": "tests.skills.test_initial_skill_catalog.TestInitialSkillCatalog::test_documents_skills_pipeline",
+        "message": "assert False is True"
+      },
+      {
+        "name": "tests.skills.test_real_file_and_app_capabilities::test_open_folder_non_existent",
+        "message": "AssertionError: assert True is False\n +  where True = JessycaResponse(request_id='req_exp_2', session_id='sess_exp_2', success=True, status=<AgentExecutionState.COMPLETED: ...=1.0, wake_word_latency_ms=0.0, interruption_handled=False), timestamp=1792300365.2563987, action_intent_contract=None).success"
+      },
+      {
+        "name": "tests.skills.test_real_file_and_app_capabilities::test_create_folder_end_to_end",
+        "message": "AssertionError: assert False is True\n +  where False = JessycaResponse(request_id='req_mkdir_1', session_id='sess_mkdir_1', success=False, status=<AgentExecutionState.FAILED...=1.0, wake_word_latency_ms=0.0, interruption_handled=False), timestamp=1792300365.3043194, action_intent_contract=None).success"
+      },
+      {
+        "name": "tests.skills.test_real_file_and_app_capabilities::test_list_files_end_to_end",
+        "message": "AssertionError: assert False is True\n +  where False = JessycaResponse(request_id='req_ls_1', session_id='sess_ls_1', success=False, status=<AgentExecutionState.FAILED: 'FAI...=1.0, wake_word_latency_ms=0.0, interruption_handled=False), timestamp=1792300365.3459399, action_intent_contract=None).success"
+      },
+      {
+        "name": "tests.skills.test_real_file_and_app_capabilities::test_file_metadata_end_to_end",
+        "message": "AssertionError: assert False is True\n +  where False = JessycaResponse(request_id='req_meta_1', session_id='sess_meta_1', success=False, status=<AgentExecutionState.FAILED: ...e=1.0, wake_word_latency_ms=0.0, interruption_handled=False), timestamp=1792300365.383722, action_intent_contract=None).success"
+      },
+      {
+        "name": "tests.skills.test_real_file_and_app_capabilities::test_copy_file_end_to_end_preserves_content",
+        "message": "AssertionError: assert False is True\n +  where False = JessycaResponse(request_id='req_cp_1', session_id='sess_cp_1', success=False, status=<AgentExecutionState.FAILED: 'FAI...=1.0, wake_word_latency_ms=0.0, interruption_handled=False), timestamp=1792300365.4223435, action_intent_contract=None).success"
+      },
+      {
+        "name": "tests.skills.test_real_file_and_app_capabilities::test_move_file_end_to_end",
+        "message": "AssertionError: assert False is True\n +  where False = JessycaResponse(request_id='req_mv_1', session_id='sess_mv_1', success=False, status=<AgentExecutionState.FAILED: 'FAI...=1.0, wake_word_latency_ms=0.0, interruption_handled=False), timestamp=1792300365.5144413, action_intent_contract=None).success"
+      },
+      {
+        "name": "tests.skills.test_real_file_and_app_capabilities::test_rename_file_end_to_end",
+        "message": "AssertionError: assert False is True\n +  where False = JessycaResponse(request_id='req_rn_1', session_id='sess_rn_1', success=False, status=<AgentExecutionState.FAILED: 'FAI...=1.0, wake_word_latency_ms=0.0, interruption_handled=False), timestamp=1792300365.5535789, action_intent_contract=None).success"
+      },
+      {
+        "name": "tests.documents.test_document_routes_and_guarantees::test_word_creation_with_specific_content_and_accents",
+        "message": "AssertionError: assert False is True\n +  where False = JessycaResponse(request_id='test-word-content-01', session_id='default_session', success=False, status=<AgentExecution...=1.0, wake_word_latency_ms=0.0, interruption_handled=False), timestamp=1792300379.3417163, action_intent_contract=None).success"
+      },
+      {
+        "name": "tests.browser.test_real_browser_capabilities::test_open_page_and_consent_popup",
+        "message": "AssertionError: assert 'Página de Control Local' in (('Página Web'))\n +  where 'Página Web' = BrowserTab(tab_id='tab-77ed02', url='http://127.0.0.1:49424/index.html', title='Página Web', is_active=True, is_loading=True, media_state=<MediaState.STOPPED: 'STOPPED'>, provenance='SYNTHETIC_TEST').title"
+      },
+      {
+        "name": "tests.browser.test_real_browser_capabilities::test_follow_link",
+        "message": "AssertionError: assert 'destino.html' in 'http://127.0.0.1:49424/index.html/link-53d4'\n +  where 'http://127.0.0.1:49424/index.html/link-53d4' = BrowserTab(tab_id='tab-b3a5f1', url='http://127.0.0.1:49424/index.html/link-53d4', title='Página: Ir a Página Destino', is_active=True, is_loading=False, media_state=<MediaState.STOPPED: 'STOPPED'>, provenance='SYNTHETIC_TEST').url"
+      },
+      {
+        "name": "tests.browser.test_real_browser_capabilities::test_extract_content_with_provenance",
+        "message": "AssertionError: assert 'SYNTHETIC_TEST' == 'REAL_PHYSICAL'\n  \n  - REAL_PHYSICAL\n  + SYNTHETIC_TEST"
+      },
+      {
+        "name": "tests.browser.test_real_browser_capabilities::test_download_authorized_file_and_block_executable",
+        "message": "AssertionError: assert 'Reporte de prueba descargado exitosamente' in 'fake download content'"
+      },
+      {
+        "name": "tests.browser.test_real_browser_capabilities::test_end_to_end_local_agent_browser_workflow",
+        "message": "AssertionError: assert False is True\n +  where False = JessycaResponse(request_id='req-e8a2ff49', session_id='default', success=False, status=<AgentExecutionState.AWAITING_C...=1.0, wake_word_latency_ms=0.0, interruption_handled=False), timestamp=1792300402.9396973, action_intent_contract=None).success"
+      },
+      {
+        "name": "tests.intent.test_autonomous_agent_phase3.TestAutonomousAgentPhase3::test_04_acceptance_volume_chrome_and_einstein_search",
+        "message": "AssertionError: assert False is True\n +  where False = AutonomousCycleResult(goal='JESSYCA, baja el volumen, abre Chrome y busca información sobre Einstein.', intent_type=<I...details={'error': 'Debe indicar el nivel de volumen deseado (0-100).', 'step_index': 1}, timestamp=1792300419.1669579)).is_success"
+      },
+      {
+        "name": "tests.intent.test_sai_intent_benchmark::test_02_web_research_decomposition",
+        "message": "AssertionError: assert False\n +  where False = UserGoalInterpretation(intent_type=<IntentType.RESEARCH: 'research'>, goal_summary='Investigación sobre entrelazamient...alismo local y es la base de la computación y criptografía cuánticas.'}, raw_confidence=1.0, plan_id='plan-2541c95b41').is_executable"
+      },
+      {
+        "name": "tests.intent.test_sai_intent_benchmark::test_05_compound_multi_step_order",
+        "message": "AssertionError: assert <IntentType.R...H: 'research'> == <IntentType.M...ti_step_plan'>\n  \n  - multi_step_plan\n  + research"
+      },
+      {
+        "name": "tests.intent.test_sai_intent_benchmark::test_09_legacy_compatibility_contract",
+        "message": "AssertionError: assert 'control_audio' == 'windows.audio'\n  \n  - windows.audio\n  + control_audio"
+      },
+      {
+        "name": "tests.intent.test_sai_intent_integration.TestSaiIntentIntegration::test_sai_mode_decomposes_compound_order",
+        "message": "AssertionError: assert 2 >= 3\n +  where 2 = len([{'step_id': 'a31d9607', 'skill_name': 'windows.audio', 'parameters': {'accion': 'establecer', 'delta': -10}, 'descrip...': 'windows.apps', 'parameters': {'accion': 'abrir', 'app_name': 'chrome'}, 'description': 'Abrir Google Chrome', ...}])"
+      },
+      {
+        "name": "tests.intent.test_sai_intent_integration.TestSaiIntentIntegration::test_multistep_compound_pipeline_execution",
+        "message": "AssertionError: assert 'composite_plan' == 'multistep_compound'\n  \n  - multistep_compound\n  + composite_plan"
+      }
+    ]
+  },
+  {
+    "suite": "catalog-fixes",
+    "tests": 66,
+    "failures": 4,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 65.22,
+    "passed": 62,
+    "failed_cases": [
+      {
+        "name": "tests.skills.test_initial_skill_catalog.TestInitialSkillCatalog::test_browser_skills_operations",
+        "message": "assert False is True"
+      },
+      {
+        "name": "tests.intent.test_sai_intent_integration.TestSaiIntentIntegration::test_multistep_compound_pipeline_execution",
+        "message": "AssertionError: assert 'He completado las siguientes acciones' in 'Listo, bajé el volumen del sistema.'\n +  where 'Listo, bajé el volumen del sistema.' = JessycaResponse(request_id='req-bebb72c1', session_id='test_s7', success=True, status=<AgentExecutionState.COMPLETED: ...ce=1.0, wake_word_latency_ms=0.0, interruption_handled=False), timestamp=1792300758.56912, action_intent_contract=None).response_text"
+      },
+      {
+        "name": "tests.intent.test_autonomous_agent_phase3.TestAutonomousAgentPhase3::test_01_acceptance_youtube_and_music",
+        "message": "assert False is True\n +  where False = AutonomousCycleResult(goal='JESSYCA, abre YouTube y pon música clásica.', intent_type=<IntentType.SINGLE_ACTION: 'sing...r YouTube, pero no pude iniciar la reproducción de 'música clásica'.\", 'step_index': 1}, timestamp=1792300761.4003277)).is_success"
+      },
+      {
+        "name": "tests.intent.test_autonomous_agent_phase3.TestAutonomousAgentPhase3::test_02_acceptance_quantum_entanglement_research",
+        "message": "AssertionError: assert <IntentType.C...conversation'> == <IntentType.R...H: 'research'>\n  \n  - research\n  + conversation"
+      }
+    ]
+  },
+  {
+    "suite": "handoff-regression",
+    "tests": 85,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 45.29,
+    "passed": 85,
+    "failed_cases": []
+  },
+  {
+    "suite": "natural-speech",
+    "tests": 17,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 5.62,
+    "passed": 17,
+    "failed_cases": []
+  },
+  {
+    "suite": "stt-natural-final",
+    "tests": 17,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 28.48,
+    "passed": 17,
+    "failed_cases": []
+  },
+  {
+    "suite": "studio-repair-final",
+    "tests": 58,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 120.47,
+    "passed": 58,
+    "failed_cases": []
+  },
+  {
+    "suite": "desktop-studio-auth",
+    "tests": 14,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 1.05,
+    "passed": 14,
+    "failed_cases": []
+  },
+  {
+    "suite": "voice-desktop-certification",
+    "tests": 306,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 226.92,
+    "passed": 306,
+    "failed_cases": []
+  },
+  {
+    "suite": "youtube-final",
+    "tests": 58,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 9.0,
+    "passed": 58,
+    "failed_cases": []
+  }
+]

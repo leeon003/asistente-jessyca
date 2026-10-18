@@ -64,7 +64,7 @@ class UserGoalInterpretation:
 
     @property
     def is_executable(self) -> bool:
-        return self.intent_type in (IntentType.SINGLE_ACTION, IntentType.MULTI_STEP_PLAN) and len(self.steps) > 0
+        return self.intent_type in (IntentType.SINGLE_ACTION, IntentType.MULTI_STEP_PLAN, IntentType.RESEARCH) and len(self.steps) > 0 and not self.requires_clarification
 
     @property
     def is_multistep(self) -> bool:

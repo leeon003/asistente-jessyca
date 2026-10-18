@@ -59,7 +59,7 @@ class TestVisionPipeline:
         assert "Guardar" in analysis.detected_text
         assert len(analysis.ui_elements) == 2
         assert analysis.confidence == 0.98
-        assert analysis.model_used == "qwen3-vl:4b"
+        assert analysis.model_used == "qwen3.5:9b"
 
         # Verificar que FakeLLMProvider recibió la imagen
         assert len(fake_provider.call_history) == 1

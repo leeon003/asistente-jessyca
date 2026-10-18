@@ -733,6 +733,7 @@ class ARERuntime:
                 success=True,
                 status=AgentExecutionState.AWAITING_CLARIFICATION,
                 response_text=f"Aclaración requerida: {pcr.prompt}",
+                clarification_question=pcr.prompt,
                 requires_clarification=True,
             )
         except Exception as exc:
@@ -1012,6 +1013,7 @@ class ARERuntime:
                         success=True,
                         status=AgentExecutionState.AWAITING_CLARIFICATION,
                         response_text=f"Aclaración requerida: {pcr.prompt}",
+                        clarification_question=pcr.prompt,
                         requires_clarification=True,
                         tools_executed=executed_steps,
                         output_data={"execution_state": exec_state.to_dict(), "explanation": exec_state.explain_state()},

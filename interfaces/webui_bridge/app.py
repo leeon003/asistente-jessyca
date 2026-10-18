@@ -91,6 +91,8 @@ def create_webui_bridge_app(
             token_candidate = os.getenv("WEBUI_BRIDGE_AUTH_TOKEN", "")
 
     configured_token = validate_webui_bridge_token(token_candidate)
+    from interfaces.webui_bridge.studio_auth import StudioSessions
+    studio_sessions = StudioSessions(configured_token)
 
     logger.info("[WEBUI Bridge] Authentication configured successfully.")
 
@@ -189,7 +191,7 @@ def create_webui_bridge_app(
         elif "x-jessyca-token" in request.headers:
             token_found = request.headers["x-jessyca-token"].strip()
 
-        if not token_found or not secrets.compare_digest(token_found, configured_token):
+        if not studio_sessions.accepts(token_found):
             client_ip = request.client.host if request.client else "unknown"
             logger.warning(f"[WEBUI BRIDGE AUTH] Acceso no autorizado desde {client_ip} a {request.url.path}")
             return openai_error(
@@ -312,6 +314,14 @@ def create_webui_bridge_app(
 
         # 6. Invocación segura y no bloqueante del Core
         agent = JessycaLocalAgent.get_instance()
+        cancel_token = CancellationToken()
+
+        def accepts_cancellation(method):
+            import inspect
+            callback = getattr(method, "side_effect", None)
+            target = callback if callable(callback) else method
+            parameters = inspect.signature(target).parameters
+            return "cancellation_token" in parameters or any(p.kind == inspect.Parameter.VAR_KEYWORD for p in parameters.values())
 
         if payload.stream:
             from unittest.mock import Mock
@@ -335,12 +345,14 @@ def create_webui_bridge_app(
             # STREAMING GENERATIVO REAL:
             # Emite tokens progresivos en tiempo real desde Ollama si es conversacional,
             # o ejecuta y verifica primero en el SO si es una acción física con efectos secundarios.
-            token_gen = agent.interact_stream(jessyca_req)
+            token_gen = agent.interact_stream(jessyca_req, cancellation_token=cancel_token) if accepts_cancellation(agent.interact_stream) else agent.interact_stream(jessyca_req)
             return StreamingResponse(
                 generate_live_sse_stream(
                     token_generator=token_gen,
                     model=PUBLIC_MODEL_NAME,
                     completion_id=f"chatcmpl-{jessyca_req.request_id}",
+                    cancellation_token=cancel_token,
+                    timeout_seconds=configured_timeout,
                 ),
                 media_type="text/event-stream",
                 headers={
@@ -351,13 +363,11 @@ def create_webui_bridge_app(
             )
 
         def _call_agent():
-            try:
+            if accepts_cancellation(agent.interact):
                 return agent.interact(jessyca_req, cancellation_token=cancel_token)
-            except TypeError:
-                return agent.interact(jessyca_req)
+            return agent.interact(jessyca_req)
 
         # Modo síncrono estándar (Non-stream JSON)
-        cancel_token = CancellationToken()
         try:
             core_response = await asyncio.wait_for(
                 asyncio.shield(asyncio.to_thread(_call_agent)),
@@ -406,4 +416,6 @@ def create_webui_bridge_app(
         )
         return JSONResponse(status_code=status.HTTP_200_OK, content=openai_resp.model_dump())
 
+    from interfaces.webui_bridge.studio import install_studio
+    install_studio(app, configured_token, studio_sessions)
     return app

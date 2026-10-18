@@ -94,7 +94,7 @@ class SaiIntentEngine:
             )
 
         # 5. Detección rápida de investigación científica profunda (ej. entrelazamiento cuántico)
-        if any(w in lower_clean for w in ("entrelazamiento cuántico", "entrelazamiento cuantico", "computación cuántica", "computacion cuantica")):
+        if any(w in lower_clean for w in ("entrelazamiento cuántico", "entrelazamiento cuantico", "computación cuántica", "computacion cuantica")) and not re.search(r"\b(?:investiga|busca|abre|baja|sube|escribe)\b", lower_clean):
             summary_quantum = (
                 "El entrelazamiento cuántico es un fenómeno de la mecánica cuántica en el cual los estados "
                 "de dos o más partículas están correlacionados de tal forma que el estado cuántico de una determina "
@@ -108,10 +108,10 @@ class SaiIntentEngine:
                 description="Investigar detalles del entrelazamiento cuántico",
             )
             return UserGoalInterpretation(
-                intent_type=IntentType.RESEARCH,
+                intent_type=IntentType.CONVERSATION,
                 goal_summary="Investigación sobre entrelazamiento cuántico",
                 spoken_feedback=summary_quantum,
-                steps=(quantum_step,),
+                steps=(),
                 resolved_entities=resolved_entities,
             )
 
@@ -410,19 +410,22 @@ REGLAS DE PLANIFICACIÓN:
             elif "baja" in lower:
                 m = re.search(r"(\d+)\s*%", lower)
                 nivel = int(m.group(1)) if m else None
-                params = {"accion": "establecer", "nivel": nivel} if nivel is not None else {"accion": "establecer", "delta": -10}
+                params = {"accion": "establecer", "nivel": nivel} if nivel is not None else {"accion": "bajar", "delta": 10}
                 steps.append(PlannedActionStep(skill_name="windows.audio", parameters=params, description="Bajar volumen"))
             elif "sube" in lower:
                 m = re.search(r"(\d+)\s*%", lower)
                 nivel = int(m.group(1)) if m else None
-                params = {"accion": "establecer", "nivel": nivel} if nivel is not None else {"accion": "establecer", "delta": 10}
+                params = {"accion": "establecer", "nivel": nivel} if nivel is not None else {"accion": "subir", "delta": 10}
                 steps.append(PlannedActionStep(skill_name="windows.audio", parameters=params, description="Subir volumen"))
 
         # 2. Detección de apertura de aplicaciones (Chrome, Bloc de notas, etc.)
         if any(w in lower for w in ("abre chrome", "inicia chrome", "abre el navegador")):
             steps.append(PlannedActionStep(skill_name="windows.apps", parameters={"accion": "abrir", "app_name": "chrome"}, description="Abrir Google Chrome"))
-        elif any(w in lower for w in ("abre bloc de notas", "abre el bloc de notas", "abre notepad")):
+        elif re.search(r"\babre\s+(?:(?:el|un)\s+)?(?:bloc(?:k)?\s+de\s+notas|notepad)\b", lower):
             p: dict[str, Any] = {"accion": "abrir", "app_name": "notepad"}
+            literal_write = re.search(r"\bescribe\s+(.+)$", text, re.IGNORECASE)
+            if literal_write:
+                p["text_to_write"] = literal_write.group(1).strip()
             if any(w in lower for w in ("escribe un resumen", "escribe el resumen", "escribe lo que investigaste")):
                 p["text_to_write"] = entities.get("investigation_summary") or "Resumen ejecutivo de la sesión: objetivos cumplidos."
             steps.append(PlannedActionStep(skill_name="windows.apps", parameters=p, description="Abrir Bloc de notas"))
@@ -446,7 +449,9 @@ REGLAS DE PLANIFICACIÓN:
                 q = "música clásica"
             steps.append(PlannedActionStep(skill_name="browser.youtube", parameters={"operacion": "play", "query": q, "autoplay": True}, description=f"Reproducir en YouTube: {q}"))
         
-        if any(w in lower for w in ("busca información sobre", "busca informacion sobre", "investiga sobre", "busca en google", "investiga en internet", "busca información", "busca informacion")):
+        if any(w in lower for w in ("busca información sobre", "busca informacion sobre", "investiga sobre", "busca en google", "investiga en internet", "busca información", "busca informacion")) or (
+            ("busca " in lower or "investiga " in lower) and not any(word in lower for word in ("youtube", "carpeta", "archivo", "disco", "local"))
+        ):
             q = re.sub(r"^(?:jessyca,?\s*)?(?:.*?\bbusca\s+(?:informaci[oó]n\s+sobre|sobre|en\s+internet\s+sobre|en\s+google\s+sobre)?\s*)", "", text, flags=re.IGNORECASE).strip()
             steps.append(PlannedActionStep(skill_name="browser.search", parameters={"query": q or text}, description=f"Buscar información: {q}"))
 
@@ -467,7 +472,9 @@ REGLAS DE PLANIFICACIÓN:
                 resolved_entities=entities,
             )
 
-        itype = IntentType.MULTI_STEP_PLAN if len(steps) > 1 else IntentType.SINGLE_ACTION
+        itype = IntentType.MULTI_STEP_PLAN if len(steps) > 1 else (
+            IntentType.RESEARCH if steps[0].skill_name == "browser.search" and "investiga" in lower else IntentType.SINGLE_ACTION
+        )
         return UserGoalInterpretation(
             intent_type=itype,
             goal_summary=text,

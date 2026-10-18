@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>JESSYCA ORB 4.0 — Núcleo Aurora 3D & Fusión Reactiva</title>
+  <link rel="stylesheet" href="/static/css/aurora.css?v=4.0.5">
+</head>
+<body>
+  <!-- 1. Contenedor WebGL 3D (Núcleo Aurora de Cristal y Vórtice) -->
+  <div id="canvas-container"></div>
+
+  <!-- 2. Capa Canvas 2D FX de Fusión (Ondas de sonar, ecualizador de voz y radar v2) -->
+  <canvas id="fx"></canvas>
+
+  <!-- 3. Retícula Holográfica HUD (Overlay SVG 2D de Alta Precisión) -->
+  <div id="hud-reticle-overlay">
+    <svg id="reticle-svg" viewBox="0 0 1000 1000" preserveAspectRatio="xMidYMid meet">
+      <!-- Círculo punteado exterior de calibración -->
+      <circle cx="500" cy="500" r="340" class="hud-circle-dashed" />
+      <circle cx="500" cy="500" r="280" class="hud-circle-faint" />
+      
+      <!-- Puntos de coordenadas en el anillo -->
+      <circle cx="500" cy="160" r="2.5" class="hud-coord-dot" />
+      <circle cx="500" cy="840" r="2.5" class="hud-coord-dot" />
+      <circle cx="160" cy="500" r="2.5" class="hud-coord-dot" />
+      <circle cx="840" cy="500" r="2.5" class="hud-coord-dot" />
+
+      <!-- Cruz eje Superior (Top Tick & Crosshairs) -->
+      <line x1="500" y1="90" x2="500" y2="190" class="hud-axis-line" />
+      <line x1="480" y1="115" x2="520" y2="115" class="hud-tick-line" />
+      <line x1="492" y1="160" x2="508" y2="160" class="hud-tick-line-subtle" />
+
+      <!-- Cruz eje Inferior (Bottom Tick & Crosshairs) -->
+      <line x1="500" y1="810" x2="500" y2="910" class="hud-axis-line" />
+      <line x1="480" y1="885" x2="520" y2="885" class="hud-tick-line" />
+      <line x1="492" y1="840" x2="508" y2="840" class="hud-tick-line-subtle" />
+
+      <!-- Cruz eje Izquierdo (Left Tick & Crosshairs) -->
+      <line x1="90" y1="500" x2="190" y2="500" class="hud-axis-line" />
+      <line x1="115" y1="480" x2="115" y2="520" class="hud-tick-line" />
+      <line x1="160" y1="492" x2="160" y2="508" class="hud-tick-line-subtle" />
+
+      <!-- Cruz eje Derecho (Right Tick & Crosshairs) -->
+      <line x1="810" y1="500" x2="910" y2="500" class="hud-axis-line" />
+      <line x1="885" y1="480" x2="885" y2="520" class="hud-tick-line" />
+      <line x1="840" y1="492" x2="840" y2="508" class="hud-tick-line-subtle" />
+    </svg>
+  </div>
+
+  <!-- 4. Panel Inferior Izquierdo: JESSYCA ORB 4.0 (Idéntico a la Referencia) -->
+  <div id="hud-metrics-card">
+    <div class="hud-card-header">
+      <span class="hud-brand-name">JESSYCA ORB</span>
+      <span class="hud-brand-version">4.0</span>
+    </div>
+    <div class="hud-metric-row">
+      <span class="hud-metric-bar">|</span>
+      <span class="hud-metric-label">RENDIMIENTO</span>
+      <span id="metric-fps" class="hud-metric-value">60 FPS</span>
+    </div>
+    <div class="hud-metric-row">
+      <span class="hud-metric-bar">|</span>
+      <span class="hud-metric-label">ENERGÍA DE AUDIO</span>
+      <span id="metric-audio" class="hud-metric-value">44%</span>
+    </div>
+  </div>
+
+  <!-- 5. Indicador Inferior Central: Retícula de Eje + Cápsula de Estado -->
+  <div id="hud-bottom-center">
+    <div class="bottom-reticle-container">
+      <div class="axis-track-left">
+        <span class="track-dash"></span>
+        <span class="track-tick"></span>
+        <span class="track-line"></span>
+      </div>
+      <div id="state-pill">
+        <div id="state-indicator-dot"></div>
+        <span id="state-name">EXECUTING</span>
+      </div>
+      <div class="axis-track-right">
+        <span class="track-line"></span>
+        <span class="track-tick"></span>
+        <span class="track-dash"></span>
+      </div>
+    </div>
+  </div>
+
+  <!-- 6. Botón Discreto para abrir el Panel de Control / Demostración -->
+  <button id="btn-open-panel" class="hud-panel-trigger" title="Configuración y Demostración">
+    <span>DEMO</span>
+  </button>
+
+  <!-- 7. Panel Retráctil de Demostración de Estados y Fusión -->
+  <div id="control-panel" class="hidden">
+    <div class="panel-header">
+      <span class="panel-title">CONTROL DE ESTADOS Y FUSIÓN</span>
+      <button id="btn-toggle-panel" class="btn-toggle" title="Cerrar panel">✕</button>
+    </div>
+
+    <div class="section-label">SIMULAR ACCIÓN / ESTADO</div>
+    <div class="state-grid">
+      <button class="state-btn" data-state="IDLE">
+        <span class="dot" style="background-color: #368BFF;"></span> Reposo
+      </button>
+      <button class="state-btn" data-state="WAKEWORD">
+        <span class="dot" style="background-color: #00F0FF;"></span> WakeWord
+      </button>
+      <button class="state-btn" data-state="LISTENING">
+        <span class="dot" style="background-color: #70D9FF;"></span> Escuchando
+      </button>
+      <button class="state-btn" data-state="TRANSCRIBING">
+        <span class="dot" style="background-color: #9D65FF;"></span> Transcribiendo
+      </button>
+      <button class="state-btn" data-state="ROUTING">
+        <span class="dot" style="background-color: #7668D8;"></span> Enrutando
+      </button>
+      <button class="state-btn" data-state="CLARIFYING">
+        <span class="dot" style="background-color: #70D9FF;"></span> Aclarando
+      </button>
+      <button class="state-btn" data-state="CONFIRMING">
+        <span class="dot" style="background-color: #4ADE80;"></span> Confirmando
+      </button>
+      <button class="state-btn active" data-state="EXECUTING">
+        <span class="dot" style="background-color: #00F0FF;"></span> Ejecutando
+      </button>
+      <button class="state-btn" data-state="SEARCHING">
+        <span class="dot" style="background-color: #00F0FF;"></span> Buscando
+      </button>
+      <button class="state-btn" data-state="VERIFYING">
+        <span class="dot" style="background-color: #70D9FF;"></span> Verificando
+      </button>
+      <button class="state-btn" data-state="RESPONDING">
+        <span class="dot" style="background-color: #368BFF;"></span> Hablando (TTS)
+      </button>
+      <button class="state-btn" data-state="ERROR">
+        <span class="dot" style="background-color: #E6A23C;"></span> Alerta
+      </button>
+    </div>
+
+    <div class="section-label">DISPARO DE ACCIÓN / ONDA</div>
+    <button id="btn-trigger-accent" class="hud-accent-btn">
+      ✦ DISPARAR ACCIÓN (ACCENT PULSE)
+    </button>
+
+    <div class="section-label">AJUSTES VISUALES</div>
+    <div class="control-row">
+      <span class="control-label">Nivel de Detalle:</span>
+      <select id="quality-select" class="control-select">
+        <option value="high" selected>Alta (60 FPS)</option>
+        <option value="medium">Media (45 FPS)</option>
+        <option value="low">Baja (Eco)</option>
+      </select>
+    </div>
+    <div class="control-row">
+      <span class="control-label">Movimiento Reducido:</span>
+      <input type="checkbox" id="reduced-motion-toggle">
+    </div>
+
+    <div class="section-label">MODULACIÓN ACÚSTICA</div>
+    <div class="control-row">
+      <span class="control-label">Amplitud:</span>
+      <span id="audio-amp-val" style="color: var(--color-ice-cyan); font-weight: 600;">44%</span>
+    </div>
+    <div class="slider-container">
+      <input type="range" id="audio-amp-slider" class="slider-input" min="0" max="1" step="0.02" value="0.44">
+    </div>
+
+    <div class="section-label" style="margin-top: 10px;">VERSIONES DISPONIBLES</div>
+    <div style="font-size: 10px; color: var(--color-muted-label); line-height: 1.4;">
+      <a href="/static/orb_v2_standalone.html" target="_blank" style="color: var(--color-ice-cyan); text-decoration: none; display: inline-flex; align-items: center; gap: 4px;">
+        <span>Abrir Orbe v2 Standalone (Raymarch)</span> ↗
+      </a>
+    </div>
+  </div>
+
+  <!-- Scripts Three.js Offline, Fusión y Controladores Aurora -->
+  <script src="/static/vendor/three.min.js"></script>
+  <script src="/static/js/aurora_core.js?v=4.0.6"></script>
+  <script src="/static/js/aurora_fx_fusion.js?v=4.0.6"></script>
+  <script src="/static/js/visual_controller.js?v=4.0.6"></script>
+  <script src="/static/js/test_panel.js?v=4.0.6"></script>
+</body>
+</html>

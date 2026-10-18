@@ -23,17 +23,17 @@ class TestModelRouter:
 
         # Clasificación rápida -> llama3.2
         p1 = router.select_model_for_task(TaskType.CLASSIFICATION, complexity=TaskComplexity.LOW)
-        assert p1.name == "llama3.2"
+        assert p1.name == "qwen3.5:9b"
 
         # Tarea simple -> llama3.2
         p2 = router.select_model_for_task(TaskType.SIMPLE_TASK, complexity=TaskComplexity.LOW)
-        assert p2.name == "llama3.2"
+        assert p2.name == "qwen3.5:9b"
 
     def test_routing_conversation(self) -> None:
         """Verifica que tareas de conversación se enruten a llama3.1."""
         router = ModelRouter()
         p = router.select_model_for_task(TaskType.CONVERSATION, complexity=TaskComplexity.MEDIUM)
-        assert p.name == "llama3.1"
+        assert p.name == "qwen3.5:9b"
 
     def test_routing_reasoning_and_planning(self) -> None:
         """Verifica que razonamiento, planificación y alta complejidad se enruten a qwen3:8b."""
@@ -41,21 +41,21 @@ class TestModelRouter:
 
         # Razonamiento -> qwen3:8b
         p_reason = router.select_model_for_task(TaskType.REASONING)
-        assert p_reason.name == "qwen3:8b"
+        assert p_reason.name == "qwen3.5:9b"
 
         # Planificación -> qwen3:8b
         p_plan = router.select_model_for_task(TaskType.PLANNING)
-        assert p_plan.name == "qwen3:8b"
+        assert p_plan.name == "qwen3.5:9b"
 
         # Tarea general con complejidad HIGH -> escala a qwen3:8b
         p_high = router.select_model_for_task(TaskType.ANALYSIS_VERIFICATION, complexity=TaskComplexity.HIGH)
-        assert p_high.name == "qwen3:8b"
+        assert p_high.name == "qwen3.5:9b"
 
     def test_routing_analysis_and_verification(self) -> None:
         """Verifica que análisis y verificación estándar se enruten a gemma4:e4b."""
         router = ModelRouter()
         p = router.select_model_for_task(TaskType.ANALYSIS_VERIFICATION, complexity=TaskComplexity.MEDIUM)
-        assert p.name == "gemma4:e4b"
+        assert p.name == "qwen3.5:9b"
 
     def test_routing_vision(self) -> None:
         """Verifica que tareas con requerimiento visual se enruten a qwen3-vl:4b."""
@@ -63,12 +63,12 @@ class TestModelRouter:
 
         # Por TaskType.VISION
         p1 = router.select_model_for_task(TaskType.VISION)
-        assert p1.name == "qwen3-vl:4b"
+        assert p1.name == "qwen3.5:9b"
         assert p1.vision is True
 
         # Por flag requires_vision=True
         p2 = router.select_model_for_task(TaskType.CLASSIFICATION, requires_vision=True)
-        assert p2.name == "qwen3-vl:4b"
+        assert p2.name == "qwen3.5:9b"
         assert p2.vision is True
 
     def test_routing_fallback_when_model_disabled(self) -> None:
@@ -76,7 +76,7 @@ class TestModelRouter:
         registry = ModelRegistry.get_instance()
         # Deshabilitar qwen3:8b
         disabled_qwen = ModelProfile(
-            model_id="qwen3:8b",
+            model_id="qwen3.5:9b",
             provider="ollama",
             capabilities=("completion", "tools", "thinking"),
             enabled=False,
@@ -86,7 +86,7 @@ class TestModelRouter:
         router = ModelRouter(registry=registry)
         # La tarea de razonamiento debe hacer fallback (a gemma4:e4b o llama3.1)
         selected = router.select_model_for_task(TaskType.REASONING)
-        assert selected.name != "qwen3:8b"
+        assert selected.name == "gemma4:e4b"
         assert selected.enabled is True
 
     def test_routing_fallback_on_insufficient_vram(self) -> None:
@@ -105,8 +105,8 @@ class TestModelRouter:
         context = RoutingContext(task_type=TaskType.REASONING)
 
         # Si qwen3:8b falla en runtime, get_fallback_model debe excluirlo y ofrecer el respaldo
-        fallback_profile = router.get_fallback_model("qwen3:8b", context=context)
-        assert fallback_profile.name != "qwen3:8b"
+        fallback_profile = router.get_fallback_model("qwen3.5:9b", context=context)
+        assert fallback_profile.name == "gemma4:e4b"
         assert fallback_profile.enabled is True
 
     def test_routing_nonexistent_preferred_model_falls_back(self) -> None:
@@ -117,7 +117,7 @@ class TestModelRouter:
             preferred_model_id="modelo_inexistente_123",
         )
         selected = router.route(context)
-        assert selected.name == "llama3.2"
+        assert selected.name == "qwen3.5:9b"
 
     def test_singleton_accessor(self) -> None:
         """Verifica que get_model_router() retorne la instancia global."""

@@ -91,7 +91,7 @@ class WindowsAppsSkill(BaseSkill):
             capabilities=("application_control", "application"),
             required_tools=("apps.open", "apps.close", "apps.inspect"),
             required_agents=("DesktopAgent", "SystemAgent"),
-            required_models=("llama3.2:latest",),
+            required_models=(),
             permissions=("apps.open", "apps.close", "apps.inspect"),
             risk_level=SecurityLevel.SAFE,
         )
@@ -178,55 +178,13 @@ class WindowsAppsSkill(BaseSkill):
             return True
 
         try:
-            import ctypes
-            import time
-            import pyautogui
-            import pyperclip
-            import win32gui
-
-            # SEGURIDAD CRÍTICA: Failsafe obligatorio para aborto de emergencia en esquina
-            pyautogui.FAILSAFE = True
-
-            from core.emergency_stop import EmergencyStopManager
-            if EmergencyStopManager.get_instance().is_stopped():
-                logger.warning("[APPS_SKILL TYPE ABORT] Parada de emergencia activa. Escritura cancelada.")
-                return False
-
-            target_clean = _normalizar(nombre_app)
-            aliases = [target_clean]
-            if "notepad" in target_clean or "bloc" in target_clean:
-                aliases.extend(["bloc de notas", "notepad", "bloc notas", "block de notas"])
-
-            target_hwnd = None
-            def _find_hwnd(h: int, _: Any) -> None:
-                nonlocal target_hwnd
-                if win32gui.IsWindowVisible(h):
-                    t = win32gui.GetWindowText(h).lower()
-                    if any(a in t for a in aliases):
-                        target_hwnd = h
-
-            win32gui.EnumWindows(_find_hwnd, None)
-
-            if target_hwnd:
-                user32 = ctypes.windll.user32
-                user32.keybd_event(0x12, 0, 0, 0)
-                user32.keybd_event(0x12, 0, 2, 0)
-                user32.SetForegroundWindow(target_hwnd)
-                user32.ShowWindow(target_hwnd, 9)
-                time.sleep(0.3)
-
-            prev_failsafe = getattr(pyautogui, "FAILSAFE", True)
-            try:
-                pyautogui.FAILSAFE = False
-                pyperclip.copy(texto)
-                pyautogui.hotkey("ctrl", "v")
-            finally:
-                pyautogui.FAILSAFE = prev_failsafe
-            time.sleep(0.2)
-            logger.info(f"[APPS_SKILL TYPE SUCCESS] Texto de longitud {len(texto)} escrito exitosamente en '{nombre_app}'.")
-            return True
+            from core.desktop.unified_controller import UnifiedDesktopController
+            result = UnifiedDesktopController().write_in_window(
+                app_name_or_title=nombre_app, text=texto, mode="write", verify_content=True,
+            )
+            return bool(result.success)
         except Exception as ex:
-            logger.warning(f"[APPS_SKILL TYPE ERROR] Error al escribir texto en '{nombre_app}': {ex}")
+            logger.warning(f"[APPS_SKILL TYPE ERROR] No pude verificar la escritura en '{nombre_app}': {ex}")
             return False
 
     def ejecutar(self, parametros: dict[str, Any]) -> dict[str, Any]:
@@ -285,10 +243,30 @@ class WindowsAppsSkill(BaseSkill):
         action_id = str(parametros.get("action_id") or parametros.get("execution_id") or parametros.get("request_id") or f"act-apps-{req_id}")
 
         mapeo = self._cargar_mapeo()
-        if os.path.isabs(str(nombre_app)) or ("." in os.path.basename(str(nombre_app)) and not str(nombre_app).endswith(".exe")):
-            comando = str(nombre_app)
-        else:
-            comando = _buscar_en_mapeo(str(nombre_app), mapeo) or f"{nombre_app}.exe"
+        comando = _buscar_en_mapeo(str(nombre_app), mapeo)
+        if not comando:
+            cand = str(nombre_app).strip().lower()
+            known_system_apps = (
+                "notepad", "calc", "calculator", "explorer", "cmd", "powershell",
+                "chrome", "edge", "msedge", "paint", "mspaint", "whatsapp", "spotify",
+                "taskmgr", "control", "code"
+            )
+            if cand in known_system_apps or (cand.endswith(".exe") and cand[:-4] in known_system_apps):
+                comando = f"{cand}.exe" if not cand.endswith(".exe") else cand
+            elif cand.endswith(".exe") and cand in [v.lower() for v in mapeo.values()]:
+                comando = cand
+            elif os.path.isabs(str(nombre_app)) and os.path.exists(str(nombre_app)):
+                comando = str(nombre_app)
+            elif "." in os.path.basename(cand) and not cand.endswith(".exe"):
+                comando = str(nombre_app)
+            else:
+                logger.warning(f"[APPS_SKILL SECURITY] Aplicación no autorizada o no identificada rechazada: '{nombre_app}'")
+                return {
+                    "exito": False,
+                    "app_state": "APP_NOT_AUTHORIZED",
+                    "mensaje": f"No puedo abrir '{nombre_app}' porque no es una aplicación reconocida o autorizada en el sistema.",
+                    "error_code": "APP_NOT_AUTHORIZED",
+                }
 
         launch_args: list[str] = list(parametros.get("args") or [])
         if ruta_carpeta_valida and ruta_carpeta_valida not in launch_args:
@@ -358,10 +336,11 @@ class WindowsAppsSkill(BaseSkill):
                         msg_resp = (
                             f"Listo, abrí {nombre_app} y escribí '{texto_escribir}'."
                             if (texto_escribir and texto_escrito_ok)
-                            else f"Listo, abrí {nombre_app}."
+                            else (f"Abrí {nombre_app}, pero no pude verificar la escritura solicitada." if texto_escribir else f"Listo, abrí {nombre_app}.")
                         )
                     return {
-                        "exito": True,
+                        "exito": bool(texto_escrito_ok),
+                        "error_code": None if texto_escrito_ok else "TEXT_NOT_VERIFIED",
                         "app_state": "TEXT_WRITTEN" if (texto_escribir and texto_escrito_ok) else state_change,
                         "mensaje": msg_resp,
                         "comando": comando,

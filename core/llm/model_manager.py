@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import os
 import threading
-from typing import ClassVar
+from typing import Any, ClassVar
 
 from core.llm.exceptions import ModelNotFoundError
 from core.llm.model_profile import ModelProfile
@@ -20,7 +20,8 @@ from core.logger import get_logger
 
 logger = get_logger("jessyca.llm.manager")
 
-# Modelo por defecto del sistema si no se especifica explícitamente
+# Modelo principal y de respaldo predeterminados del sistema (Fase 1: Consolidado)
+PRIMARY_DEFAULT_MODEL = "qwen3.5:9b"
 FALLBACK_DEFAULT_MODEL = "gemma4:e4b"
 
 # Marcador semántico de selección automática: nunca registrar en ModelRegistry
@@ -42,9 +43,25 @@ class ModelManager:
         self._lock = threading.RLock()
         self._registry = registry or ModelRegistry.get_instance()
         self._router = router
-        # Resolución inicial del modelo por defecto (prioridad: argumento -> variable de entorno -> fallback)
+        # Resolución inicial del modelo por defecto (prioridad: argumento -> variable de entorno -> models_config.json -> PRIMARY_DEFAULT_MODEL)
         env_model = os.getenv("OLLAMA_MODEL")
-        initial_default = default_model_name if default_model_name else (env_model if env_model else FALLBACK_DEFAULT_MODEL)
+        if default_model_name:
+            initial_default = default_model_name
+        elif env_model:
+            initial_default = env_model
+        else:
+            initial_default = PRIMARY_DEFAULT_MODEL
+            try:
+                from pathlib import Path
+                import json
+                cfg_file = Path("config/models_config.json")
+                if cfg_file.exists():
+                    with open(cfg_file, "r", encoding="utf-8") as f:
+                        cfg_data = json.load(f)
+                        if "active_model" in cfg_data:
+                            initial_default = cfg_data["active_model"]
+            except Exception:
+                pass
         self._default_model_name = str(initial_default).strip()
 
     @classmethod

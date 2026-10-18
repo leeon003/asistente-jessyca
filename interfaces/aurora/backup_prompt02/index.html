@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>JESSYCA ORB — Núcleo Aurora 3D (Prototipo Independiente)</title>
+  <link rel="stylesheet" href="/static/css/aurora.css">
+</head>
+<body>
+  <!-- Contenedor WebGL 3D -->
+  <div id="canvas-container"></div>
+
+  <!-- HUD Telemetría Inferior Izquierda -->
+  <div id="hud-overlay">
+    <div class="hud-tag">
+      <span class="hud-accent">JESSYCA ORB</span> 4.0
+    </div>
+    <div class="hud-tag">
+      RENDIMIENTO: <span id="hud-fps" class="hud-accent">60 FPS</span>
+    </div>
+    <div class="hud-tag">
+      ENERGÍA DE AUDIO: <span id="hud-amp" class="hud-accent">0%</span>
+    </div>
+  </div>
+
+  <!-- Banner de Estado Activo Central -->
+  <div id="state-banner">
+    <div id="state-indicator"></div>
+    <span id="state-name">IDLE</span>
+  </div>
+
+  <!-- Panel Interactivo de Pruebas (Glassmorphism) -->
+  <div id="test-panel">
+    <div class="panel-header">
+      <div class="panel-title">
+        <div id="ws-status-dot" class="status-dot"></div>
+        <span>Núcleo Aurora 3D</span>
+      </div>
+      <button id="btn-toggle-panel" class="btn-toggle" title="Minimizar panel">—</button>
+    </div>
+
+    <div class="section-label">Simular Estados Visuales</div>
+    <div class="state-buttons">
+      <button class="state-btn active" data-state="IDLE">
+        <span class="dot" style="color: #4CC9F0"></span> Reposo (IDLE)
+      </button>
+      <button class="state-btn" data-state="LISTENING">
+        <span class="dot" style="color: #2EE6D6"></span> Escuchando
+      </button>
+      <button class="state-btn" data-state="THINKING">
+        <span class="dot" style="color: #7B2CFB"></span> Pensando
+      </button>
+      <button class="state-btn" data-state="SPEAKING">
+        <span class="dot" style="color: #4CC9F0"></span> Hablando (TTS)
+      </button>
+      <button class="state-btn" data-state="EXECUTING">
+        <span class="dot" style="color: #FF9100"></span> Ejecutando
+      </button>
+      <button class="state-btn" data-state="VERIFYING">
+        <span class="dot" style="color: #2979FF"></span> Verificando
+      </button>
+      <button class="state-btn" data-state="ERROR" style="grid-column: span 2;">
+        <span class="dot" style="color: #FF1744"></span> Alerta / Error
+      </button>
+    </div>
+
+    <div class="section-label">Parámetros de Gráficos</div>
+    <div class="control-row">
+      <span>Calidad Gráfica:</span>
+      <select id="quality-select" class="control-select">
+        <option value="high" selected>Alta (60 FPS / Shaders)</option>
+        <option value="medium">Media (45 FPS)</option>
+        <option value="low">Baja (30 FPS / Eco)</option>
+      </select>
+    </div>
+
+    <div class="control-row">
+      <span>Movimiento Reducido:</span>
+      <label class="toggle-switch">
+        <input type="checkbox" id="reduced-motion-toggle">
+        <span class="slider-track"></span>
+      </label>
+    </div>
+
+    <div class="section-label">Reactividad de Audio</div>
+    <div class="control-row">
+      <span>Modulación:</span>
+      <span id="audio-amp-val" style="font-size: 11px; color: var(--color-turquoise);">0%</span>
+    </div>
+    <div class="audio-slider-container">
+      <input type="range" id="audio-amp-slider" class="slider-input" min="0" max="1" step="0.02" value="0">
+    </div>
+  </div>
+
+  <!-- Scripts: Three.js Offline y Módulos Aurora -->
+  <script src="/static/vendor/three.min.js"></script>
+  <script src="/static/js/aurora_core.js"></script>
+  <script src="/static/js/visual_controller.js"></script>
+  <script src="/static/js/test_panel.js"></script>
+</body>
+</html>

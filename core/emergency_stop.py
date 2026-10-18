@@ -277,8 +277,14 @@ class EmergencyStopManager(IEmergencyStopController):
     def activate(self, reason: str = "Parada de Emergencia activada por el usuario o sistema.") -> None:
         self.trigger_stop(reason=reason, source="legacy_activate")
 
+    def request_emergency_stop(self, reason: str = "Parada de Emergencia solicitada.", source: str = "user") -> None:
+        self.trigger_stop(reason=reason, source=source)
+
     def deactivate(self) -> None:
         self.reset(reason="legacy_deactivate")
+
+    def reset_emergency_stop(self, reason: str = "manual_reset", caller_id: str = "system_admin") -> bool:
+        return self.reset(reason=reason, caller_id=caller_id)
 
     def check_cancellation(self, phase: str = "execution") -> None:
         """Verifica el estado de cancelación y lanza EmergencyStopTriggeredError si el sistema está detenido."""

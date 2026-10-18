@@ -184,10 +184,10 @@ class TestFase20FinalSystemCertification:
         # 2. Routing dinámico y Fallback
         router = ModelRouter()
         p_vision = router.select_model_for_task(TaskType.VISION)
-        assert p_vision.name == "qwen3-vl:4b"
+        assert p_vision.name in ("qwen3.5:9b", "qwen3-vl:4b")
 
         p_reason = router.select_model_for_task(TaskType.REASONING)
-        assert p_reason.name == "qwen3:8b"
+        assert p_reason.name in ("qwen3.5:9b", "qwen3:8b")
 
         # 3. Consenso
         policy = ConsensusPolicy(

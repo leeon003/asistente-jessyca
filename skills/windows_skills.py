@@ -38,7 +38,7 @@ class WindowsClipboardSkill(BaseSkill):
             capabilities=("clipboard_read", "clipboard_write"),
             required_tools=("clipboard.read", "clipboard.write"),
             required_agents=("DesktopAgent",),
-            required_models=("llama3.2:latest",),
+            required_models=(),
             permissions=("clipboard.read", "clipboard.write"),
             risk_level=SecurityLevel.SAFE,
         )
@@ -116,7 +116,7 @@ class WindowsNotificationsSkill(BaseSkill):
             capabilities=("system_notification", "user_interaction"),
             required_tools=("notification.send",),
             required_agents=("DesktopAgent", "SystemAgent"),
-            required_models=("llama3.2:latest",),
+            required_models=(),
             permissions=("notification.send",),
             risk_level=SecurityLevel.SAFE,
         )
@@ -194,7 +194,7 @@ class WindowsAudioSkill(BaseSkill):
             capabilities=("system_audio", "hardware_control"),
             required_tools=("audio.get_volume", "audio.set_volume"),
             required_agents=("SystemAgent",),
-            required_models=("llama3.2:latest",),
+            required_models=(),
             permissions=("audio.get_volume", "audio.set_volume"),
             risk_level=SecurityLevel.SAFE,
         )
@@ -262,6 +262,14 @@ class WindowsAudioSkill(BaseSkill):
                 }
             except ValueError:
                 return {"exito": False, "mensaje": f"Nivel de volumen '{nivel}' inválido."}
+        elif accion in ("bajar", "lower", "lower_volume", "bajar_volumen"):
+            delta = int(parametros.get("delta") or parametros.get("cantidad") or 20)
+            nuevo = max(0, self._current_volume - delta)
+            return self.ejecutar({"accion": "set", "nivel": nuevo})
+        elif accion in ("subir", "raise", "raise_volume", "subir_volumen"):
+            delta = int(parametros.get("delta") or parametros.get("cantidad") or 20)
+            nuevo = min(100, self._current_volume + delta)
+            return self.ejecutar({"accion": "set", "nivel": nuevo})
         elif accion in ("silenciar", "mute"):
             if endpoint is not None:
                 try:
@@ -330,7 +338,7 @@ class WindowsDisplaySkill(BaseSkill):
             capabilities=("system_display", "hardware_info"),
             required_tools=("display.info",),
             required_agents=("DesktopAgent", "SystemAgent"),
-            required_models=("llama3.2:latest",),
+            required_models=(),
             permissions=("display.info",),
             risk_level=SecurityLevel.SAFE,
         )

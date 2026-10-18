@@ -125,7 +125,7 @@ class NaturalVoiceConversationPipeline:
     ) -> None:
         self.config_path = config_path
         self.config = self._load_config()
-        self.active_model = self.config.get("active_model", "llama3.2:latest")
+        self.active_model = self.config.get("active_model", "qwen3.5:9b")
         self.ollama_endpoint = self.config.get("ollama_endpoint", "http://127.0.0.1:11434")
 
         self.stt_service = stt_service or get_stt_service()
@@ -143,8 +143,9 @@ class NaturalVoiceConversationPipeline:
         """Carga la configuración de modelos y voz."""
         if not self.config_path.exists():
             return {
-                "active_model": "llama3.2:latest",
-                "reasoning_model": "qwen3:8b",
+                "active_model": "qwen3.5:9b",
+                "reasoning_model": "qwen3.5:9b",
+                "fallback_model": "gemma4:e4b",
                 "system_voice": {"default_voice": "es-PE-CamilaNeural"},
             }
         try:
@@ -152,7 +153,7 @@ class NaturalVoiceConversationPipeline:
                 return json.load(f)
         except Exception as e:
             logger.warning(f"[VOICE_CONFIG_ERROR] Error leyendo configuración: {e}. Usando defaults.")
-            return {"active_model": "llama3.2:latest"}
+            return {"active_model": "qwen3.5:9b"}
 
     def get_or_create_context(self, session_id: str) -> ConversationalContext:
         """Obtiene o inicializa el contexto de conversación de la sesión."""
@@ -249,6 +250,7 @@ class NaturalVoiceConversationPipeline:
             "prompt": prompt,
             "system": system_instruction,
             "stream": False,
+            "think": False,
             "options": {"temperature": 0.3, "num_predict": 256},
         }
         data = json.dumps(payload).encode("utf-8")
@@ -258,9 +260,11 @@ class NaturalVoiceConversationPipeline:
             headers={"Content-Type": "application/json"},
         )
         try:
-            with urllib.request.urlopen(req, timeout=15) as resp:
+            with urllib.request.urlopen(req, timeout=30) as resp:
                 out = json.loads(resp.read().decode("utf-8"))
-                return out.get("response", "").strip()
+                raw_resp = out.get("response", "").strip()
+                clean_resp = re.sub(r"<think>.*?</think>", "", raw_resp, flags=re.DOTALL).strip()
+                return clean_resp
         except Exception as e:
             logger.error(f"[LLM_QUERY_ERROR] Error consultando Ollama ({self.active_model}): {e}")
             return "Disculpa, tuve un problema temporal al consultar el modelo de lenguaje."

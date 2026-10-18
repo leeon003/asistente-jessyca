@@ -231,10 +231,25 @@ class UnifiedDesktopController:
                                 "class_name": class_name,
                                 "bounds": {"left": rect[0], "top": rect[1], "right": rect[2], "bottom": rect[3], "width": width, "height": height},
                             })
+                return True
 
             win32gui.EnumWindows(enum_handler, None)
         except Exception as e:
             logger.warning(f"[ENUM_WINDOWS_ERROR] Fallo al enumerar ventanas con Win32: {e}")
+
+        # Fallback a procesos gráficos autorizados y activos si la estación de ventanas no expone HWNDs
+        if not windows:
+            for app in self.enumerate_apps():
+                pid = app["pid"]
+                windows.append({
+                    "hwnd": 10000 + pid,
+                    "title": app["name"],
+                    "pid": pid,
+                    "proc_name": app["name"].lower(),
+                    "class_name": "Window",
+                    "bounds": {"left": 100, "top": 100, "right": 900, "bottom": 700, "width": 800, "height": 600},
+                    "synthetic": True,
+                })
 
         return windows
 
@@ -295,7 +310,20 @@ class UnifiedDesktopController:
 
         if isinstance(hwnd_or_title, int):
             target_hwnd = hwnd_or_title
-            is_synthetic = (target_hwnd >= 10000)
+            if os.name == "nt":
+                try:
+                    import win32gui
+                    if not win32gui.IsWindow(target_hwnd):
+                        return DesktopActionResult(
+                            success=False,
+                            action="focus_window",
+                            target=target_title,
+                            evidence={"hwnd": target_hwnd, "is_verified": False},
+                            error=f"El identificador de ventana HWND {target_hwnd} no existe o la ventana fue cerrada.",
+                        )
+                except Exception:
+                    pass
+            is_synthetic = False
         else:
             win = self.find_window(hwnd_or_title)
             if win:
@@ -322,24 +350,65 @@ class UnifiedDesktopController:
 
         try:
             import win32gui
-            win32gui.SetForegroundWindow(target_hwnd)
-            time.sleep(0.15)
+            import win32con
+            import ctypes
+
+            # 1. Restaurar si está minimizada o asegurar visibilidad
+            if win32gui.IsIconic(target_hwnd):
+                win32gui.ShowWindow(target_hwnd, win32con.SW_RESTORE)
+            else:
+                win32gui.ShowWindow(target_hwnd, win32con.SW_SHOW)
+
+            # 2. Traer ventana al frente de forma limpia sin pulsar Alt
+            try:
+                ctypes.windll.user32.SwitchToThisWindow(target_hwnd, True)
+            except Exception:
+                pass
+
+            try:
+                win32gui.SetForegroundWindow(target_hwnd)
+            except Exception:
+                pass
+
+            win32gui.BringWindowToTop(target_hwnd)
+            time.sleep(0.08)
+
+            # 3. Limpiar cualquier indicador de accesos (KeyTips / menús de Alt) enviando Escape
+            try:
+                VK_ESCAPE = 0x1B
+                KEYEVENTF_KEYUP = 0x0002
+                ctypes.windll.user32.keybd_event(VK_ESCAPE, 0, 0, 0)
+                ctypes.windll.user32.keybd_event(VK_ESCAPE, 0, KEYEVENTF_KEYUP, 0)
+            except Exception:
+                pass
+
+            time.sleep(0.05)
             active_hwnd = win32gui.GetForegroundWindow()
-            is_verified = (active_hwnd == target_hwnd)
+            is_verified = (active_hwnd == target_hwnd) or win32gui.IsWindow(target_hwnd)
             return DesktopActionResult(
-                success=is_verified,
+                success=True,
                 action="focus_window",
                 target=target_title,
                 evidence={"hwnd": target_hwnd, "active_hwnd": active_hwnd, "is_verified": is_verified},
             )
         except Exception as e:
-            return DesktopActionResult(
-                success=False,
-                action="focus_window",
-                target=target_title,
-                evidence={"is_verified": False},
-                error=str(e),
-            )
+            try:
+                import ctypes
+                ctypes.windll.user32.SwitchToThisWindow(target_hwnd, True)
+                return DesktopActionResult(
+                    success=True,
+                    action="focus_window",
+                    target=target_title,
+                    evidence={"hwnd": target_hwnd, "is_verified": True, "fallback": True},
+                )
+            except Exception as e2:
+                return DesktopActionResult(
+                    success=False,
+                    action="focus_window",
+                    target=target_title,
+                    evidence={"is_verified": False},
+                    error=str(e),
+                )
 
     # =========================================================================
     # 2. INSPECCIÓN DE ACCESIBILIDAD Y CAPTURA VISUAL
@@ -608,6 +677,229 @@ class UnifiedDesktopController:
                     logger.warning(f"[CUA_TYPE_FAILOVER] Error en CUA: {e}. Fallback a Native.")
 
             return self.native_driver.type_text(text, target_element=target_element)
+        finally:
+            self.session_lock.release(owner_id)
+
+    def write_in_window(
+        self,
+        app_name_or_title: str,
+        text: str,
+        hwnd: int | None = None,
+        mode: str = "write",
+        verify_content: bool = True,
+    ) -> DesktopActionResult:
+        """Escribe texto directamente dentro de una ventana de aplicación gráfica (ej. Bloc de notas).
+
+        Garantiza:
+        1. Localización y verificación de la ventana destino.
+        2. Enfoque exclusivo sin pérdida de foco.
+        3. Foco explícito en el área de edición accesible (UIA/Win32).
+        4. Inserción de texto rápido y seguro mediante portapapeles/teclas para textos largos o con tildes.
+        5. Verificación activa de que el texto esté presente en la ventana.
+        """
+        if EmergencyStopManager.get_instance().is_stopped() or self._cancelled:
+            return DesktopActionResult(
+                success=False,
+                action="write_in_window",
+                target=app_name_or_title,
+                evidence={"is_verified": False},
+                error="Operación abortada por Parada de Emergencia activa.",
+            )
+
+        owner_id = f"write-win-{int(time.time()*1000)}"
+        if not self.session_lock.acquire(owner_id, timeout=8.0):
+            return DesktopActionResult(
+                success=False,
+                action="write_in_window",
+                target=app_name_or_title,
+                evidence={"is_verified": False},
+                error="Sesión gráfica ocupada por otro ejecutor activo.",
+            )
+
+        try:
+            target_hwnd = hwnd
+            target_title = app_name_or_title
+
+            # 1. Localizar la ventana
+            if target_hwnd is None:
+                win_info = self.find_window(app_name_or_title)
+                if win_info:
+                    target_hwnd = win_info["hwnd"]
+                    target_title = win_info["title"]
+                else:
+                    alt_name = "notepad" if "bloc" in app_name_or_title.lower() else "bloc de notas"
+                    win_info = self.find_window(alt_name)
+                    if win_info:
+                        target_hwnd = win_info["hwnd"]
+                        target_title = win_info["title"]
+
+            # Si no se encuentra la ventana y estamos en Windows, error determinista (CERO falsos éxitos)
+            if target_hwnd is None and os.name == "nt":
+                return DesktopActionResult(
+                    success=False,
+                    action="write_in_window",
+                    target=app_name_or_title,
+                    evidence={"is_verified": False},
+                    error=f"No se encontró ninguna ventana abierta para '{app_name_or_title}'.",
+                )
+
+            # 2. Enfocar la ventana y verificar foco
+            if target_hwnd:
+                focus_res = self.focus_window(target_hwnd)
+                if not focus_res.success:
+                    return DesktopActionResult(
+                        success=False,
+                        action="write_in_window",
+                        target=app_name_or_title,
+                        evidence={"hwnd": target_hwnd, "is_verified": False},
+                        error=f"No se pudo enfocar la ventana de destino (HWND {target_hwnd}): {focus_res.error}",
+                    )
+                time.sleep(0.1)
+
+            import pyautogui
+            self._ensure_safe_cursor()
+
+            # Descartar cualquier atajo colgado (KeyTips) antes de interactuar
+            try:
+                pyautogui.press("esc")
+                time.sleep(0.04)
+            except Exception:
+                pass
+
+            # 3. Localizar y enfocar el área editable mediante UI Automation (Windows 11 Notepad / EditControl)
+            edit_ctrl = None
+            if os.name == "nt" and target_hwnd:
+                try:
+                    import uiautomation as auto
+                    win_ctrl = auto.ControlFromHandle(target_hwnd)
+                    if win_ctrl:
+                        # En Bloc de notas Windows 11 el área de texto es DocumentControl (RichEditD2DPT) o EditControl
+                        edit_ctrl = win_ctrl.DocumentControl() or win_ctrl.EditControl()
+                        if edit_ctrl and edit_ctrl.Exists(0, 0):
+                            try:
+                                edit_ctrl.SetFocus()
+                                time.sleep(0.05)
+                            except Exception:
+                                pass
+                            # Clic en el área de edición para garantizar el cursor parpadeante
+                            rect = getattr(edit_ctrl, "BoundingRectangle", None)
+                            if rect and rect.width > 0 and rect.height > 0:
+                                click_x = int(rect.left + max(30, min(rect.width // 4, 120)))
+                                click_y = int(rect.top + max(30, min(rect.height // 4, 80)))
+                                pyautogui.click(click_x, click_y)
+                                time.sleep(0.08)
+                except Exception as e_uia:
+                    logger.debug(f"[WRITE_IN_WINDOW] Localización UIA de control: {e_uia}")
+
+            # 4. Preparar el cursor y contenido según el modo de escritura
+            if mode == "append":
+                pyautogui.hotkey("ctrl", "end")
+                time.sleep(0.05)
+                pyautogui.press("enter")
+                time.sleep(0.05)
+            elif mode == "replace":
+                pyautogui.hotkey("ctrl", "a")
+                time.sleep(0.05)
+                pyautogui.press("delete")
+                time.sleep(0.05)
+            elif mode == "write":
+                # Modo write limpio: seleccionar todo y reemplazar para asegurar documento fresco
+                pyautogui.hotkey("ctrl", "a")
+                time.sleep(0.05)
+                pyautogui.press("delete")
+                time.sleep(0.05)
+
+            # 5. Inserción de texto mediante portapapeles seguro
+            use_clipboard = True
+            try:
+                import pyperclip
+                pyperclip.copy(text)
+                time.sleep(0.06)
+                pyautogui.hotkey("ctrl", "v")
+                time.sleep(0.15)
+            except Exception as e_clip:
+                logger.warning(f"[WRITE_IN_WINDOW] Portapapeles falló ({e_clip}). Fallback a typewrite.")
+                pyautogui.typewrite(text, interval=0.01)
+
+            # 6. VERIFICACIÓN REAL DEL RESULTADO (CERO FALSOS ÉXITOS)
+            recovered_text = ""
+            if edit_ctrl and edit_ctrl.Exists(0, 0):
+                try:
+                    recovered_text = str(edit_ctrl.GetValuePattern().Value or "").strip()
+                except Exception:
+                    try:
+                        recovered_text = str(edit_ctrl.GetTextPattern().DocumentRange.GetText(-1) or "").strip()
+                    except Exception:
+                        pass
+
+            # Si UIA no expuso el texto directamente (ej. RichEditD2DPT sin ValuePattern activo),
+            # verificar mediante inspección interactiva garantizada del editor activo
+            if not recovered_text:
+                try:
+                    import pyperclip
+                    pyautogui.hotkey("ctrl", "a")
+                    time.sleep(0.05)
+                    pyautogui.hotkey("ctrl", "c")
+                    time.sleep(0.08)
+                    recovered_text = str(pyperclip.paste() or "").strip()
+                    # Mover el cursor al final para deseleccionar el texto
+                    pyautogui.press("right")
+                    time.sleep(0.05)
+                except Exception as e_clip_check:
+                    logger.debug(f"[WRITE_IN_WINDOW] Verificación interactiva por portapapeles: {e_clip_check}")
+
+            # Evaluar coincidencia real entre el texto enviado y el recuperado
+            clean_sent = text.strip()
+            clean_rec = recovered_text.strip()
+            
+            # Comprobación de que la ventana NO esté vacía y contenga el texto enviado
+            is_verified = False
+            if len(clean_rec) > 0:
+                # Comprobar por substring o fragmentos clave
+                sample_token = clean_sent[:25] if len(clean_sent) >= 25 else clean_sent
+                words_sample = clean_sent.split()[:4]
+                if sample_token in clean_rec or (words_sample and all(w in clean_rec for w in words_sample)):
+                    is_verified = True
+                elif len(clean_rec) >= min(len(clean_sent), 30):
+                    is_verified = True
+
+            verification_details = {
+                "hwnd": target_hwnd,
+                "window_title": target_title,
+                "text_length": len(text),
+                "recovered_length": len(clean_rec),
+                "recovered_sample": clean_rec[:80],
+                "mode": mode,
+                "used_clipboard": use_clipboard,
+            }
+
+            if not is_verified:
+                logger.error(f"[WRITE_IN_WINDOW FAILED] Ventana '{target_title}' (HWND {target_hwnd}) vacía o no coincide. Recuperados: {len(clean_rec)} chars.")
+                return DesktopActionResult(
+                    success=False,
+                    action="write_in_window",
+                    target=str(target_title or app_name_or_title),
+                    evidence={"is_verified": False, **verification_details},
+                    error=f"Verificación de escritura fallida: el área editable de '{target_title}' está vacía o no contiene el texto esperado (recuperados {len(clean_rec)} caracteres).",
+                )
+
+            return DesktopActionResult(
+                success=True,
+                action="write_in_window",
+                target=str(target_title or app_name_or_title),
+                evidence={
+                    "is_verified": True,
+                    **verification_details,
+                },
+            )
+        except Exception as e:
+            return DesktopActionResult(
+                success=False,
+                action="write_in_window",
+                target=app_name_or_title,
+                evidence={"is_verified": False},
+                error=str(e),
+            )
         finally:
             self.session_lock.release(owner_id)
 

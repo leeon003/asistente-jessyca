@@ -1,0 +1,21 @@
+{
+  "display_text": "## Prueba de voz\n**Hola. Estoy lista para ayudarte.** Puedo conversar contigo y reproducir tus videos locales cuando me lo pidas. [1]",
+  "spoken_text": "Prueba de voz Hola. Estoy lista para ayudarte. Puedo conversar contigo y reproducir tus videos locales cuando me lo pidas.",
+  "success": true,
+  "bytes": 51120,
+  "metrics": {
+    "t1_request_to_synth_ms": 0.5,
+    "t2_first_audio_ms": 1505.84,
+    "t3_total_gen_ms": 1505.84,
+    "t4_audio_duration_ms": 7320.0,
+    "rtf": 0.2057,
+    "provider_used": "edge-tts",
+    "engine_used": "edge_tts",
+    "voice_name": "es-PE-CamilaNeural",
+    "fallback_used": false,
+    "is_success": true,
+    "error_message": null,
+    "timestamp": "2026-10-18T07:54:54.152675+00:00"
+  },
+  "scope": "Síntesis real; no certifica percepción humana, altavoces ni equivalencia a Perplexity."
+}

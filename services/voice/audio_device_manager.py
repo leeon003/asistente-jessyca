@@ -107,6 +107,11 @@ class AudioDeviceDescriptor:
     is_preferred: bool = False
     display_name: str = ""
 
+    @property
+    def index(self) -> int:
+        """Alias para runtime_index para interoperabilidad con PyAudio y subsistemas de voz."""
+        return self.runtime_index
+
     def to_dict(self) -> dict[str, Any]:
         """Serializa el descriptor a diccionario seguro para telemetría y auditoría."""
         return {
@@ -646,6 +651,17 @@ class AudioDeviceManager:
                 f"Score: {selected_descriptor.score:.1f}, Motivo: {reason})"
             )
             return selected_descriptor
+
+    def get_preferred_input_device(
+        self,
+        validate_signal: bool = True,
+        preferred_patterns: list[str] | None = None,
+    ) -> AudioDeviceDescriptor:
+        """Alias de compatibilidad para select_device(), retornando el descriptor de entrada seleccionado."""
+        return self.select_device(
+            preferred_patterns=preferred_patterns,
+            validate_signal=validate_signal,
+        )
 
     def detect_device_loss(
         self,

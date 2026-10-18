@@ -36,11 +36,14 @@ class VRAMOptimizer:
         self._lock = threading.RLock()
         self._last_evicted_time: dict[str, float] = {}
         self._model_vram_weights: dict[str, int] = {
+            "qwen3.5:9b": 6600,
+            "qwen3.5": 6600,
+            "gemma4:e4b": 3800,
+            "gemma4": 3800,
             "llama3.2:latest": 3500,
             "llama3.1:latest": 8000,
             "qwen3:8b": 6000,
             "qwen3-vl:4b": 4500,
-            "gemma4:e4b": 3800,
         }
 
     def evaluate_co_residency(self, models: list[str] | tuple[str, ...]) -> CoResidencyPlan:

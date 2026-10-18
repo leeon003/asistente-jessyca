@@ -14,14 +14,17 @@ GARANTÍAS DE SEGURIDAD ABSOLUTAS:
 from __future__ import annotations
 
 import os
+import json
 import random
 import subprocess
+import threading
 from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
 
 from config.settings import AppSettings
-from core.execution.execution_verifier import get_execution_verifier
+from core.execution.execution_verifier import ExecutionEvidence, get_execution_verifier
 from core.logger import get_logger
+from core.media_playback import ManagedMediaPlayer
 from core.security_architecture import SecurityLevel
 from skills.base_skill import BaseSkill
 from skills.skill_models import (
@@ -42,6 +45,7 @@ SUPPORTED_VIDEO_EXTENSIONS: frozenset[str] = frozenset({
     ".wmv",
     ".m4v",
 })
+SUPPORTED_AUDIO_EXTENSIONS = frozenset({".mp3", ".wav", ".flac", ".m4a", ".aac", ".ogg", ".opus", ".wma"})
 
 DANGEROUS_EXTENSIONS: frozenset[str] = frozenset({
     ".exe",
@@ -91,26 +95,11 @@ class IMediaPlayer(Protocol):
         ...
 
 
-class DefaultWindowsMediaPlayer:
+class DefaultWindowsMediaPlayer(ManagedMediaPlayer):
     """Implementación segura por defecto del reproductor multimedia en Windows."""
 
     def launch(self, video_path: Path) -> tuple[bool, str, int | None]:
-        path_str = str(video_path.resolve())
-        logger.info(f"[MEDIA_PLAYER_LAUNCH] Iniciando reproducción segura de: '{path_str}'")
-
-        try:
-            # En Windows se utiliza os.startfile para invocar el reproductor predeterminado
-            # sin usar intérprete de comandos ni shell=True.
-            if hasattr(os, "startfile"):
-                os.startfile(path_str)
-                return True, "PLAYBACK_LAUNCHED", None
-            else:
-                # Fallback multiplataforma seguro sin shell=True
-                proc = subprocess.Popen([path_str])
-                return True, "PLAYBACK_LAUNCHED", proc.pid
-        except Exception as e:
-            logger.error(f"[MEDIA_PLAYER_LAUNCH_ERROR] Fallo al iniciar reproductor: {e}")
-            return False, f"PLAYBACK_FAILED: {e}", None
+        return super().launch(video_path)
 
 
 class WindowsMediaSkill(BaseSkill):
@@ -120,6 +109,7 @@ class WindowsMediaSkill(BaseSkill):
         self,
         authorized_directory: Path | str | None = None,
         player: IMediaPlayer | None = None,
+        state_path: Path | None = None,
     ) -> None:
         if authorized_directory is not None:
             self._authorized_directory = Path(authorized_directory)
@@ -131,6 +121,16 @@ class WindowsMediaSkill(BaseSkill):
 
         self._player: IMediaPlayer = player or DefaultWindowsMediaPlayer()
         self._last_played_video: Path | None = None
+        self._execution_lock = threading.RLock()
+        self._state_path = state_path
+        if state_path is None and authorized_directory is None and player is None:
+            self._state_path = Path(__file__).resolve().parents[1] / "data" / "media_playback_state.json"
+        if self._state_path and self._state_path.is_file():
+            try:
+                saved = json.loads(self._state_path.read_text(encoding="utf-8"))
+                self._last_played_video = Path(saved["last_played_video"])
+            except (OSError, ValueError, KeyError, TypeError):
+                logger.warning("No se pudo leer el estado de reproducción; se conserva el archivo existente.")
 
         manifest = SkillManifest(
             id="windows.media",
@@ -141,7 +141,7 @@ class WindowsMediaSkill(BaseSkill):
             capabilities=("media_playback", "video_playback", "system"),
             required_tools=("media.play_random_video", "media.play_video"),
             required_agents=("DesktopAgent", "SystemAgent"),
-            required_models=("llama3.2:latest",),
+            required_models=(),
             permissions=("media.play_random_video", "media.play_video"),
             risk_level=SecurityLevel.SAFE,
         )
@@ -170,7 +170,7 @@ class WindowsMediaSkill(BaseSkill):
     def set_last_played_video(self, video_path: Path | None) -> None:
         self._last_played_video = video_path
 
-    def _discover_valid_videos(self, target_dir: Path) -> list[Path]:
+    def _discover_valid_videos(self, target_dir: Path, media_type: str = "video") -> list[Path]:
         """Descubre y filtra deterministamente archivos de vídeo elegibles."""
         if not target_dir.exists() or not target_dir.is_dir():
             return []
@@ -190,7 +190,8 @@ class WindowsMediaSkill(BaseSkill):
 
                 # Filtrar estrictamente por extensiones de vídeo permitidas (case-insensitive)
                 suffix_lower = entry.suffix.lower()
-                if suffix_lower not in SUPPORTED_VIDEO_EXTENSIONS:
+                extensions = SUPPORTED_AUDIO_EXTENSIONS if media_type == "audio" else SUPPORTED_VIDEO_EXTENSIONS
+                if suffix_lower not in extensions:
                     continue
 
                 # Verificar que no sea un ejecutable peligroso
@@ -243,7 +244,7 @@ class WindowsMediaSkill(BaseSkill):
             if target_resolved.suffix.lower() in DANGEROUS_EXTENSIONS:
                 return False
 
-            if target_resolved.suffix.lower() not in SUPPORTED_VIDEO_EXTENSIONS:
+            if target_resolved.suffix.lower() not in SUPPORTED_VIDEO_EXTENSIONS | SUPPORTED_AUDIO_EXTENSIONS:
                 return False
 
             try:
@@ -255,6 +256,10 @@ class WindowsMediaSkill(BaseSkill):
             return False
 
     def ejecutar(self, parametros: dict[str, Any]) -> dict[str, Any]:
+        with self._execution_lock:
+            return self._execute_serialized(parametros)
+
+    def _execute_serialized(self, parametros: dict[str, Any]) -> dict[str, Any]:
         """Ejecuta la operación de reproducción multimedia solicitada."""
         accion = str(parametros.get("accion") or parametros.get("action") or "play_random_video").lower().strip()
         req_id = str(parametros.get("request_id") or "req_media")
@@ -266,7 +271,8 @@ class WindowsMediaSkill(BaseSkill):
         custom_file = parametros.get("file_path") or parametros.get("ruta") or parametros.get("path")
         if custom_file:
             custom_path = Path(str(custom_file))
-            if not self._is_path_safe_and_authorized(custom_path, self._authorized_directory):
+            requested_root = Path(str(parametros.get("target_dir") or parametros.get("directorio") or parametros.get("folder") or self._authorized_directory))
+            if not self._is_path_safe_and_authorized(custom_path, requested_root):
                 logger.warning(f"[SECURITY DENIED] Intento de acceso a archivo/ruta no autorizada: '{custom_file}'")
                 return {
                     "exito": False,
@@ -277,8 +283,12 @@ class WindowsMediaSkill(BaseSkill):
                 }
 
         # ── CASO: DIRECTO O ALEATORIO ("play_random_video", "bailame", "play") ──
-        if accion in ("play_random_video", "bailame", "play_dance", "reproducir_baile", "play_video", "play"):
-            auth_dir = self._authorized_directory
+        if accion in ("play_random_video", "bailame", "play_dance", "reproducir_baile", "play_video", "play", "play_local_media", "play_local_video", "play_local_music"):
+            custom_dir_param = parametros.get("target_dir") or parametros.get("directorio") or parametros.get("folder")
+            if custom_dir_param:
+                auth_dir = Path(str(custom_dir_param))
+            else:
+                auth_dir = self._authorized_directory
 
             # 1. Verificar si el directorio existe
             if not auth_dir.exists() or not auth_dir.is_dir():
@@ -293,7 +303,15 @@ class WindowsMediaSkill(BaseSkill):
                 }
 
             # 2. Descubrir vídeos válidos
-            valid_videos = self._discover_valid_videos(auth_dir)
+            media_type = "audio" if accion == "play_local_music" or parametros.get("media_type") == "audio" else "video"
+            if custom_file:
+                requested_file = Path(str(custom_file))
+                if not requested_file.is_file():
+                    return {"exito": False, "status": "FILE_NOT_FOUND", "error_code": "FILE_NOT_FOUND",
+                            "mensaje": "No encuentro el archivo solicitado.", "execution_count": 0}
+                valid_videos = [requested_file]
+            else:
+                valid_videos = self._discover_valid_videos(auth_dir, media_type)
             if not valid_videos:
                 logger.info(f"[NO_VIDEOS_FOUND] No se encontraron vídeos compatibles en '{auth_dir}'.")
                 return {
@@ -306,7 +324,15 @@ class WindowsMediaSkill(BaseSkill):
                 }
 
             # 3. Seleccionar 1 vídeo aleatoriamente (evitando repetición inmediata si >1)
-            selected_video = self._select_random_video(valid_videos)
+            selected_video = Path(str(custom_file)) if custom_file else self._select_random_video(valid_videos)
+            if custom_file and not selected_video.is_file():
+                return {
+                    "exito": False,
+                    "status": "FILE_NOT_FOUND",
+                    "mensaje": "No encuentro el vídeo solicitado.",
+                    "error_code": "FILE_NOT_FOUND",
+                    "execution_count": 0,
+                }
             if selected_video is None:
                 return {
                     "exito": False,
@@ -318,7 +344,10 @@ class WindowsMediaSkill(BaseSkill):
 
             # 4. Lanzar la reproducción EXACTAMENTE 1 VEZ mediante MediaPlayer
             logger.info(f"[MEDIA_LAUNCHING] execution_id={exec_id} video='{selected_video.name}'")
-            success, launch_msg, pid = self._player.launch(selected_video)
+            try:
+                success, launch_msg, pid = self._player.launch(selected_video)
+            except Exception as exc:
+                success, launch_msg, pid = False, str(exc), None
 
             if not success:
                 logger.error(f"[MEDIA_LAUNCH_FAILED] execution_id={exec_id} error='{launch_msg}'")
@@ -334,19 +363,48 @@ class WindowsMediaSkill(BaseSkill):
 
             # Actualizar estado de último vídeo reproducido
             self._last_played_video = selected_video
+            if self._state_path:
+                try:
+                    self._state_path.parent.mkdir(parents=True, exist_ok=True)
+                    state_tmp = self._state_path.with_suffix(".tmp")
+                    state_tmp.write_text(json.dumps({"last_played_video": str(selected_video.resolve())}), encoding="utf-8")
+                    state_tmp.replace(self._state_path)
+                except OSError as exc:
+                    logger.warning(f"No se pudo guardar el último vídeo: {exc}")
 
             # 5. Verificación de ejecución
-            evidence = get_execution_verifier().verify_execution(
-                action="play_media",
-                target=selected_video.name,
-                parameters={
-                    "video_path": str(selected_video),
-                    "video_name": selected_video.name,
-                    "pid": pid,
-                    "verified": True,
-                },
-                timeout_seconds=1.0,
-            )
+            try:
+                evidence = get_execution_verifier().verify_execution(
+                    action="play_media",
+                    target=selected_video.name,
+                    parameters={
+                        "video_path": str(selected_video),
+                        "video_name": selected_video.name,
+                        "pid": pid,
+                        "playback_log": str(self._player.playback_log) if getattr(self._player, "playback_log", None) else None,
+                    },
+                    timeout_seconds=4.0,
+                )
+            except Exception as exc:
+                evidence = ExecutionEvidence(
+                    verification_type="playback_probe_error",
+                    target=selected_video.name,
+                    is_verified=False,
+                    details={"error": str(exc)},
+                )
+
+            if not evidence.is_verified:
+                return {
+                    "exito": False,
+                    "status": "PLAYBACK_UNVERIFIED",
+                    "mensaje": "Envié el vídeo al reproductor, pero no pude confirmar la reproducción.",
+                    "respuesta_hablada": "Envié el vídeo al reproductor, pero no pude confirmar la reproducción.",
+                    "video_nombre": selected_video.name,
+                    "error_code": "PLAYBACK_UNVERIFIED",
+                    "execution_count": 1,
+                    "evidence": evidence.to_dict(),
+                    "player_pid": pid,
+                }
 
             playback_state = "PLAYBACK_LAUNCHED"
             logger.info(f"[MEDIA_PLAYBACK_SUCCESS] execution_id={exec_id} video='{selected_video.name}' state={playback_state}")
@@ -354,8 +412,8 @@ class WindowsMediaSkill(BaseSkill):
             return {
                 "exito": True,
                 "status": playback_state,
-                "mensaje": f"Claro 😄. Te pongo un baile. Reproduciendo: {selected_video.name}",
-                "respuesta_hablada": "Claro 😄. Te pongo un baile.",
+                "mensaje": f"Reproduciendo: {selected_video.name}",
+                "respuesta_hablada": "Listo, ya está reproduciéndose.",
                 "video_nombre": selected_video.name,
                 "execution_count": 1,
                 "evidence": evidence.to_dict(),

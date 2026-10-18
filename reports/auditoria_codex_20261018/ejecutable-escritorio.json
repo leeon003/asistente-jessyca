@@ -1,0 +1,11 @@
+{
+  "desktop": "C:\\Users\\PC\\Desktop\\JESSYCA.exe",
+  "installed_launcher": "D:\\JESSYCA 3.0\\asistente-jessyca\\Jessyca.exe",
+  "desktop_matches_installed": true,
+  "sha256": "0a1a8a664790723755c5de735a5622132d27fd3b6c2c3a40ca8fb5174688faa2",
+  "windows_gui_subsystem": true,
+  "embedded_icon_count": 1,
+  "source_image_preserved": true,
+  "cold_start_verified": "logs/studio_backend.log: launch /studio, pair 200, authenticated status/files 200; window Jessyca · Aurora observed",
+  "packaging": "Local launcher using the original repository and its venv; not a portable standalone distribution."
+}

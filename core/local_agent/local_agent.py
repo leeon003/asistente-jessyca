@@ -159,6 +159,10 @@ class JessycaLocalAgent:
 
         self._active_tokens: dict[str, CancellationToken] = {}
         self._latest_metrics: LocalAgentMetrics = LocalAgentMetrics()
+        self.brain = None
+        from config.manager import get_settings
+        _settings = get_settings()
+        self.use_jessyca_brain = bool(getattr(_settings, "USE_JESSYCA_BRAIN", True))
 
     def remember(
         self,
@@ -169,12 +173,17 @@ class JessycaLocalAgent:
         """Almacena un hecho o preferencia de forma persistente y duradera."""
         from core.memory.long_term_memory import MemoryRecordType, MemorySensitivity
         try:
+            from core.cognitive_brain.memory_engine import MemoryEngine
+            fact, _ = MemoryEngine._sanitize_and_redact_input(fact)
             m_type = getattr(MemoryRecordType, category, MemoryRecordType.SEMANTIC_MEMORY)
+            sens = MemorySensitivity.INTERNAL
+            if any(w in fact.lower() for w in ("contraseña", "password", "bancaria", "tarjeta", "cvv", "pin", "secreto", "clave")):
+                sens = MemorySensitivity.CONFIDENTIAL
             rec = self.long_term_memory.store_record(
                 content=fact,
                 record_type=m_type,
                 source=source,
-                sensitivity=MemorySensitivity.INTERNAL,
+                sensitivity=sens,
             )
             return rec
         except Exception as e:
@@ -244,6 +253,9 @@ class JessycaLocalAgent:
         else:
             req = request
 
+        if cancellation_token and cancellation_token.is_cancelled:
+            return
+
         # Ingestión y deduplicación de contexto conversacional externo (OWUI-MEM-02)
         if req.conversation_context:
             self.context_manager.ingest_external_context(
@@ -252,6 +264,16 @@ class JessycaLocalAgent:
             )
 
         user_text = (req.user_input or "").strip()
+        from core.local_media_request import resolve_local_media_request
+        from config.settings import get_settings
+        local_media = resolve_local_media_request(user_text, get_settings().JESSYCA_DANCE_VIDEO_DIRECTORY)
+        if local_media or re.search(r"\bb[aá]ilame\b", user_text, re.IGNORECASE):
+            response = self._execute_unified_pipeline(
+                req=req, cancellation_token=cancellation_token,
+                user_confirmation_callback=user_confirmation_callback,
+            )
+            yield response.spoken_text or response.response_text or ""
+            return
         intent, extracted_params, is_ambiguous = self._resolve_intent(user_text, req.session_id)
         dialogue_decision = self.dialogue_manager.evaluate_dialogue(
             user_input=user_text,
@@ -273,6 +295,7 @@ class JessycaLocalAgent:
                 req=req,
                 cancellation_token=cancellation_token,
                 user_confirmation_callback=user_confirmation_callback,
+                resolved_intent=(intent, extracted_params, is_ambiguous),
             )
             resp_text = response.spoken_text or response.response_text or ""
             words = re.split(r"(\s+)", resp_text)
@@ -291,6 +314,8 @@ class JessycaLocalAgent:
             context_manager=self.context_manager,
             preferred_model=active_model,
         ):
+            if cancellation_token and cancellation_token.is_cancelled:
+                return
             full_response_parts.append(chunk)
             yield chunk
 
@@ -438,6 +463,10 @@ class JessycaLocalAgent:
 
     def _resolve_intent(self, user_text: str, session_id: str) -> tuple[str, dict[str, Any], bool]:
         """Resuelve la intención usando el motor autónomo si está habilitado o fallback legacy."""
+        from core.intent.explicit_youtube import resolve_explicit_youtube
+        explicit_youtube = resolve_explicit_youtube(user_text)
+        if explicit_youtube:
+            return explicit_youtube
         if not self._is_autonomous_engine_enabled():
             return self._resolve_intent_and_slots(user_text, session_id)
 
@@ -475,7 +504,7 @@ class JessycaLocalAgent:
                     sai_result=sai_interp,
                 )
                 # Prioridad determinista para comandos explícitos de memoria, captura y fallback cuando SAI devuelve general_query:
-                if leg_intent in ("remember_fact", "recall_fact", "take_screenshot") or (intent == "general_query" and leg_intent != "general_query"):
+                if leg_params.get("immediate_response") or leg_intent in ("remember_fact", "recall_fact", "take_screenshot", "compound_task", "delete_file") or (len(sai_interp.steps) <= 1 and leg_intent in ("open_browser", "browser_search")) or (intent == "general_query" and leg_intent != "general_query"):
                     intent, extracted_params, is_ambiguous = leg_intent, leg_params, leg_ambig
             except Exception:
                 pass
@@ -485,12 +514,308 @@ class JessycaLocalAgent:
             logger.warning(f"[AUTONOMOUS_ENGINE_FALLBACK] Error en motor autónomo ({e}). Utilizando motor legacy.")
             return self._resolve_intent_and_slots(user_text, session_id)
 
+    def get_brain(self) -> Any:
+        """Obtiene o inicializa de forma diferida el orquestador JessycaBrain."""
+        if self.brain is None:
+            from core.cognitive_brain import JessycaBrain
+            self.brain = JessycaBrain(
+                risk_engine=self.risk_engine,
+                permission_manager=self.permission_manager,
+                emergency_stop=self.emergency_stop_mgr,
+            )
+        return self.brain
+
+    def _execute_with_jessyca_brain(
+        self,
+        req: JessycaRequest,
+        token: CancellationToken,
+        metrics: LocalAgentMetrics,
+        start_time: float,
+    ) -> JessycaResponse:
+        """Enruta la ejecución al Cerebro Cognitivo Unificado (JESSYCA BRAIN 1.0)."""
+        brain = self.get_brain()
+        executed_tool_names = []
+        brain_policy: dict[str, str] = {}
+
+        def _dispatch_tool(action_name: str, tool_name: str, params: dict[str, Any]) -> tuple[bool, Any, str | None]:
+            skill_params = dict(params)
+            target_skill = "windows.apps"
+
+            # 1. Audio / volumen
+            if tool_name == "system_audio" or "volume" in action_name or action_name in ("set_volume", "lower_volume", "raise_volume", "mute"):
+                target_skill = "windows.audio"
+                if action_name == "lower_volume":
+                    skill_params["accion"] = "bajar"
+                elif action_name == "raise_volume":
+                    skill_params["accion"] = "subir"
+                elif action_name == "mute":
+                    skill_params["accion"] = "silenciar"
+                else:
+                    skill_params["accion"] = "establecer"
+                    skill_params["nivel"] = skill_params.get("level", 30)
+
+            # 1.1 Reproducción multimedia local / Vídeos de baile ("Jessyca, báilame" / play_random_video)
+            elif tool_name in ("windows_media", "media_player") or action_name in ("play_random_video", "play_dance", "bailame", "play_local_media", "play_local_video", "play_local_music"):
+                target_skill = "windows.media"
+                skill_params["accion"] = action_name if action_name in ("play_local_music", "play_local_media", "play_local_video", "play_video") else "play_random_video"
+                custom_d = params.get("target_dir") or params.get("directorio") or params.get("folder")
+                if custom_d:
+                    skill_params["target_dir"] = custom_d
+
+            # 1.2 Búsqueda de archivos y carpetas locales
+            elif tool_name in ("file_search", "files_search") or action_name in ("search_folder", "search_files"):
+                target_skill = "files.search"
+                skill_params["query"] = params.get("query") or params.get("nombre") or ""
+                skill_params["ruta"] = params.get("path") or params.get("ruta") or "D:\\"
+
+            # 1.3 Apertura de carpetas en Explorador de Windows
+            elif action_name in ("open_folder", "abrir_carpeta") or (tool_name == "app_launcher" and (params.get("accion") == "abrir_carpeta" or "target_folder" in params or params.get("app_name") == "explorer")):
+                target_skill = "windows.apps"
+                skill_params["accion"] = "abrir_carpeta"
+                folder_target = params.get("target") or params.get("target_folder") or params.get("app_name") or r"D:\bailes de ia"
+                skill_params["target"] = folder_target
+                skill_params["ruta_carpeta"] = folder_target
+
+            # 2. YouTube (SOLO para solicitudes explícitas de YouTube)
+            elif tool_name in ("browser_youtube", "youtube_player") or "youtube" in str(params.get("app_name", "")).lower() or "youtube" in str(params.get("query", "")).lower() or "youtube" in action_name.lower():
+                target_skill = "browser.youtube"
+                skill_params["operacion"] = "play" if ("play" in action_name or "música" in str(params).lower()) else "open"
+                skill_params["query"] = params.get("query") or params.get("cancion") or "música clásica"
+
+            # 3. Búsqueda web / Navegador / Investigación
+            elif tool_name in ("browser_search", "web_search", "academic_search") or action_name in ("browser_search", "research_topic"):
+                target_skill = "browser.search"
+                skill_params["query"] = params.get("query") or params.get("topic") or "Python"
+
+            # 4. Lanzador de Aplicaciones (Notepad, Calculadora, Chrome, etc.)
+            elif tool_name in ("app_launcher", "system_app") or action_name == "open_application":
+                target_skill = "windows.apps"
+                skill_params["accion"] = "cerrar" if action_name in ("close_application", "close_app") else "abrir"
+                target_name = params.get("app_name") or params.get("app") or params.get("target") or "calc"
+                skill_params["target"] = target_name
+
+            # 5. Escritura real dentro de ventana gráfica de aplicación (Bloc de notas, editor)
+            elif tool_name == "desktop_editor" or action_name in ("write_in_window", "gui_write_text", "write_document"):
+                app_target = params.get("app_name") or "bloc de notas"
+                text_to_write = params.get("text")
+                if not text_to_write and params.get("content_topic"):
+                    brain_inst = self.get_brain()
+                    text_to_write = brain_inst._generate_conceptual_content(params["content_topic"])
+                elif not text_to_write and params.get("content"):
+                    text_to_write = params["content"]
+
+                if not text_to_write:
+                    text_to_write = "Prueba de escritura realizada por JESSYCA Asistente."
+
+                controller = getattr(self, "desktop_controller", None)
+                if not controller:
+                    from core.desktop.unified_controller import UnifiedDesktopController
+                    controller = UnifiedDesktopController()
+
+                mode = params.get("mode", "write")
+                hwnd = params.get("hwnd")
+                res_act = controller.write_in_window(
+                    app_name_or_title=app_target,
+                    text=text_to_write,
+                    hwnd=hwnd,
+                    mode=mode,
+                    verify_content=True,
+                )
+                return res_act.success, res_act.evidence, res_act.error
+
+            # 6. Guardado explícito de documento en aplicación
+            elif action_name == "save_document":
+                controller = getattr(self, "desktop_controller", None)
+                if not controller:
+                    from core.desktop.unified_controller import UnifiedDesktopController
+                    controller = UnifiedDesktopController()
+                app_target = params.get("app_name") or "bloc de notas"
+                fn = str(params.get("filename", "documento.txt"))
+                save_path = Path(fn)
+                if not save_path.is_absolute():
+                    return False, None, "Necesito una ruta absoluta para guardar y verificar el documento."
+                if save_path.exists():
+                    return False, None, "El archivo ya existe; necesito autorización para sobrescribirlo."
+                controller.focus_window(params.get("hwnd") or app_target)
+                time.sleep(0.15)
+                import pyautogui
+                controller._ensure_safe_cursor()
+                pyautogui.hotkey("ctrl", "g")
+                time.sleep(0.2)
+                pyautogui.typewrite(fn)
+                time.sleep(0.1)
+                pyautogui.press("enter")
+                time.sleep(0.2)
+                deadline = time.monotonic() + 3.0
+                while time.monotonic() < deadline:
+                    if save_path.is_file() and save_path.stat().st_size > 0:
+                        return True, {"document_saved": str(save_path), "app": app_target, "bytes": save_path.stat().st_size}, None
+                    time.sleep(0.1)
+                return False, None, "Envié la orden de guardar, pero no pude verificar el archivo en disco."
+
+            # 7. Creación de archivos en disco (filesystem) - SÓLO para acciones explícitas de archivo
+            elif tool_name in ("file_writer", "files_create") or action_name in ("create_file",):
+                target_skill = "files.create"
+                fn = params.get("filename") or params.get("ruta") or "documento.txt"
+                content = params.get("content") or "Documento creado en el sistema."
+                if params.get("content_topic"):
+                    content = self.get_brain()._generate_conceptual_content(params["content_topic"])
+                skill_params["ruta"] = fn
+                skill_params["contenido"] = content
+
+            else:
+                return False, {"status": "UNSUPPORTED_TOOL", "action": action_name}, f"Herramienta no soportada: {tool_name}"
+
+            try:
+                executed_tool_names.append(f"{target_skill}@1.0.0")
+                res = self.skill_manager.execute_skill(target_skill, parameters=skill_params)
+                if hasattr(res, "success"):
+                    is_ok = bool(res.success)
+                    out = getattr(res, "output", getattr(res, "data", None))
+                    if isinstance(out, dict):
+                        if out.get("verified") is False or out.get("verification_status") in ("UNVERIFIED", "NOT_VERIFIABLE", "UNKNOWN"):
+                            is_ok = False
+                        if "exito" in out and not out["exito"]:
+                            is_ok = False
+                        elif "success" in out and not out["success"]:
+                            is_ok = False
+                    err = getattr(res, "error", None)
+                    if not is_ok and not err and isinstance(out, dict):
+                        err = out.get("mensaje") or out.get("error")
+                    return is_ok, out, err
+                if isinstance(res, dict):
+                    is_ok = res.get("exito", res.get("success")) is True
+                    return is_ok, res, res.get("mensaje") or res.get("error")
+                return False, res, "La herramienta no devolvió un resultado estructurado verificable."
+            except Exception as e:
+                return False, None, str(e)
+
+        def _tool_bridge(action_name, tool_name, params):
+            import json
+            import hashlib
+            binding = getattr(self, "jde_runtime_binding", None)
+            if binding:
+                try:
+                    verdict = binding.evaluate(
+                        intent=req.user_input, action=action_name, tool=tool_name,
+                        parameters=params, user_confirmed=False,
+                        session_id=req.session_id, request_id=req.request_id,
+                    )
+                    if verdict.verdict != JDERuntimeVerdictType.ALLOW:
+                        brain_policy.update(verdict=verdict.verdict.value, reason=verdict.reason)
+                        return False, {"governance": "JDE", "executed": False}, verdict.reason
+                except Exception as exc:
+                    brain_policy.update(verdict="DENY", reason=f"No pude verificar la autorización JDE: {exc}")
+                    return False, {"governance": "JDE", "executed": False}, brain_policy["reason"]
+            def dispatch_with_visual_state():
+                bridge = getattr(self, "aurora_bridge", None)
+                try:
+                    if bridge:
+                        bridge.notify_tool_start(tool_name)
+                except Exception as exc:
+                    logger.debug(f"Aurora no pudo notificar el inicio: {exc}")
+                try:
+                    outcome = _dispatch_tool(action_name, tool_name, params)
+                except Exception as exc:
+                    outcome = (False, None, str(exc))
+                try:
+                    if bridge:
+                        bridge.notify_verification(outcome[0])
+                        if not outcome[0]:
+                            bridge.notify_error()
+                except Exception as exc:
+                    logger.debug(f"Aurora no pudo notificar el resultado: {exc}")
+                return outcome
+            if action_name in ("browser_search", "research_topic", "search_folder", "read_file", "list_files", "file_metadata"):
+                return dispatch_with_visual_state()
+            parameter_hash = hashlib.sha256(json.dumps(params, sort_keys=True, default=str).encode()).hexdigest()
+            key = (req.session_id, req.request_id, action_name, tool_name, parameter_hash)
+            lock = getattr(self, "_lock", threading.RLock())
+            with lock:
+                if not hasattr(self, "_brain_tool_results"):
+                    self._brain_tool_results = {}
+                if key in self._brain_tool_results:
+                    result = self._brain_tool_results[key]
+                    return result if result is not None else (False, None, "La petición ya se está ejecutando.")
+                self._brain_tool_results[key] = None
+            try:
+                result = dispatch_with_visual_state()
+            except Exception as exc:
+                result = (False, None, str(exc))
+            with lock:
+                self._brain_tool_results[key] = result
+                if len(self._brain_tool_results) > 1024:
+                    completed = next((k for k, value in self._brain_tool_results.items() if value is not None and k != key), None)
+                    if completed is not None:
+                        self._brain_tool_results.pop(completed)
+            return result
+
+        brain_res = brain.process_request(
+            user_input=req.user_input,
+            session_id=req.session_id,
+            cancellation_token=token,
+            tool_executor=_tool_bridge,
+            metadata=req.metadata,
+        )
+
+        metrics.model_inference_latency_ms = getattr(brain_res, "model_duration_ms", 0.0)
+        metrics.intent_latency_ms = getattr(brain_res, "intent_duration_ms", 15.0)
+        metrics.total_latency_ms = (time.perf_counter() - start_time) * 1000.0
+        status = AgentExecutionState.COMPLETED if brain_res.success else AgentExecutionState.FAILED
+        if brain_res.error == "ClarificationNeeded":
+            status = AgentExecutionState.AWAITING_CLARIFICATION
+            if re.fullmatch(r"(?:jessyca[,\s]+)?busca\s+(?:una?\s+)?canci[oó]n[.!?]?", req.user_input.strip(), re.IGNORECASE):
+                self.context_manager.set_pending_clarification(
+                    session_id=req.session_id, question=brain_res.response_text,
+                    expected_slot="query", original_intent="browser_search",
+                )
+        if brain_policy:
+            status = AgentExecutionState.AWAITING_CONFIRMATION if brain_policy["verdict"] == JDERuntimeVerdictType.REQUIRE_REVIEW.value else AgentExecutionState.FAILED
+        elif brain_res.error and "ConfirmationRequired" in brain_res.error:
+            status = AgentExecutionState.AWAITING_CONFIRMATION
+
+        resp_intent = brain_res.intent or ("cognitive_brain_plan" if brain_res.requires_action else "general_query")
+        if resp_intent == "play_dance":
+            resp_intent = "play_random_video"
+
+        resp = JessycaResponse(
+            request_id=req.request_id,
+            session_id=req.session_id,
+            success=brain_res.success,
+            status=status,
+            response_text=brain_res.response_text,
+            spoken_text=brain_res.spoken_text,
+            intent=resp_intent,
+            selected_skill=executed_tool_names[0] if len(executed_tool_names) == 1 else "auto",
+            security_verdict=brain_policy.get("verdict", "ALLOW"),
+            requires_confirmation=status == AgentExecutionState.AWAITING_CONFIRMATION,
+            requires_clarification=(brain_res.error == "ClarificationNeeded"),
+            clarification_question=brain_res.response_text if brain_res.error == "ClarificationNeeded" else None,
+            tools_executed=executed_tool_names,
+            output_data=brain_res.verified_evidence,
+            error=brain_res.error,
+            metrics=metrics,
+        )
+        self._log_turn_experience(
+            req,
+            resp,
+            category=ExperienceCategory.GENERAL if brain_res.success else ExperienceCategory.ACTION_FAILED,
+            is_verified=bool(brain_res.requires_action and brain_res.verified_evidence) and all(
+                isinstance(output, dict)
+                and isinstance(output.get("evidence"), dict)
+                and output["evidence"].get("is_verified") is True
+                for output in brain_res.verified_evidence.values()
+            ),
+        )
+        return resp
+
     def _execute_unified_pipeline(
         self,
         req: JessycaRequest,
         cancellation_token: CancellationToken | None = None,
         user_confirmation_callback: Callable[[ConfirmationPrompt], bool] | None = None,
         initial_metrics: LocalAgentMetrics | None = None,
+        resolved_intent: tuple[str, dict[str, Any], bool] | None = None,
     ) -> JessycaResponse:
         """Ejecuta el flujo completo de resolución end-to-end."""
         metrics = initial_metrics or LocalAgentMetrics(task_id=req.request_id, correlation_id=req.request_id)
@@ -536,7 +861,6 @@ class JessycaLocalAgent:
                 return resp
 
             user_text = req.user_input.strip()
-
             # ── OBSERVACIÓN / ENRUTAMIENTO DEL MODEL ROUTER (FASE 4 / FASE 5) ──
             router_selected_model: str | None = None
             router_decision: Any = None
@@ -629,6 +953,41 @@ class JessycaLocalAgent:
             # Usar texto normalizado limpio
             user_text = q_res.normalized_text
 
+            specialized_intents = {
+                "delete_file",
+                "general_query", "conversational", "greeting", "chit_chat", "type_text",
+                "math_calculation", "math_sum", "write_list", "user_correction",
+                "open_application", "close_application", "interrupt_assistant", "cancel_task",
+                "remember_fact", "recall_fact", "forget_fact",
+                "multistep_compound",
+                "search_file", "read_file", "create_file", "copy_file", "move_file", "rename_file",
+                "create_folder", "list_files", "file_metadata", "open_folder",
+                "create_document", "read_document", "summarize_document", "convert_document",
+                "open_browser", "browser_open", "browser_search", "follow_link", "browser_navigate", "browser_read", "extract_content",
+                "browser_download", "download_file", "media_control", "pause_media", "resume_media",
+                "youtube_play", "youtube_search", "search_and_play", "control_audio", "control_clipboard",
+                "send_notification", "get_display_info", "take_screenshot", "grant_folder_access", "revoke_folder_access",
+            }
+            specialized_resolution = resolved_intent if resolved_intent is not None else self._resolve_intent(user_text, req.session_id)
+            use_specialized_pipeline = specialized_resolution[0] in specialized_intents
+            if re.fullmatch(r"(?:jessyca[,\s]+)?(?:busca|pon|reproduce)\s+(?:una?\s+)?(?:canci[oó]n|m[uú]sica)[.!?]?", user_text.strip(), re.IGNORECASE):
+                use_specialized_pipeline = False
+            if float(req.metadata.get("stt_confidence", 1.0)) < 0.60:
+                use_specialized_pipeline = False
+
+            # ── DELEGACIÓN COGNITIVA A JESSYCA BRAIN 1.0 (FASE 3) ──
+            from config.settings import get_settings
+            app_settings = get_settings()
+            from core.local_media_request import resolve_local_media_request
+            if resolve_local_media_request(user_text, app_settings.JESSYCA_DANCE_VIDEO_DIRECTORY):
+                use_specialized_pipeline = False
+            delegate_to_brain = getattr(self, "use_jessyca_brain", getattr(app_settings, "USE_JESSYCA_BRAIN", False)) and not use_specialized_pipeline
+            if self.are_runtime and self.are_runtime.current_mode != ARERuntimeMode.DISABLED and self.are_runtime.is_complex_task(user_text, specialized_resolution[0], specialized_resolution[1]):
+                delegate_to_brain = False
+
+            if delegate_to_brain:
+                return self._execute_with_jessyca_brain(req, token, metrics, start_time)
+
             # ── PASO 1.8: DETECCIÓN DE CIERRE DE CONVERSACIÓN ──
             if user_text.lower() in ("adiós", "adios", "salir", "exit", "quit", "cerrar conversación", "cerrar sesion", "cerrar sesión", "hasta luego", "bye", "terminar"):
                 self.context_manager.close_session(req.session_id)
@@ -638,7 +997,7 @@ class JessycaLocalAgent:
 
             # ── PASO 2: ANÁLISIS DE INTENCIÓN Y RESOLUCIÓN DE CONTEXTO ──
             t_intent_0 = time.perf_counter()
-            intent, extracted_params, is_ambiguous = self._resolve_intent(user_text, req.session_id)
+            intent, extracted_params, is_ambiguous = specialized_resolution
             if req.metadata:
                 for m_k, m_v in req.metadata.items():
                     if m_k not in extracted_params or not extracted_params[m_k]:
@@ -2249,7 +2608,7 @@ class JessycaLocalAgent:
                 raw_steps = extracted_params.get("steps", [])
                 executed_step_msgs: list[str] = []
                 step_errors: list[str] = []
-                all_succeeded = True
+                all_succeeded = bool(raw_steps)
                 compound_tools_executed: list[str] = []
 
                 for idx, step_dict in enumerate(raw_steps, start=1):
@@ -2265,9 +2624,11 @@ class JessycaLocalAgent:
                     compound_tools_executed.append(s_skill)
                     try:
                         res = self.skill_manager.execute_skill(
-                            skill_id=s_skill,
+                            s_skill,
                             parameters=s_params,
                             session_id=req.session_id,
+                            cancellation_token=token,
+                            metadata={"request_id": req.request_id, "step_index": idx},
                         )
                         if res.success:
                             executed_step_msgs.append(f"{idx}. {s_desc}")
@@ -2682,6 +3043,11 @@ class JessycaLocalAgent:
         """Extrae la intención semántica y parámetros de la solicitud integrando contexto corto (versión legacy regex)."""
         lower = text.lower()
 
+        if (getattr(self, "are_runtime", None) and self.are_runtime.current_mode != ARERuntimeMode.DISABLED
+                and re.search(r"\b(?:y\s+despu[eé]s|y\s+luego|despu[eé]s|luego)\b", lower)
+                and len(re.findall(r"\b(?:organiza|resume|convierte|analiza|busca|abre|escribe|actualiza|investiga)\b", lower)) >= 2):
+            return "compound_task", {"goal": text, "is_complex": True}, False
+
         # 1. Comprobar contexto conversacional activo y preguntas pendientes
         ctx_intent, ctx_params, ctx_ambiguous, ctx_immediate = self.context_manager.resolve_contextual_turn(session_id, text)
         if ctx_immediate is not None:
@@ -2703,11 +3069,14 @@ class JessycaLocalAgent:
             return pending["original_intent"], {"target": text, "app_name": text, "query": text}, False
 
         # 1.5 Detección de Guardado / Recuperación de Memoria Persistente
-        if re.search(r"\b(recuerda\s+(?:que|esto:?)|guarda\s+(?:en\s+tu\s+memoria\s+que|esto:?))\b", lower):
-            fact_body = re.sub(r"^(?:jessyca,?\s*)?(?:por\s+favor,?\s*)?(?:recuerda\s+(?:que|esto:?)|guarda\s+(?:en\s+tu\s+memoria\s+que|esto:?))\s*", "", text, flags=re.IGNORECASE).strip()
+        if re.search(r"\b(recuerda\s+(?:que|esto:?|mi\b|un\b|el\b|la\b)?|guarda\s+(?:en\s+tu\s+memoria\s+que|esto:?|mi\b)?)\b", lower):
+            fact_body = re.sub(r"^(?:jessyca,?\s*)?(?:por\s+favor,?\s*)?(?:recuerda\s+(?:que\s+|esto:?\s*)?|guarda\s+(?:en\s+tu\s+memoria\s+(?:que\s+)?|esto:?\s*)?)\s*", "", text, flags=re.IGNORECASE).strip()
             if fact_body:
                 cat = "USER_PREFERENCES" if any(w in lower for w in ("prefiero", "mi ", "me gusta")) else "SEMANTIC_MEMORY"
-                self.remember(fact_body, category=cat)
+                record = self.remember(fact_body, category=cat)
+                if record is None:
+                    return "remember_fact", {"error": "MEMORY_NOT_SAVED", "immediate_response": "No pude guardar ese recuerdo; no confirmaré que quedó almacenado."}, False
+                fact_body = record.content
                 return "remember_fact", {
                     "fact": fact_body,
                     "immediate_response": f"Entendido, he guardado en mi memoria permanente: '{fact_body}'."
@@ -3166,18 +3535,9 @@ class JessycaLocalAgent:
         return []
 
     def _select_model_for_intent(self, intent: str) -> str:
-        """Selecciona el modelo óptimo automáticamente según la intención."""
-        if intent in ("multistep_research", "complex_reasoning", "technical_analysis"):
-            return "gemma4:e4b"
-        if intent in (
-            "open_application", "close_application", "type_text", "search_file",
-            "browser_search", "play_random_video", "control_audio", "control_clipboard",
-            "send_notification", "get_display_info", "take_screenshot", "read_file",
-            "create_file", "copy_file", "move_file", "rename_file", "create_folder",
-            "list_files", "file_metadata", "open_folder",
-        ):
-            return "llama3.2"
-        return "llama3.1"
+        """Use the configured active model instead of missing legacy model IDs."""
+        from core.llm.model_manager import get_model_manager
+        return get_model_manager().get_model().name
 
     def _select_agent_for_intent(self, intent: str) -> str:
         """Selecciona el agente especialista responsable."""

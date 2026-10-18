@@ -34,6 +34,10 @@ logs/jde/
 # Datos locales y bases de datos runtime
 data/*.db
 data/*.json
+data/brain_checkpoints/
+brain-live-*/
+*.db-shm
+*.db-wal
 data/anydoc/
 data/archify/
 data/memory_long_term/
@@ -41,6 +45,12 @@ data/orca_worktrees/
 data/pruebas_documentales/
 data/pruebas_programacion/
 Downloads/
+
+# Respaldos locales (preservando baseline tracked)
+backups/*
+!backups/baseline_status.txt
+!backups/baseline_working_tree.patch
+!backups/effective_config_sanitized.json
 
 # Scripts temporales
 scratch/

@@ -20,7 +20,7 @@ from core.vision.vision_result import VisionAnalysis, VisionObservation
 
 logger = get_logger("jessyca.vision.provider")
 
-DEFAULT_VISION_MODEL = "qwen3-vl:4b"
+DEFAULT_VISION_MODEL = "qwen3.5:9b"
 
 VISION_SYSTEM_PROMPT = (
     "Eres el módulo de visión multimodal de JESSYCA para Windows. "

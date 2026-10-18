@@ -12,6 +12,7 @@ from __future__ import annotations
 import contextlib
 import io
 import os
+import re
 import tempfile
 import threading
 import time
@@ -816,6 +817,15 @@ class TTSManager:
         cancellation_token: CancellationToken | None = None,
     ) -> tuple[bool, TTSMetrics]:
         """Sintetiza y reproduce audio con fallback explícito no silencioso y soporte Barge-in."""
+        if not text or not text.strip():
+            return False, TTSMetrics(error_message="Texto vacío")
+
+        clean_text = text.strip()
+        if "<think>" in clean_text:
+            clean_text = re.sub(r"<think>.*?</think>", "", clean_text, flags=re.DOTALL).strip()
+        if not clean_text:
+            return False, TTSMetrics(error_message="Texto vacío tras filtrar razonamiento")
+
         token = cancellation_token or CancellationToken()
         with self._lock:
             self._current_token = token
@@ -840,7 +850,7 @@ class TTSManager:
                         self._is_generating = True
                         self._is_playing = False
                     success, metrics = pref_provider.speak(
-                        text,
+                        clean_text,
                         voice=voice,
                         cancellation_token=token,
                     )
@@ -884,7 +894,7 @@ class TTSManager:
                         self._is_generating = True
                         self._is_playing = False
                     success, metrics = fb_provider.speak(
-                        text,
+                        clean_text,
                         voice=voice,
                         cancellation_token=token,
                     )

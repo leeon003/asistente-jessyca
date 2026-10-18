@@ -1,0 +1,20 @@
+{
+  "scope": "Real Edge and WebAudio with controlled microphone signal and mocked transcripts/chat; real TTS. No human microphone certification.",
+  "errors": [],
+  "transcriptions": [
+    54656,
+    49196,
+    57388
+  ],
+  "chat_requests": [
+    "hola.",
+    "continúa por favor"
+  ],
+  "real_tts_played": true,
+  "own_reply_did_not_create_another_transcription": true,
+  "microphone_open_count": 1,
+  "resumed_after_two_turns": true,
+  "stop_releases_microphone": true,
+  "manual_resume_works": true,
+  "manual_mode_still_available": true
+}

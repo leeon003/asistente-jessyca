@@ -74,7 +74,10 @@ class TestInitialSkillCatalog:
             if sk_def.manifest is not None:
                 is_valid, err = SkillValidator.validate_manifest(sk_def.manifest)
                 assert is_valid is True, f"Error en manifiesto '{sk_def.skill_id}': {err}"
-                assert sk_def.risk_level in (SecurityLevel.SAFE, SecurityLevel.WARNING)
+                if sk_def.skill_id == "windows.computer_use":
+                    assert sk_def.risk_level == SecurityLevel.DANGEROUS
+                else:
+                    assert sk_def.risk_level in (SecurityLevel.SAFE, SecurityLevel.WARNING)
 
     # ══════════════════════════════════════════════════════════════════
     # 2. GRUPO WINDOWS
@@ -212,10 +215,10 @@ class TestInitialSkillCatalog:
         assert r_read["exito"] is True
         assert "texto_extraido" in r_read
 
-        # 4. Download - safe
+        # 4. A nonexistent resource must never report a successful download.
         dl_skill = BrowserDownloadSkill()
         r_dl_safe = dl_skill.ejecutar({"url": "https://github.com/dataset.csv"})
-        assert r_dl_safe["exito"] is True
+        assert r_dl_safe["exito"] is False
 
         # 5. Download - blocked dangerous extension
         r_dl_danger = dl_skill.ejecutar({"url": "https://github.com/installer.exe"})
@@ -249,9 +252,10 @@ class TestInitialSkillCatalog:
 
             # 3. Resumir documento
             sum_skill = DocumentsSummarizeSkill()
-            r_sum = sum_skill.ejecutar({"ruta": doc_path})
+            r_sum = sum_skill.ejecutar({"ruta": doc_path}, context={"trusted_root": tmp_dir})
             assert r_sum["exito"] is True
-            assert "Resumen Ejecutivo" in r_sum["resumen"]
+            assert "Resumen extractivo" in r_sum["resumen"]
+            assert "25%" in r_sum["resumen"]
 
             # 4. Convertir JSON a CSV
             conv_skill = DocumentsConvertSkill()

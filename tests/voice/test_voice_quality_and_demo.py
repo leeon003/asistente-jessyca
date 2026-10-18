@@ -55,9 +55,10 @@ def test_transcript_quality_analyzer_low_confidence():
     """Valida que transcripciones con baja confianza sean marcadas adecuadamente."""
     analyzer = TranscriptQualityAnalyzer(min_confidence=0.75)
     res = analyzer.analyze("abre calculadora", confidence=0.50)
-    assert res.quality == TranscriptQuality.LOW_CONFIDENCE
+    assert res.quality == TranscriptQuality.AMBIGUOUS
     assert not res.is_acceptable
-    assert "No te entendí bien" in (res.suggested_prompt or "")
+    assert res.proposed_interpretation == "abrir la calculadora"
+    assert "¿Te refieres a" in (res.suggested_prompt or "")
 
 
 def test_transcript_quality_analyzer_valid():

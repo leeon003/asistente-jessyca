@@ -224,7 +224,11 @@ class OllamaProvider:
             raise InferenceError(f"Error durante inferencia con modelo '{resolved_model}': {e}") from e
 
         duration_ms = (time.perf_counter() - start_time) * 1000.0
-        response_text = str(data.get("response", ""))
+        if not isinstance(data, dict) or data.get("error"):
+            raise InferenceError("Ollama devolvió un error o una respuesta inválida.")
+        response_text = data.get("response", "")
+        if not isinstance(response_text, str) or not response_text.strip():
+            raise InferenceError("Ollama no devolvió contenido de respuesta.")
         tokens_eval = data.get("eval_count")
 
         return InferenceResponse(
@@ -277,23 +281,36 @@ class OllamaProvider:
             post_callable = self._get_session().post
         eff_timeout = request.timeout_seconds if request.timeout_seconds is not None else self.timeout_seconds
 
+        resp = None
         try:
             resp = post_callable(self.endpoint, json=payload, stream=True, timeout=eff_timeout)
             if hasattr(resp, "raise_for_status"):
                 resp.raise_for_status()
 
             if hasattr(resp, "iter_lines"):
+                completed = False
+                has_content = False
                 for line in resp.iter_lines():
                     if line:
                         decoded = line.decode("utf-8") if isinstance(line, bytes) else line
                         data = json.loads(decoded)
+                        if data.get("error"):
+                            raise InferenceError(f"Ollama rechazó el stream: {data['error']}")
                         chunk = data.get("response", "")
                         if chunk:
+                            has_content = True
                             yield chunk
                         if data.get("done", False):
+                            completed = True
                             break
+                if not completed:
+                    raise InferenceError("El stream de Ollama terminó sin confirmar su finalización.")
+                if not has_content:
+                    raise InferenceError("El stream de Ollama terminó sin contenido de respuesta.")
             elif hasattr(resp, "json"):
                 data = resp.json()
+                if data.get("error"):
+                    raise InferenceError(f"Ollama rechazó el stream: {data['error']}")
                 yield str(data.get("response", ""))
         except requests.exceptions.ConnectionError as e:
             logger.warning(f"[OLLAMA PROVIDER] Fallo de conexión con {self.host}: {e}")
@@ -304,6 +321,12 @@ class OllamaProvider:
         except Exception as e:
             logger.error(f"[OLLAMA PROVIDER] Error en llamada streaming a {self.endpoint}: {e}")
             raise InferenceError(f"Error durante streaming con modelo '{resolved_model}': {e}") from e
+        finally:
+            if resp is not None and callable(getattr(resp, "close", None)):
+                try:
+                    resp.close()
+                except Exception as exc:
+                    logger.debug(f"[OLLAMA PROVIDER] Error cerrando stream: {exc}")
 
     def generate_text(
         self,

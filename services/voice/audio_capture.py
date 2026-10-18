@@ -16,7 +16,7 @@ import math
 import struct
 import threading
 import time
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
@@ -30,7 +30,7 @@ from services.voice.device_resolver import (
     get_voice_device_resolver,
 )
 from services.voice.stt_service import ISTTService, get_stt_service
-from services.voice.vad_service import EnergyVADService, IVADService, get_vad_service
+from services.voice.vad_service import EnergyVADService, IVADService, VADEvent, get_vad_service
 from services.voice.voice_diagnostics import (
     VoiceCaptureDiagnostic,
     VoiceDiscardReason,
@@ -391,11 +391,20 @@ class CalibratedVoiceCaptureEngine:
                 logger.info(f"[EOS] Timeout de espera sin voz ({elapsed_wait_audio_sec:.2f}s > {timeout:.2f}s).")
                 raise sr.WaitTimeoutError("listening timed out while waiting for phrase to start")
 
-            rms = self._compute_rms(chunk_bytes)
-            if rms >= self.vad_service.start_threshold:
+            chunk_obj = AudioChunk(
+                data=chunk_bytes,
+                sample_rate=sample_rate,
+                bytes_per_sample=sample_width,
+                channels=1,
+            )
+            vad_res = self.vad_service.process_chunk(chunk_obj)
+            is_start = vad_res.is_speech or (vad_res.event == VADEvent.SPEECH_START)
+            if is_start:
                 voice_started = True
+                rms = getattr(vad_res, "energy", 0.0) or self._compute_rms(chunk_bytes)
                 logger.info(
-                    f"[EOS] voice_started (RMS: {rms:.1f} >= start_threshold: {self.vad_service.start_threshold:.1f})"
+                    f"[EOS] voice_started (Backend: {getattr(self.vad_service, 'capabilities', lambda: {})().get('backend', 'vad')}, "
+                    f"conf: {vad_res.confidence:.2f}, RMS: {rms:.1f})"
                 )
                 captured_frames.extend(preroll_buffer)
                 break
@@ -427,11 +436,23 @@ class CalibratedVoiceCaptureEngine:
                 end_reason = "failsafe_watchdog"
                 break
 
-            rms = self._compute_rms(chunk_bytes)
-            is_speech_chunk = (rms >= self.vad_service.end_threshold)
+            chunk_obj = AudioChunk(
+                data=chunk_bytes,
+                sample_rate=sample_rate,
+                bytes_per_sample=sample_width,
+                channels=1,
+            )
+            vad_res = self.vad_service.process_chunk(chunk_obj)
+            is_speech_chunk = vad_res.is_speech
+
+            if vad_res.event == VADEvent.SPEECH_END:
+                total_speech_sec = max(total_speech_sec, vad_res.duration_ms / 1000.0)
+                end_reason = "end_of_speech"
+                break
 
             if is_speech_chunk:
-                total_speech_sec += chunk_dur
+                # is_speech includes VAD hangover; duration_ms tracks active speech only.
+                total_speech_sec = max(total_speech_sec, vad_res.duration_ms / 1000.0)
                 if in_pause and silence_sec >= 0.25:
                     logger.info(f"[EOS] voice_resumed (tras pausa de {silence_sec:.2f}s)")
                 in_pause = False
@@ -478,6 +499,7 @@ class CalibratedVoiceCaptureEngine:
         source: Any,
         timeout: float = 7.0,
         failsafe_watchdog_sec: float = 300.0,
+        on_audio_chunk: Callable[[bytes], None] | None = None,
     ) -> Any:
         """Graba audio desde el micrófono en vivo usando evaluación continua de Adaptive End-of-Speech."""
         import speech_recognition as sr
@@ -487,6 +509,11 @@ class CalibratedVoiceCaptureEngine:
                 buf = source.stream.read(source.CHUNK)
                 if not buf:
                     break
+                if on_audio_chunk:
+                    try:
+                        on_audio_chunk(buf)
+                    except Exception:
+                        pass
                 yield buf
 
         audio_bytes, _ = self.evaluate_adaptive_stream(
@@ -506,6 +533,7 @@ class CalibratedVoiceCaptureEngine:
         custom_audio_bytes: bytes | None = None,
         on_listening_start: Callable[[], None] | None = None,
         on_transcribing_start: Callable[[], None] | None = None,
+        on_audio_chunk: Callable[[bytes], None] | None = None,
     ) -> VoiceCaptureResult:
         """Captura audio del usuario con Adaptive End-of-Speech, transcribe y emite diagnósticos."""
         with self._lock:
@@ -520,6 +548,11 @@ class CalibratedVoiceCaptureEngine:
 
             # 1. Si se proporciona audio sintético (para testing determinista)
             if custom_audio_bytes is not None:
+                if on_audio_chunk:
+                    try:
+                        on_audio_chunk(custom_audio_bytes[:3200])
+                    except Exception:
+                        pass
                 if on_transcribing_start:
                     try:
                         on_transcribing_start()
@@ -561,6 +594,7 @@ class CalibratedVoiceCaptureEngine:
                         source,
                         timeout=timeout,
                         failsafe_watchdog_sec=watchdog_limit,
+                        on_audio_chunk=on_audio_chunk,
                     )
                 t_eos = time.perf_counter()
 
@@ -638,6 +672,24 @@ class CalibratedVoiceCaptureEngine:
                         confidence=0.0,
                         discard_reason=VoiceDiscardReason.EMPTY_TRANSCRIPT,
                         user_feedback_message="[Te escuché, pero no pude entender la frase. Intenta de nuevo.]",
+                        diagnostic=final_diag,
+                        is_success=False,
+                        eos_timestamp=t_eos,
+                        eos_to_stt_start_ms=eos_to_stt_start_ms,
+                        stt_duration_ms=stt_duration_ms,
+                    )
+
+                # Descarte de ruido accidental o balbuceos ininteligibles con confianza extremadamente baja
+                if confidence < 0.25 and len(text_clean.split()) <= 2:
+                    diag_data["discard_reason"] = VoiceDiscardReason.LOW_STT_CONFIDENCE.value
+                    final_diag = VoiceCaptureDiagnostic.model_validate(diag_data)
+                    final_diag.log_diagnostic()
+                    get_voice_telemetry().record_capture(final_diag)
+                    return VoiceCaptureResult(
+                        text="",
+                        confidence=confidence,
+                        discard_reason=VoiceDiscardReason.LOW_STT_CONFIDENCE,
+                        user_feedback_message="[Audio demasiado débil o ininteligible. Intenta de nuevo.]",
                         diagnostic=final_diag,
                         is_success=False,
                         eos_timestamp=t_eos,
@@ -783,7 +835,11 @@ class CalibratedVoiceCaptureEngine:
                 is_success=False,
             )
 
-        if rms < self.vad_service.end_threshold:
+        min_energy = getattr(self.vad_service, "energy_threshold", 120.0)
+        if hasattr(self.vad_service, "end_threshold") and self.vad_service.end_threshold > 1.0:
+            min_energy = self.vad_service.end_threshold
+
+        if rms < min_energy:
             diag_data = diag.to_dict()
             diag_data["duration_ms"] = duration_ms
             diag_data["audio_rms"] = rms

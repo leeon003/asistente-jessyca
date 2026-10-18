@@ -91,7 +91,7 @@ class TestFase5VoiceAndNaturalConversation:
         with open(config_path, "r", encoding="utf-8") as f:
             cfg = json.load(f)
         assert "active_model" in cfg
-        assert cfg["active_model"] == "llama3.2:latest"
+        assert cfg["active_model"] in ("qwen3.5:9b", "llama3.2:latest")
         assert "system_voice" in cfg
         assert cfg["system_voice"]["default_voice"] == "es-PE-CamilaNeural"
         assert "conversation_policy" in cfg

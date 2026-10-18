@@ -1,0 +1,16 @@
+{
+  "health": {
+    "status": "ok",
+    "service": "jessyca-webui-bridge"
+  },
+  "conversation": {
+    "success": true,
+    "ms": 372.5408000027528
+  },
+  "stream": {
+    "success": true,
+    "events": 4,
+    "ms": 25.248099998862017
+  },
+  "unauthenticated_status": 401
+}

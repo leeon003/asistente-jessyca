@@ -1,0 +1,142 @@
+{
+  "timestamp": "2026-10-17 21:14:48",
+  "hardware": {
+    "gpu": "NVIDIA GeForce RTX 3060 (12 GB)",
+    "cpu": "AMD Ryzen 9 5900X",
+    "ram": "32 GB",
+    "os": "Windows 11"
+  },
+  "consolidated_models": {
+    "primary": "qwen3.5:9b",
+    "fallback": "gemma4:e4b"
+  },
+  "deprecated_models": [
+    "qwen3-vl:4b",
+    "qwen3:8b",
+    "llama3.1:latest",
+    "llama3.2:latest"
+  ],
+  "benchmarks": [
+    {
+      "model": "qwen3.5:9b",
+      "num_ctx": 4096,
+      "ttft_ms": 236.3,
+      "total_time_s": 17.36,
+      "eval_count": 120,
+      "tokens_per_sec": 20.8,
+      "clean_text_preview": "Un sistema operativo moderno es el software fundamental que actúa como intermediario entre el usuario, las aplicaciones ",
+      "vram_used_mb": 10275,
+      "gpu_util_pct": 96,
+      "loaded_models": [
+        "qwen3.5:9b"
+      ]
+    },
+    {
+      "model": "qwen3.5:9b",
+      "num_ctx": 8192,
+      "ttft_ms": 323.6,
+      "total_time_s": 15.32,
+      "eval_count": 120,
+      "tokens_per_sec": 17.5,
+      "clean_text_preview": "Un sistema operativo moderno actúa como el núcleo fundamental que coordina todos los recursos del hardware, permitiendo ",
+      "vram_used_mb": 10496,
+      "gpu_util_pct": 95,
+      "loaded_models": [
+        "qwen3.5:9b"
+      ]
+    },
+    {
+      "model": "gemma4:e4b",
+      "num_ctx": 4096,
+      "ttft_ms": 312.3,
+      "total_time_s": 18.27,
+      "eval_count": 120,
+      "tokens_per_sec": 18.8,
+      "clean_text_preview": "Un sistema operativo (SO) moderno es el software fundamental que administra los recursos de hardware de una computadora,",
+      "vram_used_mb": 8254,
+      "gpu_util_pct": 98,
+      "loaded_models": [
+        "gemma4:e4b"
+      ]
+    },
+    {
+      "model": "gemma4:e4b",
+      "num_ctx": 8192,
+      "ttft_ms": 306.7,
+      "total_time_s": 19.11,
+      "eval_count": 120,
+      "tokens_per_sec": 19.0,
+      "clean_text_preview": "Un **sistema operativo (SO) moderno** es el software fundamental que administra los recursos de hardware de una computad",
+      "vram_used_mb": 8329,
+      "gpu_util_pct": 96,
+      "loaded_models": [
+        "gemma4:e4b"
+      ]
+    }
+  ],
+  "mandatory_tests": {
+    "1_arranque_jessyca": {
+      "status": "PASS",
+      "model_configurado": "qwen3.5:9b",
+      "ollama_status": "CONECTADO",
+      "brain_status": "JESSYCA BRAIN 1.0 Activo y Completo (9 Motores Certificados)"
+    },
+    "2_deteccion_ollama": {
+      "status": "PASS",
+      "has_qwen3_5_9b": true,
+      "has_gemma4_e4b": true,
+      "total_models": 4
+    },
+    "3_respuesta_conversacional": {
+      "status": "PASS",
+      "latency_ms": 16897.7,
+      "content_length": 273,
+      "has_think_leak": false,
+      "preview": "¡Hola! Soy Jessyca, tu asistente personal. No tengo acceso directo a la hora o fecha de tu sistema l"
+    },
+    "4_uso_modelo_principal": {
+      "status": "PASS",
+      "conversation_model": "qwen3.5:9b",
+      "reasoning_model": "qwen3.5:9b",
+      "planning_model": "qwen3.5:9b"
+    },
+    "5_cambio_automatico_respaldo": {
+      "status": "PASS",
+      "selected_fallback": "gemma4:e4b",
+      "reason": "Modelo 'gemma4:e4b' seleccionado para 'reasoning' (Affinity=0.75, Comp=0.85, Perf=1.00, VRAM=0.58)."
+    },
+    "6_interpretacion_visual": {
+      "status": "PASS",
+      "model_used": "qwen3.5:9b",
+      "duration_ms": 12868.3,
+      "summary": "La imagen muestra una ventana de aplicación simple con un fondo oscuro. Contiene dos elementos princ"
+    },
+    "7_salida_json_valida": {
+      "status": "PASS",
+      "parsed_keys": [
+        "action",
+        "target",
+        "verified"
+      ],
+      "parsed_action": "open_folder"
+    },
+    "8_planificacion_dag": {
+      "status": "PASS",
+      "plan_id": "plan-d6f2f13982",
+      "steps_count": 2,
+      "dag_valid": true
+    },
+    "9_ejecucion_y_verificacion": {
+      "status": "PASS",
+      "task_id": "brain-task-b73d76d1cc",
+      "is_conversational": true,
+      "duration_ms": 3688.5,
+      "response_preview": "¡Hola! Estoy lista para ayudarte. ¿Qué deseas hacer hoy?"
+    },
+    "10_compatibilidad_voice_realtime": {
+      "status": "PASS",
+      "engine_used": "edge_tts",
+      "startup_latency_ms": 1608.1
+    }
+  }
+}

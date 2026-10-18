@@ -306,7 +306,29 @@ def get_vad_service(
         try:
             from services.voice.silero_vad_service import SileroVADService
 
-            return SileroVADService(**kwargs)
+            silero_kwargs = dict(kwargs)
+            # Eliminar parámetros exclusivos de EnergyVAD
+            silero_kwargs.pop("energy_threshold", None)
+
+            # Normalizar umbrales si vinieron en escala RMS (> 1.0) o no fueron especificados
+            try:
+                from config.manager import get_settings
+
+                s = get_settings()
+                def_start = float(getattr(s, "SILERO_VAD_THRESHOLD", 0.50))
+                def_end = float(getattr(s, "SILERO_VAD_NEG_THRESHOLD", 0.35))
+                if "model_path" not in silero_kwargs or silero_kwargs["model_path"] is None:
+                    silero_kwargs["model_path"] = getattr(s, "SILERO_VAD_MODEL_PATH", None)
+            except Exception:
+                def_start = 0.50
+                def_end = 0.35
+
+            if "start_threshold" not in silero_kwargs or silero_kwargs["start_threshold"] > 1.0:
+                silero_kwargs["start_threshold"] = def_start
+            if "end_threshold" not in silero_kwargs or silero_kwargs["end_threshold"] > 1.0:
+                silero_kwargs["end_threshold"] = def_end
+
+            return SileroVADService(**silero_kwargs)
         except Exception as e:
             logger.warning(
                 f"[VAD FACTORY] Fallo al inicializar SileroVADService: {e}. "

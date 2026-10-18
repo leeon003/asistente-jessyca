@@ -43,7 +43,7 @@ class DocumentsReadSkill(BaseSkill):
             capabilities=("document_read", "filesystem_read"),
             required_tools=("document.read",),
             required_agents=("FileAgent",),
-            required_models=("llama3.2:latest",),
+            required_models=(),
             permissions=("document.read",),
             risk_level=SecurityLevel.SAFE,
         )
@@ -161,7 +161,7 @@ class DocumentsCreateSkill(BaseSkill):
             capabilities=("document_write", "filesystem_write"),
             required_tools=("document.create",),
             required_agents=("FileAgent",),
-            required_models=("llama3.2:latest",),
+            required_models=(),
             permissions=("document.create",),
             risk_level=SecurityLevel.SAFE,
         )
@@ -588,7 +588,7 @@ class DocumentsSummarizeSkill(BaseSkill):
             capabilities=("document_summarize", "text_processing"),
             required_tools=("document.summarize",),
             required_agents=("FileAgent",),
-            required_models=("llama3.2:latest", "qwen3:8b"),
+            required_models=(),
             permissions=("document.summarize",),
             risk_level=SecurityLevel.SAFE,
         )
@@ -654,7 +654,7 @@ class DocumentsConvertSkill(BaseSkill):
             capabilities=("document_convert", "text_processing"),
             required_tools=("document.convert",),
             required_agents=("FileAgent",),
-            required_models=("llama3.2:latest",),
+            required_models=(),
             permissions=("document.convert",),
             risk_level=SecurityLevel.SAFE,
         )

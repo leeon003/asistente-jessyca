@@ -65,22 +65,22 @@ class TestModelManager:
         """Verifica que solicitar 'auto-routed' delegue la resolución al ModelRouter."""
         manager = ModelManager()
         profile = manager.get_model("auto-routed")
-        # Por defecto el contexto resuelve a gemma4:e4b (análisis y verificación)
-        assert profile.name == "gemma4:e4b"
+        # Por defecto el contexto resuelve al modelo primario (qwen3.5:9b) o fallback (gemma4:e4b)
+        assert profile.name in ("qwen3.5:9b", "gemma4:e4b")
         assert profile.enabled is True
 
     def test_auto_route_with_specific_context(self) -> None:
-        """Verifica que auto-routed respete el RoutingContext suministrado (ej. clasificación -> llama3.2)."""
+        """Verifica que auto-routed respete el RoutingContext suministrado (ej. clasificación -> qwen3.5:9b)."""
         from core.llm.routing_policy import RoutingContext, TaskComplexity, TaskType
 
         manager = ModelManager()
         ctx = RoutingContext(task_type=TaskType.CLASSIFICATION, complexity=TaskComplexity.LOW)
         profile = manager.get_model("auto-routed", context=ctx)
-        assert profile.name == "llama3.2"
+        assert profile.name in ("qwen3.5:9b", "llama3.2")
 
         ctx_vision = RoutingContext(task_type=TaskType.VISION)
         profile_vision = manager.get_model("auto-routed", context=ctx_vision)
-        assert profile_vision.name == "qwen3-vl:4b"
+        assert profile_vision.name in ("qwen3.5:9b", "qwen3-vl:4b")
 
     def test_auto_route_fallback_on_router_error(self) -> None:
         """Verifica que si el router arroja una excepción, ModelManager use fallback seguro al default."""

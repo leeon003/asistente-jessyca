@@ -34,7 +34,7 @@ class FilesSearchSkill(BaseSkill):
             capabilities=("filesystem_read", "filesystem"),
             required_tools=("file.search", "files.search"),
             required_agents=("FileAgent",),
-            required_models=("llama3.2:latest",),
+            required_models=(),
             permissions=("file.search",),
             risk_level=SecurityLevel.SAFE,
         )

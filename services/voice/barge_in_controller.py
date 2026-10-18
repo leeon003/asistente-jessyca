@@ -272,10 +272,12 @@ class BargeInController:
 
             # Regla 4: Umbral anti-eco con margen dinámico
             base_threshold = 300.0
-            if self.vad_service and hasattr(self.vad_service, "start_threshold"):
-                base_threshold = float(self.vad_service.start_threshold)
-            elif self.vad_service and hasattr(self.vad_service, "energy_threshold"):
+            if self.vad_service and hasattr(self.vad_service, "energy_threshold"):
                 base_threshold = float(self.vad_service.energy_threshold)
+            elif self.vad_service and hasattr(self.vad_service, "start_threshold"):
+                val = float(self.vad_service.start_threshold)
+                if val > 1.0:
+                    base_threshold = val
 
             dynamic_threshold = base_threshold * self.echo_margin_factor
 

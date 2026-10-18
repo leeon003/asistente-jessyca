@@ -164,7 +164,13 @@ def test_openwakeword_acoustic_inference_detection(tmp_path: Path) -> None:
     # openWakeWord predict devuelve diccionario {model_name: score}
     mock_model_instance.predict.return_value = {"jessyca_model": 0.85}
 
-    with mock.patch("openwakeword.model.Model", return_value=mock_model_instance):
+    # This is a simulated inference contract; it must not require the optional package.
+    from types import ModuleType
+    fake_package = ModuleType("openwakeword")
+    fake_model_module = ModuleType("openwakeword.model")
+    fake_model_module.Model = MagicMock(return_value=mock_model_instance)
+    fake_package.model = fake_model_module
+    with mock.patch.dict(sys.modules, {"openwakeword": fake_package, "openwakeword.model": fake_model_module}):
         service = OpenWakeWordAcousticService(
             keyword="jessyca",
             model_path=fake_model_file,

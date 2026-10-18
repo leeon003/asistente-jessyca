@@ -1,8 +1,9 @@
 {
-  "active_model": "llama3.2:latest",
-  "reasoning_model": "qwen3:8b",
-  "vision_model": "qwen3-vl:4b",
-  "fast_conversational_model": "llama3.2:latest",
+  "active_model": "qwen3.5:9b",
+  "reasoning_model": "qwen3.5:9b",
+  "vision_model": "qwen3.5:9b",
+  "fast_conversational_model": "qwen3.5:9b",
+  "fallback_model": "gemma4:e4b",
   "ollama_endpoint": "http://127.0.0.1:11434",
   "temperature": 0.4,
   "max_tokens": 512,

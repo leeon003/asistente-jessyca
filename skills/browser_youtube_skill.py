@@ -54,7 +54,7 @@ class BrowserYouTubeSkill(BaseSkill):
             capabilities=("browser_navigation", "media_playback", "web_search"),
             required_tools=("browser.open", "browser.navigate", "browser.media"),
             required_agents=("BrowserAgent",),
-            required_models=("llama3.2:latest",),
+            required_models=(),
             permissions=("browser.open", "browser.navigate", "browser.media"),
             risk_level=SecurityLevel.SAFE,
         )

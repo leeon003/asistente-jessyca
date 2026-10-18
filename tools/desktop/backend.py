@@ -64,14 +64,15 @@ class WindowsDesktopCaptureBackend:
         try:
             from PIL import ImageGrab
         except ImportError:
-            logger.warning("Pillow no está disponible. Delegando a FakeDesktopCaptureBackend.")
-            return FakeDesktopCaptureBackend().capture_screenshot(request)
+            raise RuntimeError("Pillow no está disponible para capturar el escritorio real.")
 
         try:
+            bbox = None
+            if request.width is not None and request.height is not None:
+                bbox = (request.x, request.y, request.x + request.width, request.y + request.height)
             img = ImageGrab.grab(bbox=bbox)
         except Exception as e:
-            logger.warning(f"ImageGrab no pudo capturar pantalla ({e}). Delegando a captura de prueba.")
-            return FakeDesktopCaptureBackend().capture_screenshot(request)
+            raise RuntimeError(f"No se pudo capturar el escritorio real: {e}") from e
         w, h = img.size
         pixel_count = w * h
 

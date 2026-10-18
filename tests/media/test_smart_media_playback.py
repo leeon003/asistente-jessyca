@@ -69,6 +69,18 @@ def temp_dance_dir() -> Any:
 class TestSmartMediaPlayback:
     """Suite de validación formal de Smart Media Playback."""
 
+    @pytest.fixture(autouse=True)
+    def simulated_playback_evidence(self, monkeypatch):
+        """Mock players need an explicit mock probe; dispatch is not playback evidence."""
+        from core.execution.execution_verifier import ExecutionEvidence
+        from unittest.mock import Mock
+
+        verifier = Mock()
+        verifier.verify_execution.side_effect = lambda **kw: ExecutionEvidence(
+            "simulated_playback", kw["target"], True, {"simulated": True}
+        )
+        monkeypatch.setattr("skills.windows_media_skill.get_execution_verifier", lambda: verifier)
+
     def setup_method(self) -> None:
         EmergencyStopManager.get_instance().reset("test_media_setup")
 
@@ -290,7 +302,7 @@ class TestSmartMediaPlayback:
         assert resp.success is True
         assert resp.intent == "play_random_video"
         assert resp.selected_skill == "windows.media@1.0.0"
-        assert "Claro" in resp.response_text or "baile" in resp.response_text
+        assert "reproduci" in resp.response_text.lower()
         assert mock_player.launch_count == 1
 
     # ══════════════════════════════════════════════════════════════════

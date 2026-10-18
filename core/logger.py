@@ -80,6 +80,8 @@ class SafeStreamHandler(logging.StreamHandler):
     """Manejador de stream de consola seguro contra fallos de codificación Unicode en Windows."""
 
     def emit(self, record: logging.LogRecord) -> None:
+        if self.stream is None or getattr(self.stream, "closed", False):
+            return
         try:
             msg = self.format(record)
             stream = self.stream
@@ -96,6 +98,8 @@ class SafeStreamHandler(logging.StreamHandler):
         except RecursionError:
             raise
         except Exception:
+            if self.stream is None or getattr(self.stream, "closed", False):
+                return
             try:
                 msg = self.format(record)
                 enc = getattr(self.stream, "encoding", "ascii") or "ascii"

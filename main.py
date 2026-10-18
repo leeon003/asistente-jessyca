@@ -143,11 +143,11 @@ def run_mcp_mode(transport: str | None = None) -> int:
         return 1
 
 
-def run_voice_mode(ptt: bool = False) -> int:
-    """Ejecuta la interfaz interactiva de voz (continua o Pulsar para Hablar / PTT)."""
+def run_voice_mode(ptt: bool = False, enable_orb: bool = True) -> int:
+    """Ejecuta la interfaz interactiva de voz (continua o Pulsar para Hablar / PTT) con sincronización opcional del Orbe 3D."""
     try:
-        logger.info(f"[VOICE STANDALONE] Iniciando interfaz de voz (modo PTT: {ptt})...")
-        iniciar_modo_voz(show_header=True, ptt_mode=ptt)
+        logger.info(f"[VOICE STANDALONE] Iniciando interfaz de voz (modo PTT: {ptt}, Orbe 3D: {enable_orb})...")
+        iniciar_modo_voz(show_header=True, ptt_mode=ptt, enable_orb=enable_orb)
         return 0
     except KeyboardInterrupt:
         logger.info("[VOICE STANDALONE] Modo voz detenido por el usuario.")

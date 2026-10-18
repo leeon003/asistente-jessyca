@@ -1,0 +1,12 @@
+{
+  "device": "MicrÃ³fono (G435 Wireless Gaming",
+  "sample_rate": 44100,
+  "rms": 184.86825561523438,
+  "peak": 3615.0,
+  "transcript": "Jessica, báilame.",
+  "confidence": 0.8908,
+  "stt_ms": 655.9655999953975,
+  "action_success": true,
+  "response": "Listo, ya está reproduciéndose jessyca7.mp4.",
+  "video": "D:\\bailes de ia\\jessyca7.mp4"
+}

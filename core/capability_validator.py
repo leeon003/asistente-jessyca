@@ -6,6 +6,8 @@ Aplica las invariantes estrictas de seguridad (ej. CRITICAL jamás ALLOW, UNKNOW
 
 from __future__ import annotations
 
+from typing import Any
+
 from core.capabilities import (
     FORBIDDEN_CAPABILITY_SOURCES,
     CapabilityDecision,

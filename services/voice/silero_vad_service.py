@@ -94,8 +94,12 @@ class SileroVADService(IVADService):
         max_speech_duration_seconds: float = 300.0,
     ) -> None:
         self.model_path = model_path
-        self.start_threshold = max(0.1, min(0.99, start_threshold))
-        self.end_threshold = max(0.05, min(self.start_threshold, end_threshold))
+        # Si se pasa un valor RMS (> 1.0) por compatibilidad de fábrica, usar defaults probabilísticos
+        actual_start = 0.50 if start_threshold > 1.0 else start_threshold
+        actual_end = 0.35 if end_threshold > 1.0 else end_threshold
+        self.start_threshold = max(0.1, min(0.99, actual_start))
+        self.end_threshold = max(0.05, min(self.start_threshold, actual_end))
+        self.energy_threshold: float = 350.0  # Referencia acústica RMS de respaldo
         self.sample_rate = sample_rate
         self.window_size_samples = window_size_samples
         self.context_size_samples = context_size_samples
@@ -227,6 +231,12 @@ class SileroVADService(IVADService):
 
     def update_thresholds(self, start_threshold: float, end_threshold: float) -> None:
         """Actualiza los umbrales de histeresis de probabilidad de voz."""
+        if start_threshold > 1.0 or end_threshold > 1.0:
+            logger.debug(
+                f"[SILERO VAD] update_thresholds ignorado: valores ({start_threshold:.1f}, {end_threshold:.1f}) "
+                "parecen energía acústica RMS en vez de probabilidades [0.0, 1.0]."
+            )
+            return
         self.start_threshold = max(0.1, min(0.99, start_threshold))
         self.end_threshold = max(0.05, min(self.start_threshold, end_threshold))
         logger.debug(

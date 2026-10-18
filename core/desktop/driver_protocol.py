@@ -135,16 +135,25 @@ class NativeWindowsDriver:
         try:
             import psutil
             closed_pids: list[int] = []
-            if isinstance(app_name_or_pid, int):
-                p = psutil.Process(app_name_or_pid)
-                p.terminate()
-                closed_pids.append(app_name_or_pid)
+            if isinstance(app_name_or_pid, int) or (isinstance(app_name_or_pid, str) and app_name_or_pid.isdigit()):
+                pid = int(app_name_or_pid)
+                try:
+                    p = psutil.Process(pid)
+                    p.terminate()
+                    closed_pids.append(pid)
+                except (psutil.NoSuchProcess, psutil.ZombieProcess):
+                    # El proceso ya finalizó o fue un launcher efímero de Windows
+                    closed_pids.append(pid)
             else:
                 target_str = str(app_name_or_pid).lower()
                 for p in psutil.process_iter(["pid", "name"]):
-                    if target_str in (p.info["name"] or "").lower():
-                        p.terminate()
-                        closed_pids.append(p.info["pid"])
+                    try:
+                        p_name = (p.info["name"] or "").lower()
+                        if target_str in p_name:
+                            p.terminate()
+                            closed_pids.append(p.info["pid"])
+                    except (psutil.NoSuchProcess, psutil.AccessDenied):
+                        pass
             return DesktopActionResult(
                 success=True,
                 action="close_app",

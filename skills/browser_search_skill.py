@@ -196,7 +196,7 @@ class BrowserSearchSkill(BaseSkill):
             capabilities=("browser_navigation", "web_search", "content_read"),
             required_tools=("browser.open", "browser.navigate", "browser.read"),
             required_agents=("BrowserAgent",),
-            required_models=("llama3.2:latest", "qwen3:8b"),
+            required_models=(),
             permissions=("browser.open", "browser.navigate", "browser.read"),
             risk_level=SecurityLevel.SAFE,
         )

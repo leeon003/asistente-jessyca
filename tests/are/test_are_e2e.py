@@ -45,9 +45,13 @@ def test_case_b_complex_task_orchestrated_by_are():
     # CASO B — TAREA COMPLEJA: User -> Agent -> ARE -> JDE -> Skills -> Verifier -> Receipt
     agent = E2EMockAgent()
     resp = agent.interact("organiza los archivos de descarga y después resume el contenido")
-    assert resp.status in (AgentExecutionState.COMPLETED, AgentExecutionState.AWAITING_CONFIRMATION)
+    assert resp.status in (AgentExecutionState.COMPLETED, AgentExecutionState.AWAITING_CONFIRMATION, AgentExecutionState.AWAITING_CLARIFICATION), resp.error
     if resp.status == AgentExecutionState.COMPLETED:
         assert resp.output_data.get("governance") == "JDE"
+    elif resp.status == AgentExecutionState.AWAITING_CLARIFICATION:
+        assert resp.requires_clarification
+        assert resp.clarification_question
+        assert set(resp.tools_executed) <= {"files.search"}
 
 
 def test_case_c_orca_ade_flow():

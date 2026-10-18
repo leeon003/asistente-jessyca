@@ -419,10 +419,13 @@ async def generate_live_sse_stream(
     token_generator: Any,
     model: str = PUBLIC_MODEL_NAME,
     completion_id: str | None = None,
+    cancellation_token: Any = None,
+    timeout_seconds: float | None = None,
 ) -> AsyncGenerator[str, None]:
     """Generador asíncrono SSE que emite tokens en tiempo real provenientes del generador del Core."""
     import asyncio
     import threading
+    import queue as queue_module
 
     c_id = completion_id or f"chatcmpl-{uuid.uuid4().hex[:12]}"
 
@@ -441,51 +444,72 @@ async def generate_live_sse_stream(
     yield f"data: {json.dumps(first_chunk.model_dump())}\n\n"
 
     loop = asyncio.get_running_loop()
-    queue: asyncio.Queue[str | None] = asyncio.Queue()
+    queue: queue_module.Queue[Any] = queue_module.Queue(maxsize=32)
+    stopped = threading.Event()
+    deadline = loop.time() + timeout_seconds if timeout_seconds else None
+
+    def enqueue(item: Any) -> None:
+        while not stopped.is_set():
+            try:
+                queue.put(item, timeout=0.1)
+                return
+            except queue_module.Full:
+                continue
 
     def _producer() -> None:
         try:
             for token in token_generator:
+                if stopped.is_set():
+                    break
                 if token:
-                    loop.call_soon_threadsafe(queue.put_nowait, token)
-        except Exception:
-            pass
+                    enqueue(token)
+        except Exception as exc:
+            enqueue(exc)
         finally:
-            loop.call_soon_threadsafe(queue.put_nowait, None)
+            try:
+                close = getattr(token_generator, "close", None)
+                if close:
+                    close()
+            finally:
+                enqueue(None)
 
     prod_thread = threading.Thread(target=_producer, daemon=True)
     prod_thread.start()
 
-    while True:
-        tok = await queue.get()
-        if tok is None:
-            break
-        chunk = ChatCompletionChunk(
+    completed = False
+    try:
+        while True:
+            if deadline is not None and loop.time() >= deadline:
+                yield 'data: {"error":{"type":"timeout_error","message":"La respuesta excedió su tiempo límite."}}\n\n'
+                return
+            try:
+                tok = await asyncio.to_thread(queue.get, True, 0.1)
+            except queue_module.Empty:
+                continue
+            if isinstance(tok, Exception):
+                yield 'data: {"error":{"type":"core_stream_error","message":"La respuesta se interrumpió por un error del motor."}}\n\n'
+                return
+            if tok is None:
+                break
+            chunk = ChatCompletionChunk(
+                id=c_id,
+                created=int(time.time()),
+                model=model,
+                choices=[ChatCompletionChunkChoice(index=0, delta=ChatCompletionChunkDelta(content=tok), finish_reason=None)],
+            )
+            yield f"data: {json.dumps(chunk.model_dump())}\n\n"
+
+        completed = True
+        final_chunk = ChatCompletionChunk(
             id=c_id,
             created=int(time.time()),
             model=model,
-            choices=[
-                ChatCompletionChunkChoice(
-                    index=0,
-                    delta=ChatCompletionChunkDelta(content=tok),
-                    finish_reason=None,
-                )
-            ],
+            choices=[ChatCompletionChunkChoice(index=0, delta=ChatCompletionChunkDelta(), finish_reason="stop")],
         )
-        yield f"data: {json.dumps(chunk.model_dump())}\n\n"
-
-    final_chunk = ChatCompletionChunk(
-        id=c_id,
-        created=int(time.time()),
-        model=model,
-        choices=[
-            ChatCompletionChunkChoice(
-                index=0,
-                delta=ChatCompletionChunkDelta(),
-                finish_reason="stop",
-            )
-        ],
-    )
-    yield f"data: {json.dumps(final_chunk.model_dump())}\n\n"
-    yield "data: [DONE]\n\n"
+        yield f"data: {json.dumps(final_chunk.model_dump())}\n\n"
+        yield "data: [DONE]\n\n"
+    finally:
+        stopped.set()
+        if not completed and cancellation_token:
+            cancellation_token.cancel("WebUI stream closed, failed or timed out")
 

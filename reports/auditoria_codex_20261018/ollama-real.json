@@ -1,0 +1,20 @@
+[
+  {
+    "model": "qwen3.5:9b",
+    "generate_ms": 7784.064999999828,
+    "response": "Un archivo es un conjunto de datos almacenados digitalmente en un dispositivo que se organiza bajo un nombre específico para su posterior recuperación y uso.",
+    "tokens": 29,
+    "stream_first_token_ms": 133.66080000560032,
+    "stream_total_ms": 1099.3542000069283,
+    "stream_text": "Un archivo es un conjunto de datos almacenados digitalmente en un dispositivo que se organiza bajo un nombre único para su identificación y recuperación posterior."
+  },
+  {
+    "model": "gemma4:e4b",
+    "generate_ms": 11979.483300005086,
+    "response": "Un archivo es una colección organizada de información digital o física que se guarda y se puede recuperar posteriormente.",
+    "tokens": 21,
+    "stream_first_token_ms": 71.38960000156658,
+    "stream_total_ms": 532.214799997746,
+    "stream_text": "Un archivo es una colección organizada de información digital o física que se guarda y se puede recuperar posteriormente."
+  }
+]

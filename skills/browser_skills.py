@@ -44,7 +44,7 @@ class BrowserOpenSkill(BaseSkill):
             capabilities=("browser_navigation", "open_browser"),
             required_tools=("browser.open",),
             required_agents=("BrowserAgent",),
-            required_models=("llama3.2:latest",),
+            required_models=(),
             permissions=("browser.open",),
             risk_level=SecurityLevel.SAFE,
         )
@@ -127,7 +127,7 @@ class BrowserNavigateSkill(BaseSkill):
             capabilities=("browser_navigation",),
             required_tools=("browser.navigate",),
             required_agents=("BrowserAgent",),
-            required_models=("llama3.2:latest",),
+            required_models=(),
             permissions=("browser.navigate",),
             risk_level=SecurityLevel.SAFE,
         )
@@ -185,7 +185,7 @@ class BrowserReadSkill(BaseSkill):
             capabilities=("browser_navigation", "content_read"),
             required_tools=("browser.read",),
             required_agents=("BrowserAgent",),
-            required_models=("llama3.2:latest", "qwen3:8b"),
+            required_models=(),
             permissions=("browser.read",),
             risk_level=SecurityLevel.SAFE,
         )
@@ -234,7 +234,7 @@ class BrowserDownloadSkill(BaseSkill):
             capabilities=("browser_download", "filesystem_write"),
             required_tools=("browser.download",),
             required_agents=("BrowserAgent", "FileAgent"),
-            required_models=("llama3.2:latest",),
+            required_models=(),
             permissions=("browser.download",),
             risk_level=SecurityLevel.SAFE,
         )

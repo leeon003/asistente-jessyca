@@ -36,7 +36,7 @@ DEFAULT_SYSTEM_PROMPT = (
     "RESPONDE PRIMERO Y PROPORCIONAL: Contesta primero exactamente a lo que se te pregunta. "
     "Adapta la extensión de tu respuesta de forma proporcional a la solicitud del usuario: si pide dos frases, "
     "responde en dos frases; si pide un ejemplo, da el ejemplo concreto de inmediato; no añadas relleno innecesario.\n"
-    "CERO AUTOPRESENTACIONES Y CERO PITCH: Prohibido presentarte en cada turno ('Hola, soy Jessyca...', 'Como tu asistente...'), "
+    "CERO AUTOPRESENTACIONES Y CERO PITCH AUTOMÁTICO: Prohibido presentarte en cada turno ('Hola, soy Jessyca...', 'Como tu asistente...'), "
     "ofrecer discursos de ventas o recitar listas de capacidades, salvo que el usuario pregunte expresamente quién eres o qué sabes hacer.\n"
     "CIERRE NATURAL SIN PREGUNTAS FORZADAS: No termines sistemáticamente cada turno con una pregunta o coletilla de cortesía "
     "(como '¿En qué más te ayudo?', '¿Tienes dudas?', '¿Quieres que profundicemos?'). Termina con la información solicitada o una afirmación clara.\n"
@@ -52,6 +52,9 @@ DEFAULT_SYSTEM_PROMPT = (
     "ADAPTACIÓN A VOZ Y TEXTO: Para respuestas habladas, mantén frases fluidas y orales sin markdown pesado "
     "(sin asteriscos, títulos ni listas con viñetas que suenen mal al ser leídas en voz alta).\n"
     "NO ANTICIPAR VERIFICACIÓN: No des por hecha ninguna acción del sistema hasta que haya sido verificada."
+    "\nDISTINCIÓN EPISTÉMICA: Distingue los hechos comprobados de las inferencias y los datos desconocidos."
+    "\nVERACIDAD TÉCNICA: No inventes archivos, correos, cifras ni resultados de herramientas."
+    "\nLIMITACIONES HONESTAS: Explica con claridad una limitación sin sustituir la respuesta por publicidad."
 )
 
 
@@ -71,6 +74,19 @@ class ConversationalDialogueHandler:
         self._last_was_degraded: bool = False
         self._last_degradation_reason: str | None = None
 
+    def _local_fact_response(self, user_input: str) -> str | None:
+        text = user_input.lower().strip(" ¡!¿?.,")
+        text = re.sub(r"^(?:jessyca|jessica)[,\s]+", "", text).strip(" ¡!¿?.,")
+        if text == "hola":
+            return "Hola, ¿en qué te puedo ayudar?"
+        if any(word in text for word in ("qué puedes hacer", "que puedes hacer", "qué sabes hacer", "que sabes hacer", "quién eres", "quien eres")):
+            return self._synthesize_dialogue(user_input)
+        if "saldo" in text and any(word in text for word in ("mi cuenta", "bancari", "mi banco")):
+            return "No tengo acceso a tu cuenta bancaria ni dispongo de su saldo."
+        if "correo" in text and any(word in text for word in ("sin leer", "no leíd", "no leid", "cuántos", "cuantos")):
+            return "No tengo acceso a tu correo para comprobar cuántos mensajes tienes sin leer."
+        return None
+
     def generate_response(
         self,
         user_input: str,
@@ -80,6 +96,11 @@ class ConversationalDialogueHandler:
         preferred_model: str | None = None,
     ) -> str:
         """Genera una respuesta conversacional natural usando LLM o síntesis contextual."""
+        self._last_was_degraded = False
+        self._last_degradation_reason = None
+        local_response = self._local_fact_response(user_input)
+        if local_response:
+            return local_response
         params_dict = params or {}
         session: ConversationSession | None = None
         history_turns: list[tuple[str, str]] = []
@@ -189,6 +210,12 @@ class ConversationalDialogueHandler:
         preferred_model: str | None = None,
     ) -> Iterator[str]:
         """Genera tokens progresivos en streaming usando el LLM o síntesis contextual."""
+        self._last_was_degraded = False
+        self._last_degradation_reason = None
+        local_response = self._local_fact_response(user_input)
+        if local_response:
+            yield local_response
+            return
         params_dict = params or {}
         history_turns: list[tuple[str, str]] = []
         target_person: str | None = params_dict.get("target_person")
@@ -257,6 +284,10 @@ class ConversationalDialogueHandler:
                     return
             except Exception as e:
                 logger.warning(f"[CONVERSATIONAL STREAM FALLBACK] Stream falló ({e}), usando síntesis.")
+                self._last_was_degraded = True
+                self._last_degradation_reason = str(e)
+                if yielded_any:
+                    raise
 
         fallback_text = self._synthesize_dialogue(
             user_input=user_input,
@@ -308,6 +339,8 @@ class ConversationalDialogueHandler:
             timeout_seconds=timeout_seconds,
         )
         resp = self.llm_provider.generate(req_inf)
+        if getattr(resp, "success", True) is False or not isinstance(resp.content, str) or not resp.content.strip():
+            raise RuntimeError("El motor no devolvió una respuesta válida.")
         return str(resp.content)
 
     def _synthesize_dialogue(

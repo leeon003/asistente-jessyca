@@ -1,0 +1,179 @@
+{
+  "devices": [
+    {
+      "index": 0,
+      "name": "Asignador de sonido Microsoft - Input",
+      "input_channels": 2,
+      "output_channels": 0
+    },
+    {
+      "index": 1,
+      "name": "MicrÃ³fono (G435 Wireless Gaming",
+      "input_channels": 1,
+      "output_channels": 0
+    },
+    {
+      "index": 2,
+      "name": "MicrÃ³fono (Logi C270 HD WebCam)",
+      "input_channels": 1,
+      "output_channels": 0
+    },
+    {
+      "index": 3,
+      "name": "Asignador de sonido Microsoft - Output",
+      "input_channels": 0,
+      "output_channels": 2
+    },
+    {
+      "index": 4,
+      "name": "audÃ­fonos Diego In (G435 Wirele",
+      "input_channels": 0,
+      "output_channels": 2
+    },
+    {
+      "index": 5,
+      "name": "Altavoces (Realtek(R) Audio)",
+      "input_channels": 0,
+      "output_channels": 8
+    },
+    {
+      "index": 6,
+      "name": "TE-3213G (NVIDIA High Definitio",
+      "input_channels": 0,
+      "output_channels": 2
+    },
+    {
+      "index": 7,
+      "name": "Controlador primario de captura de sonido",
+      "input_channels": 2,
+      "output_channels": 0
+    },
+    {
+      "index": 8,
+      "name": "MicrÃ³fono (G435 Wireless Gaming Headset)",
+      "input_channels": 1,
+      "output_channels": 0
+    },
+    {
+      "index": 9,
+      "name": "MicrÃ³fono (Logi C270 HD WebCam)",
+      "input_channels": 1,
+      "output_channels": 0
+    },
+    {
+      "index": 10,
+      "name": "Controlador primario de sonido",
+      "input_channels": 0,
+      "output_channels": 2
+    },
+    {
+      "index": 11,
+      "name": "audÃ­fonos Diego In (G435 Wireless Gaming Headset)",
+      "input_channels": 0,
+      "output_channels": 2
+    },
+    {
+      "index": 12,
+      "name": "Altavoces (Realtek(R) Audio)",
+      "input_channels": 0,
+      "output_channels": 8
+    },
+    {
+      "index": 13,
+      "name": "TE-3213G (NVIDIA High Definition Audio)",
+      "input_channels": 0,
+      "output_channels": 2
+    },
+    {
+      "index": 14,
+      "name": "Altavoces (Realtek(R) Audio)",
+      "input_channels": 0,
+      "output_channels": 2
+    },
+    {
+      "index": 15,
+      "name": "audÃ­fonos Diego In (G435 Wireless Gaming Headset)",
+      "input_channels": 0,
+      "output_channels": 2
+    },
+    {
+      "index": 16,
+      "name": "TE-3213G (NVIDIA High Definition Audio)",
+      "input_channels": 0,
+      "output_channels": 2
+    },
+    {
+      "index": 17,
+      "name": "MicrÃ³fono (Logi C270 HD WebCam)",
+      "input_channels": 2,
+      "output_channels": 0
+    },
+    {
+      "index": 18,
+      "name": "MicrÃ³fono (G435 Wireless Gaming Headset)",
+      "input_channels": 2,
+      "output_channels": 0
+    },
+    {
+      "index": 19,
+      "name": "MicrÃ³fono (G435 Wireless Gaming Headset)",
+      "input_channels": 1,
+      "output_channels": 0
+    },
+    {
+      "index": 20,
+      "name": "AudÃ­fono de los auriculares con micrÃ³fono (G435 Wireless Gaming Headset)",
+      "input_channels": 0,
+      "output_channels": 2
+    },
+    {
+      "index": 21,
+      "name": "Output (NVIDIA High Definition Audio)",
+      "input_channels": 0,
+      "output_channels": 2
+    },
+    {
+      "index": 22,
+      "name": "LÃ­nea de entrada (Realtek HD Audio Line input)",
+      "input_channels": 2,
+      "output_channels": 0
+    },
+    {
+      "index": 23,
+      "name": "Speakers (Realtek HD Audio output)",
+      "input_channels": 0,
+      "output_channels": 8
+    },
+    {
+      "index": 24,
+      "name": "MicrÃ³fono (Realtek HD Audio Mic input)",
+      "input_channels": 2,
+      "output_channels": 0
+    },
+    {
+      "index": 25,
+      "name": "Mezcla estÃ©reo (Realtek HD Audio Stereo input)",
+      "input_channels": 2,
+      "output_channels": 0
+    },
+    {
+      "index": 26,
+      "name": "Headphones (Realtek HD Audio 2nd output)",
+      "input_channels": 0,
+      "output_channels": 2
+    },
+    {
+      "index": 27,
+      "name": "MicrÃ³fono (Logi C270 HD WebCam)",
+      "input_channels": 1,
+      "output_channels": 0
+    }
+  ],
+  "tts": {
+    "success": true,
+    "audio_bytes": 16416,
+    "duration_seconds": 2.16,
+    "wall_ms": 1900.99249999912,
+    "error": null
+  }
+}

@@ -196,7 +196,7 @@ class NemotronProvider(LLMProvider):
         try:
             resp = get_callable(
                 models_endpoint,
-                headers=headers,
+                headers={"Authorization": f"Bearer {self.api_key}", "Accept": "application/json"},
                 timeout=(self.connect_timeout_seconds, min(5.0, self.timeout_seconds)),
             )
             return bool(getattr(resp, "status_code", 0) == 200)

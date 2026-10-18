@@ -1,0 +1,19 @@
+✔ silence never submits a transcription (13.2598ms)
+✔ speech ends automatically and preserves pre-roll (1.6371ms)
+✔ two turns need no microphone restart (1.6718ms)
+✔ brief click does not become a command (0.637ms)
+✔ short spoken confirmation is retained (0.4991ms)
+✔ long utterance is bounded (5.1369ms)
+✔ reset discards partial echo and old utterance (0.6521ms)
+✔ activation ignores background speech and accepts named request (0.3104ms)
+✔ activation alone opens follow-up; stopping closes it (0.1942ms)
+✔ Spanish punctuation from actual STT does not block activation (0.361ms)
+✔ long assistant speech does not consume the follow-up window (0.1242ms)
+ℹ tests 11
+ℹ suites 0
+ℹ pass 11
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 93.5497

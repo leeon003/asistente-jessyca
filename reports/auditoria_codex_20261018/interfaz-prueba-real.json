@@ -1,0 +1,16 @@
+{
+  "page_errors": [],
+  "connected": true,
+  "local_files": 19,
+  "webgl_canvas": true,
+  "chat_text": "Hola, ¿en qué te puedo ayudar?",
+  "real_tts_http_status": 200,
+  "browser_playback_started": true,
+  "browser_playback_ended": true,
+  "mobile_overflow": false,
+  "controlled_error_visible": true,
+  "send_reenabled_after_error": true,
+  "desktop_auto_pairing": true,
+  "pairing_removed_from_address": true,
+  "primary_key_absent_from_storage": true
+}

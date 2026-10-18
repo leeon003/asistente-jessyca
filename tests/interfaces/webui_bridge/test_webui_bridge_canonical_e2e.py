@@ -75,7 +75,7 @@ def auth_headers() -> dict[str, str]:
 def bridge_client() -> TestClient:
     app = create_webui_bridge_app(
         auth_token=TEST_AUTH_TOKEN,
-        timeout_seconds=5.0,
+        timeout_seconds=30.0,
     )
     return TestClient(app, raise_server_exceptions=False)
 

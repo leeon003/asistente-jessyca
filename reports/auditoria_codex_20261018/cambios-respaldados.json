@@ -1,0 +1,397 @@
+[
+  {
+    "file": "core\\llm\\inference.py",
+    "backup": "D:\\JESSYCA 3.0\\asistente-jessyca\\backups\\auditoria_codex_20261017_234804_265842\\core\\llm\\inference.py",
+    "sha256": "4e951907189099c0ccb9800886a050acc95e1a67e8b73f3542c4270e959023a5"
+  },
+  {
+    "file": "core\\local_agent\\local_agent.py",
+    "backup": "D:\\JESSYCA 3.0\\asistente-jessyca\\backups\\auditoria_codex_20261017_234804_265842\\core\\local_agent\\local_agent.py",
+    "sha256": "bf7a46a09913d9bae0357fcba50151f97b20a36c77fb5ed260170b0fb785c17a"
+  },
+  {
+    "file": "skills\\windows_media_skill.py",
+    "backup": "D:\\JESSYCA 3.0\\asistente-jessyca\\backups\\auditoria_codex_20261017_234804_265842\\skills\\windows_media_skill.py",
+    "sha256": "dfef5f00992f6ef44d48b008b4b2c270ded50e8417e15fcadc566e6037007277"
+  },
+  {
+    "file": "tests\\acceptance\\test_multimedia_intent_and_bailame_regression.py",
+    "backup": "D:\\JESSYCA 3.0\\asistente-jessyca\\backups\\auditoria_codex_20261017_234804_265842\\tests\\acceptance\\test_multimedia_intent_and_bailame_regression.py",
+    "sha256": "b7a771cedd69c89ba853d4f2c7b102cf9825d66a9391cdf05ae12fd3f4d1226a"
+  },
+  {
+    "file": "tests\\media\\test_smart_media_playback.py",
+    "backup": "D:\\JESSYCA 3.0\\asistente-jessyca\\backups\\auditoria_codex_20261017_234804_265842\\tests\\media\\test_smart_media_playback.py",
+    "sha256": "86ebf7f18b4fb407e83a9eef5e49291a3fc8eec875afca76889b25292730b5b5"
+  },
+  {
+    "file": "tests\\voice\\test_silero_vad_integration_phase_i1.py",
+    "backup": "D:\\JESSYCA 3.0\\asistente-jessyca\\backups\\auditoria_codex_20261017_234804_265842\\tests\\voice\\test_silero_vad_integration_phase_i1.py",
+    "sha256": "2038c2f4a2df03134231a88d3c56de6ba1847f6dc8812f5c1fe50b974a007ca6"
+  },
+  {
+    "file": "iniciar_jessyca.bat",
+    "backup": "D:\\JESSYCA 3.0\\asistente-jessyca\\backups\\auditoria_fase4_pre\\iniciar_jessyca.bat",
+    "sha256": "ddedba811914725369bc3a94f9221a12a13f131c5a91e3ce82f27646d3c650bc"
+  },
+  {
+    "file": "pyproject.toml",
+    "backup": "D:\\JESSYCA 3.0\\asistente-jessyca\\backups\\auditoria_fase4_pre\\pyproject.toml",
+    "sha256": "1219ad850a2113e3543f7d0f0bb5b871c68ad88b5625b9121fd87bb473182ef7"
+  },
+  {
+    "file": "core\\capabilities.py",
+    "backup": "D:\\JESSYCA 3.0\\asistente-jessyca\\backups\\auditoria_fase4_pre\\core\\capabilities.py",
+    "sha256": "73646a99f7306d73ec50a876e8b04b2a015637b16eff098b07492a245a2a6bee"
+  },
+  {
+    "file": "core\\capability_validator.py",
+    "backup": "D:\\JESSYCA 3.0\\asistente-jessyca\\backups\\auditoria_fase4_pre\\core\\capability_validator.py",
+    "sha256": "83777914bcf67fa677456aa0b317c854bb032d53e1f4771afd7c2b5660acf51c"
+  },
+  {
+    "file": "core\\logger.py",
+    "backup": "D:\\JESSYCA 3.0\\asistente-jessyca\\backups\\auditoria_fase4_pre\\core\\logger.py",
+    "sha256": "97b6535c49681ee2b17a9da2d3205ef452396cc0bc526b5bc171f2ef1599747f"
+  },
+  {
+    "file": "core\\anydoc\\adapter.py",
+    "backup": "D:\\JESSYCA 3.0\\asistente-jessyca\\backups\\auditoria_fase4_pre\\core\\anydoc\\adapter.py",
+    "sha256": "74faf479b890506b0a9dac05e6dcbe1d044f512392f2e4b924553bc2586ad754"
+  },
+  {
+    "file": "core\\are\\action_catalog.py",
+    "backup": "D:\\JESSYCA 3.0\\asistente-jessyca\\backups\\auditoria_fase4_pre\\core\\are\\action_catalog.py",
+    "sha256": "9f4a8ee1401970316b8a7383d5530f5f18ac32395aec8caa1627af981106fca1"
+  },
+  {
+    "file": "core\\are\\runtime.py",
+    "backup": "D:\\JESSYCA 3.0\\asistente-jessyca\\backups\\auditoria_fase4_pre\\core\\are\\runtime.py",
+    "sha256": "4ea91b9ea35bea22b6fbe6939630f96f5ce6a3ccb6bd3aa9a3569380b67c420f"
+  },
+  {
+    "file": "core\\cognitive_brain\\brain_orchestrator.py",
+    "backup": "D:\\JESSYCA 3.0\\asistente-jessyca\\backups\\auditoria_fase4_pre\\core\\cognitive_brain\\brain_orchestrator.py",
+    "sha256": "140a95b69782c4a054fb0770e5256d7c7d6a2a2611f48ee39a6c92ebc1acd309"
+  },
+  {
+    "file": "core\\cognitive_brain\\planner_engine.py",
+    "backup": "D:\\JESSYCA 3.0\\asistente-jessyca\\backups\\auditoria_fase4_pre\\core\\cognitive_brain\\planner_engine.py",
+    "sha256": "f62a5532095da7b5932d64534f0daa6451017b17c29c5ceaa713349ecb32dccc"
+  },
+  {
+    "file": "core\\cognitive_brain\\reasoning_engine.py",
+    "backup": "D:\\JESSYCA 3.0\\asistente-jessyca\\backups\\auditoria_fase4_pre\\core\\cognitive_brain\\reasoning_engine.py",
+    "sha256": "907a09e20c065a8e07ef300110811c460cbff6c80ec05f68397ee640122d51a5"
+  },
+  {
+    "file": "core\\execution\\execution_verifier.py",
+    "backup": "D:\\JESSYCA 3.0\\asistente-jessyca\\backups\\auditoria_fase4_pre\\core\\execution\\execution_verifier.py",
+    "sha256": "f631769189b5337d1ce4146de8262086c09cd72db675796587a00ea649b1379d"
+  },
+  {
+    "file": "core\\intent\\models.py",
+    "backup": "D:\\JESSYCA 3.0\\asistente-jessyca\\backups\\auditoria_fase4_pre\\core\\intent\\models.py",
+    "sha256": "cb32dc51d51eac51dae25223d901bd5279204a9c771a92a81db1ca1d58937841"
+  },
+  {
+    "file": "core\\llm\\model_manager.py",
+    "backup": "D:\\JESSYCA 3.0\\asistente-jessyca\\backups\\auditoria_fase4_pre\\core\\llm\\model_manager.py",
+    "sha256": "c7c6ff3804ee5a4c1d8469124a07644bbce98db3bf71c55af974ddcb603d35f4"
+  },
+  {
+    "file": "core\\llm\\nemotron_provider.py",
+    "backup": "D:\\JESSYCA 3.0\\asistente-jessyca\\backups\\auditoria_fase4_pre\\core\\llm\\nemotron_provider.py",
+    "sha256": "d616528aafc6acfd79bf64b5c9b4940716b4b6b2fee4a776799dce5c0a9c7ea5"
+  },
+  {
+    "file": "core\\local_agent\\conversational_handler.py",
+    "backup": "D:\\JESSYCA 3.0\\asistente-jessyca\\backups\\auditoria_fase4_pre\\core\\local_agent\\conversational_handler.py",
+    "sha256": "48542635497ceefc3d208ea9260896119f450f3112d29191ab39bd48946e22a7"
+  },
+  {
+    "file": "interfaces\\modo_voz.py",
+    "backup": "D:\\JESSYCA 3.0\\asistente-jessyca\\backups\\auditoria_fase4_pre\\interfaces\\modo_voz.py",
+    "sha256": "6dd4856f3792b33ccd6c22b4b70969f4284ce4f5976a7db27dfbcc69884a0c21"
+  },
+  {
+    "file": "interfaces\\webui_bridge\\adapter.py",
+    "backup": "D:\\JESSYCA 3.0\\asistente-jessyca\\backups\\auditoria_fase4_pre\\interfaces\\webui_bridge\\adapter.py",
+    "sha256": "9edc33430bdaeed0621569c11342c8231133a9a47fbade8f4db96d6ee4d73704"
+  },
+  {
+    "file": "interfaces\\webui_bridge\\app.py",
+    "backup": "D:\\JESSYCA 3.0\\asistente-jessyca\\backups\\auditoria_fase4_pre\\interfaces\\webui_bridge\\app.py",
+    "sha256": "2b7aaa18a3bad2fd02953a53ab317d4d181aa3ec7daec3daf10f9518443556da"
+  },
+  {
+    "file": "services\\voice\\audio_capture.py",
+    "backup": "D:\\JESSYCA 3.0\\asistente-jessyca\\backups\\auditoria_fase4_pre\\services\\voice\\audio_capture.py",
+    "sha256": "65c24e230345a048971418ddef207d19ecb471a91881b30db6f7bc9c781abeb9"
+  },
+  {
+    "file": "services\\voice\\stt_service.py",
+    "backup": "D:\\JESSYCA 3.0\\asistente-jessyca\\backups\\auditoria_fase4_pre\\services\\voice\\stt_service.py",
+    "sha256": "417ef04a5573dd83c2b0003ecae1790786f284ce78315f54f796070a6c4f94e8"
+  },
+  {
+    "file": "services\\voice\\tts_provider.py",
+    "backup": "D:\\JESSYCA 3.0\\asistente-jessyca\\backups\\auditoria_fase4_pre\\services\\voice\\tts_provider.py",
+    "sha256": "a5d3602d410141d1863cbae16b4dab69137b60f6bd4e00ef83feba3c7d14ba72"
+  },
+  {
+    "file": "skills\\apps_skill.py",
+    "backup": "D:\\JESSYCA 3.0\\asistente-jessyca\\backups\\auditoria_fase4_pre\\skills\\apps_skill.py",
+    "sha256": "60e65931803c8e82f352d394cbb33d77b447f22873757ce9ea629c55b88f988c"
+  },
+  {
+    "file": "skills\\browser_search_skill.py",
+    "backup": "D:\\JESSYCA 3.0\\asistente-jessyca\\backups\\auditoria_fase4_pre\\skills\\browser_search_skill.py",
+    "sha256": "8d620e1c02df848b5275835aa8d992045ebaeaead92616f75fbe095a03e6ef1f"
+  },
+  {
+    "file": "skills\\browser_skills.py",
+    "backup": "D:\\JESSYCA 3.0\\asistente-jessyca\\backups\\auditoria_fase4_pre\\skills\\browser_skills.py",
+    "sha256": "699627e17e92691434aea7e7202d7031a02bd0016f63e5f1b445fcfe91b69af3"
+  },
+  {
+    "file": "skills\\browser_youtube_skill.py",
+    "backup": "D:\\JESSYCA 3.0\\asistente-jessyca\\backups\\auditoria_fase4_pre\\skills\\browser_youtube_skill.py",
+    "sha256": "a8d4f72bcd668526fbc7983ed3da8fcd61a8ca14f74d782d7ee327b861ef593d"
+  },
+  {
+    "file": "skills\\documents_skills.py",
+    "backup": "D:\\JESSYCA 3.0\\asistente-jessyca\\backups\\auditoria_fase4_pre\\skills\\documents_skills.py",
+    "sha256": "1869d3ce1e986edaec563d26f73bbfd680f800d39daf8a7f2922e90cbf45858c"
+  },
+  {
+    "file": "skills\\files_skills.py",
+    "backup": "D:\\JESSYCA 3.0\\asistente-jessyca\\backups\\auditoria_fase4_pre\\skills\\files_skills.py",
+    "sha256": "e86d818d115c3e755a8baf8d6988345397bb1413ed4dd45c8c241936a7843aac"
+  },
+  {
+    "file": "skills\\file_search_skill.py",
+    "backup": "D:\\JESSYCA 3.0\\asistente-jessyca\\backups\\auditoria_fase4_pre\\skills\\file_search_skill.py",
+    "sha256": "6eaabd6d5615374d3d2987158411dab264f08e0e7b9459462169b25c75e07318"
+  },
+  {
+    "file": "skills\\skill_runtime.py",
+    "backup": "D:\\JESSYCA 3.0\\asistente-jessyca\\backups\\auditoria_fase4_pre\\skills\\skill_runtime.py",
+    "sha256": "898d14cff77e016221a9f2e61fd827339276c1056d523578e1a6f10903e8850f"
+  },
+  {
+    "file": "skills\\windows_skills.py",
+    "backup": "D:\\JESSYCA 3.0\\asistente-jessyca\\backups\\auditoria_fase4_pre\\skills\\windows_skills.py",
+    "sha256": "3397f158d43d94ca7b6438c28aee02d72693cae6b637f8a24b8a0254ac74ecc5"
+  },
+  {
+    "file": "tests\\core\\llm\\test_model_router.py",
+    "backup": "D:\\JESSYCA 3.0\\asistente-jessyca\\backups\\auditoria_fase4_pre\\tests\\core\\llm\\test_model_router.py",
+    "sha256": "d093cef971e8ab5b58fd44e389e50f6301cea2f949e04bf8afe0b2fe54674207"
+  },
+  {
+    "file": "tests\\intent\\test_sai_intent_benchmark.py",
+    "backup": "D:\\JESSYCA 3.0\\asistente-jessyca\\backups\\auditoria_fase4_pre\\tests\\intent\\test_sai_intent_benchmark.py",
+    "sha256": "10acd3fb02b1d45b081f496d5150879bdc57cd83089b054a40d7ef4ce09d05c3"
+  },
+  {
+    "file": "tests\\skills\\test_initial_skill_catalog.py",
+    "backup": "D:\\JESSYCA 3.0\\asistente-jessyca\\backups\\auditoria_fase4_pre\\tests\\skills\\test_initial_skill_catalog.py",
+    "sha256": "b3f84fa2a7b0d8c6107bd5b1ab8d6480dbc7edb6ca8529403df948b365a1034d"
+  },
+  {
+    "file": "tools\\base_tool.py",
+    "backup": "D:\\JESSYCA 3.0\\asistente-jessyca\\backups\\auditoria_fase4_pre\\tools\\base_tool.py",
+    "sha256": "b8ca74f0a9e810579ca161e2fc4225ebdc097f27720956d441ef114e6843a218"
+  },
+  {
+    "file": "tools\\desktop\\backend.py",
+    "backup": "D:\\JESSYCA 3.0\\asistente-jessyca\\backups\\auditoria_fase4_pre\\tools\\desktop\\backend.py",
+    "sha256": "672b9f767116e2f1770b6f042430472ef0e0149bcb5c92e31d41d2fd901f88fa"
+  },
+  {
+    "file": "tests\\test_ui_and_browser_observation_provenance_phase09.py",
+    "backup": "D:\\JESSYCA 3.0\\asistente-jessyca\\backups\\auditoria_pruebas_pre_desde_copia\\tests\\test_ui_and_browser_observation_provenance_phase09.py",
+    "sha256": "74e31a0f0bcbecfb315e2b31c81b543c3dd4aeabff92aadfed727547a634986f"
+  },
+  {
+    "file": "tests\\are\\test_are_e2e.py",
+    "backup": "D:\\JESSYCA 3.0\\asistente-jessyca\\backups\\auditoria_pruebas_pre_desde_copia\\tests\\are\\test_are_e2e.py",
+    "sha256": "dd4b495fae57dc0568515295b0ba6c386c7f375d30260ac44989733a4cd3155c"
+  },
+  {
+    "file": "tests\\execution\\test_execution_verification.py",
+    "backup": "D:\\JESSYCA 3.0\\asistente-jessyca\\backups\\auditoria_pruebas_pre_desde_copia\\tests\\execution\\test_execution_verification.py",
+    "sha256": "ce14efdc208533c4d9055a3be6cdf5e6297661a17287e94084d83cb5ab771323"
+  },
+  {
+    "file": "tests\\interfaces\\webui_bridge\\test_webui_bridge_canonical_e2e.py",
+    "backup": "D:\\JESSYCA 3.0\\asistente-jessyca\\backups\\auditoria_pruebas_pre_desde_copia\\tests\\interfaces\\webui_bridge\\test_webui_bridge_canonical_e2e.py",
+    "sha256": "9735cfb0be7f79173fbf77b70240ee50c7899e64d23316ed13d0189c6cac354e"
+  },
+  {
+    "file": "tests\\local_agent\\test_audit_tool_bridge.py",
+    "backup": "D:\\JESSYCA 3.0\\asistente-jessyca\\backups\\auditoria_pruebas_pre_desde_copia\\tests\\local_agent\\test_audit_tool_bridge.py",
+    "sha256": "c8c6324cdb25af8d67c2302d92aa15a0a463c5bf4f9aab8a100c16377e656585"
+  },
+  {
+    "file": "tests\\voice\\test_openwakeword_phase_i5.py",
+    "backup": "D:\\JESSYCA 3.0\\asistente-jessyca\\backups\\auditoria_pruebas_pre_desde_copia\\tests\\voice\\test_openwakeword_phase_i5.py",
+    "sha256": "af33a13a48ce97e2859615f7ca29aa8fef5b711c540c1bca388d699640e0ac27"
+  },
+  {
+    "file": "tests\\voice\\test_voice_quality_and_demo.py",
+    "backup": "D:\\JESSYCA 3.0\\asistente-jessyca\\backups\\auditoria_pruebas_pre_desde_copia\\tests\\voice\\test_voice_quality_and_demo.py",
+    "sha256": "8577fa99915c9978938c7d89eafe4de891e34d7b45b5c5908326b82d3c494c41"
+  },
+  {
+    "file": "tests\\voice\\test_continuous_studio.cjs",
+    "backup": null,
+    "sha256": "0208b216ecf5e7be783868ce34e9f8ac11a189a98738e91e6e95ed4ce0138c88"
+  },
+  {
+    "file": "core\\intent\\explicit_youtube.py",
+    "backup": null,
+    "sha256": "286e73a40ed63d0bf5a529fc450f8c546127d75057e2a2dcadd4ae2b17c286f6"
+  },
+  {
+    "file": "tests\\local_agent\\test_youtube_spoken_correction.py",
+    "backup": null,
+    "sha256": "fdccc846ca587b83f568488901dd40533f80a205aab6ea9adbc6f6922f921ba4"
+  },
+  {
+    "file": "README.md",
+    "backup": null,
+    "sha256": "8db4bb2b711baf8bfc64f2f45bf26997c0efeab29ecbcace4d788eb107ee796c"
+  },
+  {
+    "file": "core\\media_playback.py",
+    "backup": null,
+    "sha256": "1e947979061ab149778ffd84fdd69eab27571fa6c0091df86f613f0a6666b2d7"
+  },
+  {
+    "file": "core\\local_media_request.py",
+    "backup": null,
+    "sha256": "7917d3cef24eb5fd48609361afe0daef6a25da5b54f143945091d8db56ca7cce"
+  },
+  {
+    "file": "services\\voice\\spoken_text.py",
+    "backup": null,
+    "sha256": "f99975701bc44173d25ecf4729f646a9d7735969800dd98c5b7f59ad8e1e4a5a"
+  },
+  {
+    "file": "interfaces\\webui_bridge\\studio.py",
+    "backup": null,
+    "sha256": "d70c88c3e6b90fd38e4305e61602a26920190313b315364680596ffd993b696f"
+  },
+  {
+    "file": "interfaces\\webui_bridge\\studio_auth.py",
+    "backup": null,
+    "sha256": "ca9cf7ed7f72b1b346257515279a9254b1bddf1ac1af4b114073aa69c2ebe5ff"
+  },
+  {
+    "file": "jessyca_escritorio.pyw",
+    "backup": null,
+    "sha256": "586d0281527180e80f8645a4da3a8c49fd6a8d9722fcaa3cdaa204a9c6c87878"
+  },
+  {
+    "file": "desktop\\JessycaLauncher.cs",
+    "backup": null,
+    "sha256": "7095a5316f18532cfef021167ffbbeec3e66af536bd8c73d349fbe131f260eb1"
+  },
+  {
+    "file": "Jessyca.exe",
+    "backup": null,
+    "sha256": "0a1a8a664790723755c5de735a5622132d27fd3b6c2c3a40ca8fb5174688faa2"
+  },
+  {
+    "file": "assets\\app\\jessyca.jpg",
+    "backup": null,
+    "sha256": "678b4fae44ea9bd034cf1e5aaf204e7dc06b12a93808661db1ae6f5694c71f7d"
+  },
+  {
+    "file": "assets\\app\\jessyca.ico",
+    "backup": null,
+    "sha256": "d0e0da891ae44d31ac6ee1c3421bfd6ad775248c633e161b065d16a0830df25d"
+  },
+  {
+    "file": "tests\\acceptance\\test_audit_dance_integration.py",
+    "backup": null,
+    "sha256": "47aba911d30d294670ff44605410dddeaad24ab69bbce6e98b865635884b26bd"
+  },
+  {
+    "file": "tests\\voice\\test_audit_recorded_vad.py",
+    "backup": null,
+    "sha256": "73712335cc118601d30e35b7287a4ad9c422272302b8431158339f1b149d8859"
+  },
+  {
+    "file": "tests\\voice\\test_audit_natural_speech.py",
+    "backup": null,
+    "sha256": "ad52e1aada1c9b192b6962f9c5c2fa78ce7249d38cf695c853c792d908c9668d"
+  },
+  {
+    "file": "tests\\core\\llm\\test_audit_ollama_stream.py",
+    "backup": null,
+    "sha256": "5395022d5c63e27824a072df7bf65e56ca5b5a48761347e5db264a292766b0db"
+  },
+  {
+    "file": "tests\\conversation\\test_audit_local_facts.py",
+    "backup": null,
+    "sha256": "515ec646f193cd7473f8a869b457765fb26306c128f8328301ea829937638aca"
+  },
+  {
+    "file": "tests\\server\\test_audit_stream_lifecycle.py",
+    "backup": null,
+    "sha256": "c6643bcec5d2a93005e0452d79b6eeaddf03b47be923621b3c73b35a6c93b9e3"
+  },
+  {
+    "file": "tests\\server\\test_aurora_studio.py",
+    "backup": null,
+    "sha256": "147945d0d0ab705092597f69c2647507ec8f8aec2af1cfe27b6c0e3ae7792d2e"
+  },
+  {
+    "file": "tests\\media\\test_media_phase4.py",
+    "backup": null,
+    "sha256": "a723d9ada8b1b34020821846c1e72e9589199c5c6004b31835f0bb678ce2cf46"
+  },
+  {
+    "file": "tests\\media\\test_audit_media_contract.py",
+    "backup": null,
+    "sha256": "37904b1710b5c409b7430c64cb06d4729e648da799ff7ee4f20c839e0b012366"
+  },
+  {
+    "file": "tests\\cognitive_brain\\test_audit_phase4_contracts.py",
+    "backup": null,
+    "sha256": "de0a35df29555983a315733ddc29e38c9f4e31805baf945ca5cbd0f72cf3d143"
+  },
+  {
+    "file": "interfaces\\webui_bridge\\studio_static\\continuous_voice.js",
+    "backup": null,
+    "sha256": "c7757101935034ecd03ab4940f3f4decade422ff4ab21e0fd30e20d965267a1b"
+  },
+  {
+    "file": "interfaces\\webui_bridge\\studio_static\\index.html",
+    "backup": null,
+    "sha256": "4ac940d2371f591acd04b6fe3fd382ed8e998b8a17c40879437d7a920566a3b8"
+  },
+  {
+    "file": "interfaces\\webui_bridge\\studio_static\\jessyca.ico",
+    "backup": null,
+    "sha256": "d0e0da891ae44d31ac6ee1c3421bfd6ad775248c633e161b065d16a0830df25d"
+  },
+  {
+    "file": "interfaces\\webui_bridge\\studio_static\\jessyca.jpg",
+    "backup": null,
+    "sha256": "678b4fae44ea9bd034cf1e5aaf204e7dc06b12a93808661db1ae6f5694c71f7d"
+  },
+  {
+    "file": "interfaces\\webui_bridge\\studio_static\\studio.css",
+    "backup": null,
+    "sha256": "aee188440d9d8b9ac97cbbd23792157d3cc4f394bd38a3b5e8ed5e40eb082196"
+  },
+  {
+    "file": "interfaces\\webui_bridge\\studio_static\\studio.js",
+    "backup": null,
+    "sha256": "0755806059b2a89190b05554418f6934bc17140460bdc9fbc41695c8bf51f0c2"
+  }
+]

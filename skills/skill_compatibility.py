@@ -37,6 +37,10 @@ KNOWN_SYSTEM_AGENTS: frozenset[str] = frozenset({
 })
 
 KNOWN_SYSTEM_MODELS: frozenset[str] = frozenset({
+    "qwen3.5:9b",
+    "qwen3.5",
+    "gemma4:e4b",
+    "gemma4",
     "llama3.2:latest",
     "llama3.2:3b",
     "qwen3:8b",

@@ -12,7 +12,9 @@ Ejecuta el ciclo de vida gobernado de una Skill con:
 from __future__ import annotations
 
 import concurrent.futures
+import threading
 import time
+from dataclasses import replace
 from typing import Any
 
 from core.cancellation import CancellationToken
@@ -38,6 +40,8 @@ from skills.skill_models import (
 )
 
 logger = get_logger("jessyca.skills.runtime")
+_SKILL_EXECUTOR = concurrent.futures.ThreadPoolExecutor(max_workers=4, thread_name_prefix="jessyca_skill")
+_SKILL_SLOTS = threading.BoundedSemaphore(16)
 
 
 class SkillRuntime:
@@ -52,6 +56,19 @@ class SkillRuntime:
         self.risk_engine = risk_engine or RiskEngine()
         self.permission_manager = permission_manager or PermissionManager()
         self.emergency_stop = emergency_stop or EmergencyStopManager.get_instance()
+        self._executor = _SKILL_EXECUTOR
+        self._slots = _SKILL_SLOTS
+        self._future_lock = threading.Lock()
+        self._owned_futures = {}
+        self._closed = False
+
+    def close(self) -> None:
+        with self._future_lock:
+            self._closed = True
+            pending = list(self._owned_futures.items())
+        for future, context in pending:
+            context.cancellation_token.cancel("runtime_closed")
+            future.cancel()
 
     def create_context(
         self,
@@ -84,6 +101,11 @@ class SkillRuntime:
     ) -> SkillResult:
         """Ejecuta una Skill bajo gobierno de seguridad, límites de presupuesto, timeout y cancelación."""
         start_time = time.perf_counter()
+        if context.cancellation_token is None:
+            context = replace(context, cancellation_token=CancellationToken())
+        if self._closed:
+            return SkillResult(skill_id=skill.skill_id, success=False, status=SkillStatus.FAILED,
+                               error="El ejecutor está cerrado.", security_decision="CLOSED")
 
         # 1. Comprobación inmediata de Parada de Emergencia
         if self.emergency_stop.is_stopped():
@@ -199,24 +221,34 @@ class SkillRuntime:
         logger.info(f"[SKILL RUNTIME EXECUTING] Ejecutando Skill '{skill.skill_id}' con timeout={context.timeout_seconds}s...")
 
         try:
-            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-                future = executor.submit(skill.execute, context)
-                try:
-                    res: SkillResult = future.result(timeout=context.timeout_seconds)
-                except TimeoutError:
-                    elapsed_ms = (time.perf_counter() - start_time) * 1000.0
-                    logger.error(
-                        f"[SKILL TIMEOUT] Skill '{skill.skill_id}' excedió el timeout de {context.timeout_seconds}s."
-                    )
-                    return SkillResult(
-                        skill_id=skill.skill_id,
-                        success=False,
-                        status=SkillStatus.FAILED,
-                        error=f"Timeout de ejecución: la Skill superó el tiempo límite de {context.timeout_seconds} segundos.",
-                        security_decision="TIMEOUT",
-                        execution_id=context.execution_id,
-                        duration_ms=elapsed_ms,
-                    )
+            if not self._slots.acquire(blocking=False):
+                return SkillResult(skill_id=skill.skill_id, success=False, status=SkillStatus.FAILED,
+                                   error="El ejecutor está ocupado; no se encoló la acción.", security_decision="BUSY",
+                                   execution_id=context.execution_id)
+            try:
+                future = self._executor.submit(skill.execute, context)
+            except Exception:
+                self._slots.release()
+                raise
+            with self._future_lock:
+                self._owned_futures[future] = context
+            def finished(completed):
+                self._slots.release()
+                with self._future_lock:
+                    self._owned_futures.pop(completed, None)
+            future.add_done_callback(finished)
+            try:
+                res: SkillResult = future.result(timeout=context.timeout_seconds)
+            except TimeoutError:
+                context.cancellation_token.cancel("skill_timeout")
+                future.cancel()
+                return SkillResult(
+                    skill_id=skill.skill_id, success=False, status=SkillStatus.FAILED,
+                    error=f"Timeout de ejecución: la Skill superó el tiempo límite de {context.timeout_seconds} segundos.",
+                    security_decision="TIMEOUT", execution_id=context.execution_id,
+                    duration_ms=(time.perf_counter() - start_time) * 1000.0,
+                    metadata={"cancellation_requested": True, "operation_may_still_be_running": not future.done()},
+                )
 
             # Comprobar cancelación post-ejecución
             if context.cancellation_token and context.cancellation_token.is_cancelled:

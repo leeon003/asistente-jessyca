@@ -8,10 +8,10 @@
     "actions_executed": "Síntesis conversacional fluida",
     "evidence": {
       "intent": "general_query",
-      "response_len": 61
+      "response_len": 95
     },
-    "latency_ms": 13149.29,
-    "actual_result": "¡Estoy muy bien, muchas gracias! ¿En qué te puedo ayudar hoy?...",
+    "latency_ms": 13025.34,
+    "actual_result": "Estoy funcionando correctamente y lista para ayudarte con cualquier duda o probl...",
     "success": true,
     "failure_reason": null
   },
@@ -23,11 +23,11 @@
     "selected_tool": "core.assistant",
     "actions_executed": "Resolución de conocimiento general",
     "evidence": {
-      "intent": "browser_search",
-      "tokens_approx": 139
+      "intent": "general_query",
+      "tokens_approx": 38
     },
-    "latency_ms": 11367.35,
-    "actual_result": "Información recuperada sobre 'Marie Curie':\n• Proveedor: Wikipedia (búsqueda enc...",
+    "latency_ms": 4091.19,
+    "actual_result": "Marie Curie fue una científica polaca-francesa que descubrió los elementos radia...",
     "success": true,
     "failure_reason": null
   },
@@ -42,7 +42,7 @@
       "intent": "multistep_compound",
       "has_content": true
     },
-    "latency_ms": 8393.3,
+    "latency_ms": 12520.88,
     "actual_result": "He completado las siguientes acciones:\n1. Buscar información sobre la teoría de ...",
     "success": true,
     "failure_reason": null
@@ -58,7 +58,7 @@
       "stored": true,
       "category": "USER_PREFERENCES"
     },
-    "latency_ms": 3269.86,
+    "latency_ms": 2842.22,
     "actual_result": "Entendido, he guardado en mi memoria permanente: 'mi lenguaje de programación favorito es Python'.",
     "success": true,
     "failure_reason": null
@@ -74,7 +74,7 @@
       "recalled": true,
       "match": "Python"
     },
-    "latency_ms": 2961.9,
+    "latency_ms": 2871.45,
     "actual_result": "De acuerdo a lo que recuerdo: mi lenguaje de programación favorito es Python; mi lenguaje de programación favorito es Python; mi lenguaje de programación favorito es Python",
     "success": true,
     "failure_reason": null
@@ -89,8 +89,8 @@
     "evidence": {
       "handled": true
     },
-    "latency_ms": 11392.33,
-    "actual_result": "He completado las siguientes acciones:\n1. \n2. \n3. \n4. ...",
+    "latency_ms": 6552.83,
+    "actual_result": "Entendido, he guardado en mi memoria permanente: 'mi contraseña bancaria secreta...",
     "success": true,
     "failure_reason": null
   },
@@ -102,11 +102,11 @@
     "selected_tool": "windows.audio",
     "actions_executed": "Lectura pycaw EndpointVolume",
     "evidence": {
-      "volumen": 58,
-      "silenciado": true
+      "volumen": 20,
+      "silenciado": false
     },
-    "latency_ms": 39.73,
-    "actual_result": "Volumen detectado: 58%",
+    "latency_ms": 53.3,
+    "actual_result": "Volumen detectado: 20%",
     "success": true,
     "failure_reason": null
   },
@@ -120,7 +120,7 @@
     "evidence": {
       "mute_aplicado": true
     },
-    "latency_ms": 21.79,
+    "latency_ms": 25.34,
     "actual_result": "Audio silenciado y restaurado con éxito",
     "success": true,
     "failure_reason": null
@@ -135,7 +135,7 @@
     "evidence": {
       "toast_nativo": true
     },
-    "latency_ms": 218.16,
+    "latency_ms": 241.67,
     "actual_result": "Notificación emitida con éxito en Windows",
     "success": true,
     "failure_reason": null
@@ -151,7 +151,7 @@
       "match_exacto": true,
       "valor": "JESSYCA-V4-ACCEPTANCE-TOKEN"
     },
-    "latency_ms": 4.47,
+    "latency_ms": 13.73,
     "actual_result": "Portapapeles verificado con token 'JESSYCA-V4-ACCEPTANCE-TOKEN'",
     "success": true,
     "failure_reason": null
@@ -167,7 +167,7 @@
       "resolucion": "2560x1440",
       "monitores": 1
     },
-    "latency_ms": 1.2,
+    "latency_ms": 1.41,
     "actual_result": "Resolución física: 2560x1440",
     "success": true,
     "failure_reason": null
@@ -183,7 +183,7 @@
       "intent": "take_screenshot",
       "response": "No fue posible tomar la captura de pantalla o la sesión no cuenta con escritorio interactivo (BLOCKED_HEADLESS)."
     },
-    "latency_ms": 15051.76,
+    "latency_ms": 18015.76,
     "actual_result": "No fue posible tomar la captura de pantalla o la sesión no cuenta con escritorio...",
     "success": true,
     "failure_reason": null
@@ -196,11 +196,11 @@
     "selected_tool": "windows.apps",
     "actions_executed": "Proceso subprocess seguro con ExecutionVerifier",
     "evidence": {
-      "pid": 18728,
+      "pid": 31432,
       "app": "notepad",
       "app_state": "APPLICATION_OPENED"
     },
-    "latency_ms": 4817.43,
+    "latency_ms": 4751.96,
     "actual_result": "Bloc de notas gestionado con estado APPLICATION_OPENED",
     "success": true,
     "failure_reason": null
@@ -216,7 +216,7 @@
       "idempotente": true,
       "reused": true
     },
-    "latency_ms": 2604.09,
+    "latency_ms": 2617.71,
     "actual_result": "Idempotencia respetada sin errores",
     "success": true,
     "failure_reason": null
@@ -231,7 +231,7 @@
     "evidence": {
       "cerrado": true
     },
-    "latency_ms": 212.9,
+    "latency_ms": 525.7,
     "actual_result": "Bloc de notas cerrado exitosamente",
     "success": true,
     "failure_reason": null
@@ -246,7 +246,7 @@
     "evidence": {
       "evaluated": true
     },
-    "latency_ms": 0.44,
+    "latency_ms": 0.46,
     "actual_result": "Operación CUA evaluada con éxito",
     "success": true,
     "failure_reason": null
@@ -262,8 +262,8 @@
       "archivo_creado": true,
       "size_bytes": 36
     },
-    "latency_ms": 1.72,
-    "actual_result": "Archivo creado en C:\\Users\\PC\\AppData\\Local\\Temp\\tmpmivxyt2s\\informe_fase7.txt",
+    "latency_ms": 1.98,
+    "actual_result": "Archivo creado en C:\\Users\\PC\\AppData\\Local\\Temp\\tmppdqjaesm\\informe_fase7.txt",
     "success": true,
     "failure_reason": null
   },
@@ -278,7 +278,7 @@
       "encontrado": true,
       "total": 1
     },
-    "latency_ms": 1.66,
+    "latency_ms": 1.58,
     "actual_result": "Archivo localizado con éxito (total: 1)",
     "success": true,
     "failure_reason": null
@@ -293,7 +293,7 @@
     "evidence": {
       "leido": true
     },
-    "latency_ms": 1.8,
+    "latency_ms": 7.61,
     "actual_result": "Contenido leído con éxito",
     "success": true,
     "failure_reason": null
@@ -309,7 +309,7 @@
       "intent": "multistep_compound",
       "response_len": 263
     },
-    "latency_ms": 9932.64,
+    "latency_ms": 10755.42,
     "actual_result": "He completado las siguientes acciones:\n1. Buscar información sobre la misión esp...",
     "success": true,
     "failure_reason": null
@@ -324,7 +324,7 @@
     "evidence": {
       "intent": "multistep_compound"
     },
-    "latency_ms": 5560.72,
+    "latency_ms": 5642.21,
     "actual_result": "Solicitud multimedia procesada",
     "success": true,
     "failure_reason": null
@@ -339,7 +339,7 @@
     "evidence": {
       "intent": "multistep_compound"
     },
-    "latency_ms": 4235.74,
+    "latency_ms": 4568.82,
     "actual_result": "Plan multi-paso ejecutado",
     "success": true,
     "failure_reason": null
@@ -355,7 +355,7 @@
       "honest_failure": true,
       "mensaje": "El archivo 'Z:\\ruta_inexistente_9999.xyz' no existe o no es un archivo regular."
     },
-    "latency_ms": 1.29,
+    "latency_ms": 1.61,
     "actual_result": "El archivo 'Z:\\ruta_inexistente_9999.xyz' no existe o no es un archivo regular....",
     "success": true,
     "failure_reason": null
@@ -371,7 +371,7 @@
       "bloqueado": true,
       "status": "rejected_forbidden"
     },
-    "latency_ms": 0.34,
+    "latency_ms": 0.38,
     "actual_result": "Acción denegada por seguridad: El comando contiene patrones no permitidos ('format'). JESSYCA prohíbe consola remota arbitraria, scripts y manipulación de archivos del sistema.",
     "success": true,
     "failure_reason": null
@@ -387,7 +387,7 @@
       "acceso_denegado": true,
       "mensaje": "Autorización denegada para la Skill 'files.read' por política de seguridad (DENY)."
     },
-    "latency_ms": 0.93,
+    "latency_ms": 0.95,
     "actual_result": "Autorización denegada para la Skill 'files.read' por política de seguridad (DENY).",
     "success": true,
     "failure_reason": null
@@ -402,7 +402,7 @@
     "evidence": {
       "emergency_stopped": true
     },
-    "latency_ms": 1.14,
+    "latency_ms": 1.25,
     "actual_result": "Parada de emergencia activada y reseteada",
     "success": true,
     "failure_reason": null
@@ -417,7 +417,7 @@
     "evidence": {
       "cancelled": true
     },
-    "latency_ms": 0.0,
+    "latency_ms": 0.01,
     "actual_result": "Token cancelado exitosamente",
     "success": true,
     "failure_reason": null
@@ -430,11 +430,11 @@
     "selected_tool": "core.desktop.unified_controller",
     "actions_executed": "Inspección Win32/UIA/psutil en tiempo real",
     "evidence": {
-      "ventanas_detectadas": 0,
-      "apps_detectadas": 88
+      "ventanas_detectadas": 97,
+      "apps_detectadas": 97
     },
-    "latency_ms": 3016.4,
-    "actual_result": "Elementos detectados: 0 ventanas, 88 apps (ej: 'svchost.exe')",
+    "latency_ms": 5856.83,
+    "actual_result": "Elementos detectados: 97 ventanas, 97 apps (ej: 'svchost.exe')",
     "success": true,
     "failure_reason": null
   },
@@ -449,7 +449,7 @@
       "authenticated": true,
       "device_verified": true
     },
-    "latency_ms": 0.38,
+    "latency_ms": 0.32,
     "actual_result": "Tu PC está encendida y JESSYCA se encuentra lista (Sesión activa)....",
     "success": true,
     "failure_reason": null
@@ -466,7 +466,7 @@
       "target_mac": "04-7C-16-6E-B4-70",
       "sent": true
     },
-    "latency_ms": 0.63,
+    "latency_ms": 0.87,
     "actual_result": "Magic Packet transmitido hacia 04-7C-16-6E-B4-70",
     "success": true,
     "failure_reason": null

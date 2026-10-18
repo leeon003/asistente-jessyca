@@ -28,8 +28,28 @@ def _is_nemotron_enabled_default() -> bool:
 
 
 def get_default_built_in_profiles() -> list[ModelProfile]:
-    """Retorna los perfiles iniciales de los 5 modelos soportados en el catálogo."""
+    """Retorna los perfiles iniciales de los modelos soportados en el catálogo (Fase 1: Consolidado)."""
     return [
+        ModelProfile(
+            model_id="qwen3.5:9b",
+            name="qwen3.5:9b",
+            provider="ollama",
+            capabilities=("completion", "tools", "thinking", "vision"),
+            context_length=131072,
+            max_context_length=131072,
+            input_modalities=("text", "image"),
+            output_modalities=("text",),
+            vision=True,
+            supports_vision=True,
+            tool_calling=True,
+            supports_tools=True,
+            reasoning=True,
+            priority=1,
+            vram_estimate_mb=6600,
+            enabled=True,
+            default_parameters={"temperature": 0.3},
+            description="Qwen 3.5 (9B) - Modelo principal unificado de JESSYCA para conversación, razonamiento, visión nativa y herramientas.",
+        ),
         ModelProfile(
             model_id="llama3.2",
             name="llama3.2",
@@ -114,21 +134,21 @@ def get_default_built_in_profiles() -> list[ModelProfile]:
             model_id="gemma4:e4b",
             name="gemma4:e4b",
             provider="ollama",
-            capabilities=("completion", "tools", "thinking"),
+            capabilities=("completion", "tools", "thinking", "vision"),
             context_length=8192,
             max_context_length=8192,
-            input_modalities=("text",),
+            input_modalities=("text", "image"),
             output_modalities=("text",),
-            vision=False,
-            supports_vision=False,
+            vision=True,
+            supports_vision=True,
             tool_calling=True,
             supports_tools=True,
             reasoning=True,
-            priority=1,
+            priority=2,
             vram_estimate_mb=5200,
             enabled=True,
-            default_parameters={"temperature": 0.1},
-            description="Gemma 4 (e4b) - Modelo de inferencia local para resolución estructurada de intenciones.",
+            default_parameters={"temperature": 0.2},
+            description="Gemma 4 (e4b) - Modelo multimodal de respaldo para inferencia estructurada y recuperación ante fallos.",
         ),
         ModelProfile(
             model_id="nvidia/nemotron-3-ultra-550b-a55b",
@@ -194,6 +214,12 @@ class ModelRegistry:
                     target = "nvidia/nemotron-3-ultra-550b-a55b"
                     if target in self._profiles:
                         return self._profiles[target]
+                if clean_name in ("qwen3.5", "qwen3.5:latest", "qwen3.5:9b"):
+                    if "qwen3.5:9b" in self._profiles:
+                        return self._profiles["qwen3.5:9b"]
+                if clean_name in ("gemma4", "gemma4:latest", "gemma4:e4b"):
+                    if "gemma4:e4b" in self._profiles:
+                        return self._profiles["gemma4:e4b"]
                 base_name = clean_name.split(":")[0] if ":" in clean_name else clean_name
                 if base_name in self._profiles:
                     return self._profiles[base_name]
@@ -208,6 +234,10 @@ class ModelRegistry:
                 return True
             if clean_name in ("nemotron", "nemotron-3-ultra", "nvidia/nemotron"):
                 return "nvidia/nemotron-3-ultra-550b-a55b" in self._profiles
+            if clean_name in ("qwen3.5", "qwen3.5:latest", "qwen3.5:9b"):
+                return "qwen3.5:9b" in self._profiles
+            if clean_name in ("gemma4", "gemma4:latest", "gemma4:e4b"):
+                return "gemma4:e4b" in self._profiles
             base_name = clean_name.split(":")[0] if ":" in clean_name else clean_name
             return base_name in self._profiles
 

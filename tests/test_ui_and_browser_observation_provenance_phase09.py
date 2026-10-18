@@ -202,6 +202,10 @@ def test_browser_agent_in_production_declares_unavailable_without_session_manage
     """Verifica que BrowserAgent en producción sin session_manager rechaza navegación y marca UNAVAILABLE."""
     monkeypatch.setenv("ENVIRONMENT", "production")
 
+    def unavailable_browser(**kwargs):
+        raise RuntimeError("Simulated missing browser installation")
+    monkeypatch.setattr("core.browser_playwright_adapter.PlaywrightBrowserAdapter", unavailable_browser)
+
     agent = BrowserAgent(session_manager=None)
     assert agent._browser_available is False
     assert agent.session_manager is None

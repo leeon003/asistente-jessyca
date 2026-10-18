@@ -6,6 +6,7 @@ Proporciona infraestructura básica de validación, manejo de logs, metadatos de
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from typing import Any
 
 from core.contracts import ITool
 from core.exceptions import ToolExecutionError, ValidationError

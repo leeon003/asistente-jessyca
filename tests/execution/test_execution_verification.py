@@ -265,6 +265,7 @@ def test_capability_query_response() -> None:
     res = agent.interact(req)
 
     assert res.success is True
-    assert "Soy Jessyca, tu asistente local e inteligente para Windows" in res.response_text
-    assert "abrir y cerrar aplicaciones" in res.response_text
+    assert "aplicaciones" in res.response_text.lower()
+    assert "archivos" in res.response_text.lower()
+    assert not res.tools_executed
     assert res.response_text != "He completado tu solicitud con éxito."

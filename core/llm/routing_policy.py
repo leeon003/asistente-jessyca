@@ -49,15 +49,15 @@ class RoutingContext:
 class RoutingPolicy:
     """Reglas deterministas de evaluación y selección de perfiles de modelos según el contexto de la tarea."""
 
-    # Prioridad por defecto de modelos según el tipo de tarea
+    # Prioridad por defecto de modelos según el tipo de tarea (Fase 1: Consolidado)
     DEFAULT_TASK_AFFINITY: dict[TaskType, tuple[str, ...]] = {
-        TaskType.CLASSIFICATION: ("llama3.2", "gemma4:e4b", "llama3.1"),
-        TaskType.SIMPLE_TASK: ("llama3.2", "gemma4:e4b", "llama3.1"),
-        TaskType.CONVERSATION: ("llama3.1", "llama3.2", "gemma4:e4b"),
-        TaskType.REASONING: ("qwen3:8b", "gemma4:e4b", "llama3.1"),
-        TaskType.PLANNING: ("qwen3:8b", "gemma4:e4b", "llama3.1"),
-        TaskType.ANALYSIS_VERIFICATION: ("gemma4:e4b", "qwen3:8b", "llama3.1", "llama3.2"),
-        TaskType.VISION: ("qwen3-vl:4b",),
+        TaskType.CLASSIFICATION: ("qwen3.5:9b", "gemma4:e4b", "llama3.2", "llama3.1"),
+        TaskType.SIMPLE_TASK: ("qwen3.5:9b", "gemma4:e4b", "llama3.2", "llama3.1"),
+        TaskType.CONVERSATION: ("qwen3.5:9b", "gemma4:e4b", "llama3.1", "llama3.2"),
+        TaskType.REASONING: ("qwen3.5:9b", "gemma4:e4b", "qwen3:8b", "llama3.1"),
+        TaskType.PLANNING: ("qwen3.5:9b", "gemma4:e4b", "qwen3:8b", "llama3.1"),
+        TaskType.ANALYSIS_VERIFICATION: ("qwen3.5:9b", "gemma4:e4b", "qwen3:8b", "llama3.1"),
+        TaskType.VISION: ("qwen3.5:9b", "gemma4:e4b", "qwen3-vl:4b"),
     }
 
     # Modelo de respaldo seguro final del sistema
@@ -179,7 +179,17 @@ class RoutingPolicy:
         )
 
     def _find_vision_candidate(self, context: RoutingContext) -> ModelProfile | None:
-        """Busca el primer modelo disponible con capacidad multimodal de visión."""
+        """Busca el primer modelo disponible con capacidad multimodal de visión respetando afinidad."""
+        affinity = self.DEFAULT_TASK_AFFINITY.get(TaskType.VISION, ("qwen3.5:9b", "gemma4:e4b", "qwen3-vl:4b"))
+        for candidate_name in affinity:
+            if candidate_name in context.excluded_model_ids:
+                continue
+            if self._registry.exists(candidate_name):
+                profile = self._registry.get(candidate_name)
+                if (profile.vision or profile.supports_vision) and self._is_model_eligible(
+                    profile, context, ignore_vision_check=True
+                ):
+                    return profile
         for profile in self._registry.list_models():
             if profile.name in context.excluded_model_ids:
                 continue

@@ -38,6 +38,16 @@ dependencies = [
 jessyca = "main:main"
 
 [project.optional-dependencies]
+mcp = ["fastmcp>=2.14.7,<3"]
+documents = ["python-docx", "openpyxl", "python-pptx", "matplotlib"]
+voice = [
+    "numpy",
+    "SpeechRecognition",
+    "PyAudio>=0.2.14; sys_platform == 'win32'",
+    "faster-whisper",
+    "edge-tts>=7.3.1",
+    "pygame",
+]
 dev = [
     "pytest>=7.4.0",
     "pytest-asyncio>=0.21.0",

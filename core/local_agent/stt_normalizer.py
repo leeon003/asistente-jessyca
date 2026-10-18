@@ -142,7 +142,10 @@ class STTTranscriptNormalizer:
         is_ambiguous = False
         clarification_prompt: str | None = None
 
-        if any(cleaned_lower.startswith(v) for v in ("cierra ", "cerrar ", "puedes cerrar ")):
+        if any(w in cleaned_lower for w in ("bailame", "báilame", "baila para mi", "baila para mí", "pon un baile")):
+            detected_action = "play_random_video"
+            detected_target = "dance_video"
+        elif any(cleaned_lower.startswith(v) for v in ("cierra ", "cerrar ", "puedes cerrar ")):
             detected_action = "close_application"
             for app in KNOWN_APP_ENTITIES:
                 if app in cleaned_lower:
@@ -152,6 +155,9 @@ class STTTranscriptNormalizer:
             if "google" in cleaned_lower:
                 detected_action = "open_browser"
                 detected_target = "Google"
+            elif any(w in cleaned_lower for w in ("carpeta", "videos del disco", "archivos del disco")):
+                detected_action = "open_folder"
+                detected_target = "explorer"
             else:
                 detected_action = "open_application"
                 for app in KNOWN_APP_ENTITIES:

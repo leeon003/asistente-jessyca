@@ -833,6 +833,64 @@ class ArchifyDiagramVerificationStrategy:
             )
 
 
+class GuiTextVerificationStrategy:
+    """Verifica que el texto haya sido efectivamente introducido y sea visible en una ventana GUI."""
+
+    def verify(
+        self,
+        action: str,
+        target: str,
+        parameters: dict[str, Any] | None = None,
+        timeout_seconds: float = 2.0,
+    ) -> ExecutionEvidence:
+        params = parameters or {}
+        # 1. Comprobar si se proporcionó evidencia directa de la acción del controlador
+        ctrl_verified = bool(params.get("is_verified", False))
+        recovered_len = int(params.get("recovered_length", 0))
+        hwnd = params.get("hwnd")
+        has_error = bool(params.get("error"))
+
+        # Si el controlador indicó fallo o no hay texto recuperado observable en la ventana:
+        if has_error or not ctrl_verified or (recovered_len == 0 and not params.get("virtual")):
+            return ExecutionEvidence(
+                verification_type="gui_text_visible",
+                target=target,
+                is_verified=False,
+                details={
+                    "error": params.get("error") or "El área editable de la ventana está vacía o no contiene el texto esperado",
+                    "action": action,
+                    "recovered_length": recovered_len,
+                    "false_success_detected": True,
+                },
+            )
+
+        # Si tenemos HWND y estamos en Windows, verificar existencia real y visibilidad de la ventana
+        if hwnd and os.name == "nt":
+            try:
+                import win32gui
+                if not win32gui.IsWindow(hwnd) or not win32gui.IsWindowVisible(hwnd):
+                    return ExecutionEvidence(
+                        verification_type="gui_text_visible",
+                        target=target,
+                        is_verified=False,
+                        details={"error": f"La ventana HWND {hwnd} ya no está visible o fue cerrada", "hwnd": hwnd},
+                    )
+            except Exception:
+                pass
+
+        return ExecutionEvidence(
+            verification_type="gui_text_visible",
+            target=target,
+            is_verified=True,
+            details={
+                "target": target,
+                "recovered_length": recovered_len,
+                "hwnd": hwnd,
+                "is_verified": True,
+            },
+        )
+
+
 class StateChangedVerificationStrategy:
     """Verificador genérico de cambio de estado para operaciones abstractas.
 
@@ -867,11 +925,15 @@ class ExecutionVerifier:
         self._file_copied_strat = FileCopiedVerificationStrategy()
         self._folder_exists_strat = FolderExistsVerificationStrategy()
         self._archify_strat = ArchifyDiagramVerificationStrategy()
+        self._gui_text_strat = GuiTextVerificationStrategy()
         self._state_changed_strat = StateChangedVerificationStrategy()
 
     def get_strategy(self, action: str) -> IVerificationStrategy:
         """Determina la estrategia adecuada en función del tipo de acción."""
         act = (action or "").lower()
+        if act in ("play_media", "play_random_video", "play_local_media", "play_video", "play_local_music"):
+            from core.media_playback import MediaPlaybackVerificationStrategy
+            return MediaPlaybackVerificationStrategy()
         if any(k in act for k in ("archify", "diagram", "diagrama")):
             return self._archify_strat
         if any(k in act for k in ("close", "cerrar", "kill", "terminate", "stop", "detener", "finalizar")):
@@ -886,7 +948,12 @@ class ExecutionVerifier:
             return self._file_copied_strat
         if any(k in act for k in ("open", "abrir", "launch", "start", "ejecutar")):
             return self._process_exists_strat
-        if any(k in act for k in ("file", "archivo", "create", "crear", "write", "guardar", "read", "leer")):
+        # Escritura en ventana GUI de aplicación (diferenciada de creación en disco)
+        if any(k in act for k in ("write_in_window", "gui_write", "type_text", "write_text", "type_in_window")):
+            return self._gui_text_strat
+        if any(k in act for k in ("save_document", "guardar_documento")):
+            return self._file_exists_strat
+        if any(k in act for k in ("file", "archivo", "create", "crear", "read", "leer")):
             return self._file_exists_strat
         return self._state_changed_strat
 

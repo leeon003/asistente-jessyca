@@ -156,7 +156,7 @@ def test_09_legacy_compatibility_contract() -> None:
         ),
     )
     intent, params, is_ambig = plan.to_legacy_tuple()
-    assert intent == "windows.audio"
+    assert intent == "control_audio"
     assert params["delta"] == 10
     assert is_ambig is False
 

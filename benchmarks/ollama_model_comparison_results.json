@@ -1,0 +1,140 @@
+{
+  "llama3.2:latest": [
+    {
+      "prompt_id": "conversacion_simple",
+      "category": "Conversación y Español",
+      "result": {
+        "success": true,
+        "latency_ms": 2644.27,
+        "response": "Albert Einstein fue un físico teórico alemán suizo que desarrolló la teoría de la relatividad y es considerado uno de los científicos más influyentes del siglo XX.",
+        "eval_count": 44,
+        "tokens_per_second": 127.7
+      }
+    },
+    {
+      "prompt_id": "razonamiento_matematico",
+      "category": "Razonamiento y Lógica",
+      "result": {
+        "success": true,
+        "latency_ms": 3295.18,
+        "response": "¡Claro! Vamos a calcular paso a paso:\n\n1. **Comienzo con las manzanas que ya tienes**: Tienes 3 manzanas.\n2. **Compraste 2 bolsas con 4 manzanas cada una**: Esto significa que compraste un total de 2 x 4 = 8 manzanas.\n3. **Suma las manzanas que ya tenías a las que compraste**: 3 (manzanas que ya tenías) + 8 (manzanas que compraste) = 11 manzanas.\n\nPor lo tanto, tienes un total de 11 manzanas.",
+        "eval_count": 137,
+        "tokens_per_second": 117.8
+      }
+    },
+    {
+      "prompt_id": "plan_estructurado_json",
+      "category": "Salida Estructurada JSON",
+      "result": {
+        "success": true,
+        "latency_ms": 2611.75,
+        "response": "{\"plan_name\": \"sumar_numeros\", \"steps\": [{\"action\": \"abrir_app\", \"target\": \"calc\"}, {\"action\": \"escribir\", \"texto\": \"10+20\"}]}",
+        "eval_count": 45,
+        "tokens_per_second": 92.3
+      }
+    },
+    {
+      "prompt_id": "instruccion_compuesta_tools",
+      "category": "Instrucción Compuesta y Herramientas",
+      "result": {
+        "success": true,
+        "latency_ms": 4278.81,
+        "response": "¡Claro! Aquí te presento el resumen de la investigación sobre el telescopio James Webb en un archivo llamado \"notas.txt\":\n\n**Resumen de la investigación**\n\nEl telescopio James Webb es un telescopio espacial de observación de infrarrojos desarrollado por la NASA y la Agencia Espacial Europea. Fue lanzado en diciembre de 2021 y se encuentra en órbita alrededor de la Luna.\n\n**Acciones requeridas:**\n\n1. **Investigación en línea**: Utilizar un navegador web como Google Chrome o Mozilla Firefox para buscar información sobre el telescopio James Webb en sitios web como la página oficial de la NASA o la Agencia Espacial Europea.\n2. **Anotación de datos**: Utilizar un bloc de notas como Notepad o TextEdit para anotar los datos y características del telescopio James Webb, como su diseño, características científicas y objetivos de investigación.\n\n**Herramientas utilizadas:**\n\n* Navegador web: Google Chrome o Mozilla Firefox\n* Bloc de notas: Notepad o TextEdit\n* Archivo de texto: Microsoft Word o Google Docs (",
+        "eval_count": 256,
+        "tokens_per_second": 118.1
+      }
+    }
+  ],
+  "qwen3:8b": [
+    {
+      "prompt_id": "conversacion_simple",
+      "category": "Conversación y Español",
+      "result": {
+        "success": true,
+        "latency_ms": 13394.5,
+        "response": "",
+        "eval_count": 256,
+        "tokens_per_second": 55.9
+      }
+    },
+    {
+      "prompt_id": "razonamiento_matematico",
+      "category": "Razonamiento y Lógica",
+      "result": {
+        "success": true,
+        "latency_ms": 6568.56,
+        "response": "**Cálculo paso a paso:**\n\n1. **Manzanas iniciales:** 3  \n2. **Manzanas en las bolsas:**  \n   - Cada bolsa tiene 4 manzanas.  \n   - 2 bolsas = $ 2 \\times 4 = 8 $ manzanas.  \n3. **Total de manzanas:**  \n   - $ 3 \\, (\\",
+        "eval_count": 256,
+        "tokens_per_second": 59.1
+      }
+    },
+    {
+      "prompt_id": "plan_estructurado_json",
+      "category": "Salida Estructurada JSON",
+      "result": {
+        "success": true,
+        "latency_ms": 6615.83,
+        "response": "",
+        "eval_count": 256,
+        "tokens_per_second": 59.1
+      }
+    },
+    {
+      "prompt_id": "instruccion_compuesta_tools",
+      "category": "Instrucción Compuesta y Herramientas",
+      "result": {
+        "success": true,
+        "latency_ms": 6584.02,
+        "response": "",
+        "eval_count": 256,
+        "tokens_per_second": 59.2
+      }
+    }
+  ],
+  "qwen3-vl:4b": [
+    {
+      "prompt_id": "conversacion_simple",
+      "category": "Conversación y Español",
+      "result": {
+        "success": true,
+        "latency_ms": 8082.37,
+        "response": "",
+        "eval_count": 256,
+        "tokens_per_second": 95.9
+      }
+    },
+    {
+      "prompt_id": "razonamiento_matematico",
+      "category": "Razonamiento y Lógica",
+      "result": {
+        "success": true,
+        "latency_ms": 4957.3,
+        "response": "",
+        "eval_count": 256,
+        "tokens_per_second": 91.6
+      }
+    },
+    {
+      "prompt_id": "plan_estructurado_json",
+      "category": "Salida Estructurada JSON",
+      "result": {
+        "success": true,
+        "latency_ms": 4905.77,
+        "response": "",
+        "eval_count": 256,
+        "tokens_per_second": 95.2
+      }
+    },
+    {
+      "prompt_id": "instruccion_compuesta_tools",
+      "category": "Instrucción Compuesta y Herramientas",
+      "result": {
+        "success": true,
+        "latency_ms": 4956.36,
+        "response": "",
+        "eval_count": 256,
+        "tokens_per_second": 91.5
+      }
+    }
+  ]
+}

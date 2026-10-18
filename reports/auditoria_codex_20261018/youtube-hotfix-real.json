@@ -1,0 +1,25 @@
+{
+  "input": "No, te pedí que habrás YouTube y reproduzcas Play Your Face.",
+  "reply": "Intenté reproducir Play Your Face en YouTube, pero no pude confirmar que la reproducción haya comenzado.",
+  "calls": [
+    {
+      "skill": "browser.youtube",
+      "parameters": {
+        "operacion": "play",
+        "query": "Play Your Face",
+        "action": "play"
+      },
+      "success": true,
+      "error": null,
+      "output": {
+        "mensaje": "Se solicitó reproducir Play Your Face en YouTube.",
+        "error_code": null,
+        "verified": false,
+        "verification_status": "UNVERIFIED",
+        "url": "https://www.youtube.com/watch?v=fWov6qL7vyw",
+        "query": "Play Your Face"
+      }
+    }
+  ],
+  "seconds": 3.2885786999977427
+}

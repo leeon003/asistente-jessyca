@@ -1,0 +1,1 @@
+escribe una explicación sobre inteligencia artificial en C:\Users\PC\AppData\Local\Temp\pytest-of-Diego\pytest-302\test_escenario_04_notepad_escr0\ia_resumen.txt

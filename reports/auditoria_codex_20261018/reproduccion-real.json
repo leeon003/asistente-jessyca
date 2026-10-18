@@ -1,0 +1,27 @@
+{
+  "startup_ms": 75.09130000107689,
+  "real_agent_media": [
+    {
+      "input": "Jessyca, báilame",
+      "success": true,
+      "response": "Listo, ya está reproduciéndose jessyca10.mp4.",
+      "video": "D:\\bailes de ia\\jessyca10.mp4",
+      "latency_ms": 3144.082200000412
+    },
+    {
+      "input": "bailame",
+      "success": true,
+      "response": "Listo, ya está reproduciéndose jessyca14.mp4.",
+      "video": "D:\\bailes de ia\\jessyca14.mp4",
+      "latency_ms": 3103.506899999047
+    },
+    {
+      "input": "báilame",
+      "success": true,
+      "response": "Listo, ya está reproduciéndose jessyca8.mp4.",
+      "video": "D:\\bailes de ia\\jessyca8.mp4",
+      "latency_ms": 3044.333600002574
+    }
+  ],
+  "memory_scope": "isolated temporary database; original memory preserved"
+}

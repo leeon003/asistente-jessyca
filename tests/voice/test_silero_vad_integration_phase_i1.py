@@ -122,59 +122,31 @@ def _generate_music_audio(duration_sec: float = 1.0, sample_rate: int = 16000) -
 
 
 def _generate_spanish_speech_audio(sample_rate: int = 16000) -> list[AudioChunk]:
-    """Genera audio de voz real en español mediante el sintetizador local offline de Windows (pyttsx3 / SAPI)."""
-    try:
-        import pyttsx3
-
-        eng = pyttsx3.init()
-        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
-            tmp_path = Path(tmp.name)
-        try:
-            eng.save_to_file("Hola Jessyca abre el bloc de notas", str(tmp_path))
-            eng.runAndWait()
-
-            with wave.open(str(tmp_path), "rb") as wf:
-                orig_sr = wf.getframerate()
-                channels = wf.getnchannels()
-                frames = wf.readframes(wf.getnframes())
-
-            samples = np.frombuffer(frames, dtype=np.int16).astype(np.float32) / 32768.0
-            if channels > 1:
-                samples = samples.reshape(-1, channels).mean(axis=1)
-
-            if orig_sr != sample_rate:
-                target_len = int(len(samples) * sample_rate / float(orig_sr))
-                samples = np.interp(
-                    np.linspace(0, len(samples) - 1, target_len),
-                    np.arange(len(samples)),
-                    samples,
-                ).astype(np.float32)
-
-            chunk_len = int(sample_rate * 0.05)  # 50ms
-            chunks: list[AudioChunk] = []
-            for i in range(0, len(samples), chunk_len):
-                sub = samples[i : i + chunk_len]
-                if len(sub) < chunk_len:
-                    sub = np.pad(sub, (0, chunk_len - len(sub)))
-                chunks.append(_create_pcm_chunk(sub, sample_rate))
-            return chunks
-        finally:
-            if tmp_path.exists():
-                tmp_path.unlink(missing_ok=True)
-    except Exception:
-        # Fallback a síntesis formántica aproximada de vocales /a/ /o/ /e/ si pyttsx3 no está inicializado
-        chunk_len = int(sample_rate * 0.05)
-        chunks = []
-        for vowel_f in [800.0, 500.0, 700.0, 400.0]:
-            for _ in range(8):  # 400ms por vocal
-                t = np.linspace(0, 0.05, chunk_len, endpoint=False)
-                # Formantes típicos de habla humana (F0=130Hz con armónicos en F1, F2)
-                f0 = 0.06 * np.sin(2 * np.pi * 130 * t)
-                f1 = 0.04 * np.sin(2 * np.pi * vowel_f * t)
-                f2 = 0.02 * np.sin(2 * np.pi * (vowel_f * 2.2) * t)
-                sig = (f0 + f1 + f2).astype(np.float32)
-                chunks.append(_create_pcm_chunk(sig, sample_rate))
-        return chunks
+    """Use recorded Spanish speech; harmonic tones are not a speech reference."""
+    fixture = Path(__file__).parent / "fixtures" / "sample_es_hola_jessica.wav"
+    if not fixture.is_file():
+        pytest.skip("Recorded Spanish speech fixture is unavailable")
+    with wave.open(str(fixture), "rb") as wf:
+        assert wf.getsampwidth() == 2, "Expected PCM16 speech fixture"
+        orig_sr = wf.getframerate()
+        channels = wf.getnchannels()
+        samples = np.frombuffer(wf.readframes(wf.getnframes()), dtype=np.int16).astype(np.float32) / 32768.0
+    if channels > 1:
+        samples = samples.reshape(-1, channels).mean(axis=1)
+    if orig_sr != sample_rate:
+        target_len = int(len(samples) * sample_rate / float(orig_sr))
+        samples = np.interp(
+            np.linspace(0, len(samples) - 1, target_len),
+            np.arange(len(samples)), samples,
+        ).astype(np.float32)
+    chunk_len = int(sample_rate * 0.05)
+    chunks = []
+    for offset in range(0, len(samples), chunk_len):
+        chunk = samples[offset:offset + chunk_len]
+        if len(chunk) < chunk_len:
+            chunk = np.pad(chunk, (0, chunk_len - len(chunk)))
+        chunks.append(_create_pcm_chunk(chunk, sample_rate))
+    return chunks
 
 
 # ── TEST 1: CONTRATO FORMAL IVADService, HEALTH Y CAPABILITIES ──

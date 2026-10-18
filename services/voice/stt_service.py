@@ -19,6 +19,7 @@ import math
 import threading
 import time
 import wave
+from pathlib import Path
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any, Protocol
@@ -76,6 +77,13 @@ class ISTTService(Protocol):
         timeout_seconds: float = 10.0,
     ) -> TranscriptResult: ...
 
+    def transcribe_file(
+        self,
+        file_path: str | Path,
+        sample_rate: int = 16000,
+        timeout_seconds: float = 10.0,
+    ) -> str: ...
+
 
 class MockSTTService:
     """Servicio STT sintético EXCLUSIVAMENTE para testing y CI/CD reproducible.
@@ -127,6 +135,18 @@ class MockSTTService:
             metadata={"engine": "mock_stt", "network_required": False},
         )
 
+    def transcribe_file(
+        self,
+        file_path: str | Path,
+        sample_rate: int = 16000,
+        timeout_seconds: float = 10.0,
+    ) -> str:
+        """Transcribe un archivo de audio directamente desde disco y retorna el texto resultante."""
+        with open(file_path, "rb") as f:
+            data = f.read()
+        res = self.transcribe(data, sample_rate=sample_rate, timeout_seconds=timeout_seconds)
+        return res.text
+
 
 class FasterWhisperSTTService:
     """Servicio de transcripción Speech-to-Text desacoplado y local con faster-whisper.
@@ -158,7 +178,13 @@ class FasterWhisperSTTService:
         self.compute_type = compute_type
         self.default_language = default_language
         self.beam_size = beam_size
-        self.initial_prompt = initial_prompt
+        self.initial_prompt = initial_prompt or (
+            "Transcripción en español para el asistente Jessica y JESSYCA. "
+            "Vocabulario habitual: Jessica, báilame, carpeta Bailes de IA, disco D, "
+            "reproduce videos locales, abre la carpeta, busca archivos en mi computadora, "
+            "abre YouTube, reproduce música de Mozart, Bloc de notas, Calculadora, Google Chrome, "
+            "baja el volumen, sube el volumen, busca información sobre Python, quién fue Albert Einstein."
+        )
         self._model: Any = None
         self._is_loaded = False
         self._is_ready = False
@@ -167,6 +193,8 @@ class FasterWhisperSTTService:
         self._fallback_cpu_used = False
         self._model_load_ms = 0.0
         self._lock = threading.Lock()
+        self._submission_lock = threading.Lock()
+        self._pending_transcription = None
         self._executor = concurrent.futures.ThreadPoolExecutor(
             max_workers=1,
             thread_name_prefix="stt_whisper_worker",
@@ -294,19 +322,15 @@ class FasterWhisperSTTService:
                         f"No se pudo cargar el modelo faster-whisper '{self.model_size}': {e}"
                     ) from e
 
-    def warmup(self) -> None:
+    def warmup(self, timeout_seconds: float = 10.0) -> None:
         """Valida una inferencia real en audio silencioso antes de declarar STT operativo."""
         if not self._is_loaded or self._model is None:
             self.load_model()
 
         dummy_audio = np.zeros(1600, dtype=np.float32)
         try:
-            segments, _ = self._model.transcribe(
-                dummy_audio,
-                language=self.default_language,
-                beam_size=1,
-            )
-            _ = list(segments)
+            self._is_ready = False
+            self._submit_transcription(dummy_audio, validation=True).result(timeout=timeout_seconds)
             self._is_ready = True
             logger.info(
                 f"[FASTER-WHISPER] Inferencia de validación superada. STT operativo "
@@ -320,12 +344,7 @@ class FasterWhisperSTTService:
                 )
                 self._fallback_to_cpu()
                 # Re-validar en CPU
-                segments, _ = self._model.transcribe(
-                    dummy_audio,
-                    language=self.default_language,
-                    beam_size=1,
-                )
-                _ = list(segments)
+                self._submit_transcription(dummy_audio, validation=True).result(timeout=timeout_seconds)
                 self._is_ready = True
                 logger.info(
                     "[FASTER-WHISPER] Inferencia de validación superada tras fallback. STT operativo en CPU/int8."
@@ -467,7 +486,28 @@ class FasterWhisperSTTService:
             beam_size=beam_size,
             condition_on_previous_text=False,
             initial_prompt=self.initial_prompt,
+            vad_filter=True,
+            vad_parameters=dict(min_silence_duration_ms=450),
         )
+
+    def _consume_transcription(self, audio_array, language, beam_size, validation=False):
+        if validation:
+            # Warmup must exercise native inference even on silence; VAD would
+            # skip the model entirely and hide missing CUDA dependencies.
+            segments, info = self._model.transcribe(audio_array, language=language, beam_size=1)
+        else:
+            segments, info = self._execute_transcribe(audio_array, language, beam_size)
+        return list(segments), info
+
+    def _submit_transcription(self, audio_array, validation=False):
+        with self._submission_lock:
+            if self._pending_transcription is not None and not self._pending_transcription.done():
+                raise STTError("La transcripción anterior sigue ejecutándose; no se encola otra solicitud.")
+            self._pending_transcription = self._executor.submit(
+                self._consume_transcription, audio_array, self.default_language,
+                self.beam_size, validation,
+            )
+            return self._pending_transcription
 
     def transcribe(
         self,
@@ -508,12 +548,7 @@ class FasterWhisperSTTService:
 
         # 4. Inferencia con timeout real mediante ThreadPoolExecutor
         t_start = time.perf_counter()
-        future = self._executor.submit(
-            self._execute_transcribe,
-            audio_float,
-            self.default_language,
-            self.beam_size,
-        )
+        future = self._submit_transcription(audio_float)
 
         try:
             segments_gen, info = future.result(timeout=timeout_seconds)
@@ -536,12 +571,7 @@ class FasterWhisperSTTService:
                 )
                 self._fallback_to_cpu()
                 try:
-                    re_future = self._executor.submit(
-                        self._execute_transcribe,
-                        audio_float,
-                        self.default_language,
-                        self.beam_size,
-                    )
+                    re_future = self._submit_transcription(audio_float)
                     segments_gen, info = re_future.result(timeout=timeout_seconds)
                     segments = list(segments_gen)
                 except Exception as re_err:
@@ -583,7 +613,25 @@ class FasterWhisperSTTService:
                 })
 
         full_text = " ".join(texts).strip()
-        if not full_text:
+
+        # Detección de alucinaciones repetitivas en Whisper ante silencios o ruidos
+        tokens = full_text.lower().split()
+        is_repetitive = False
+        if len(tokens) >= 4:
+            if len(set(tokens)) <= 2:
+                is_repetitive = True
+            else:
+                for n in (1, 2, 3):
+                    chunks = [" ".join(tokens[i:i+n]) for i in range(0, len(tokens) - n + 1, n)]
+                    if len(chunks) >= 3 and len(set(chunks[:3])) == 1:
+                        is_repetitive = True
+                        break
+
+        if is_repetitive:
+            logger.warning(f"[FASTER-WHISPER] Descartando alucinación repetitiva STT: '{full_text}'")
+            full_text = ""
+            confidence = 0.0
+        elif not full_text:
             confidence = 0.0
         else:
             confidence = round(sum(segment_probs) / len(segment_probs), 4) if segment_probs else 0.0
@@ -608,6 +656,18 @@ class FasterWhisperSTTService:
                 "network_required": False,
             },
         )
+
+    def transcribe_file(
+        self,
+        file_path: str | Path,
+        sample_rate: int = 16000,
+        timeout_seconds: float = 10.0,
+    ) -> str:
+        """Transcribe un archivo de audio directamente desde disco y retorna el texto resultante."""
+        with open(file_path, "rb") as f:
+            data = f.read()
+        res = self.transcribe(data, sample_rate=sample_rate, timeout_seconds=timeout_seconds)
+        return res.text
 
 
 class GoogleSTTService:
@@ -701,7 +761,7 @@ class GoogleSTTService:
             raise STTError(f"Fallo de conectividad o servicio en Google STT: {e}") from e
 
 
-_stt_instances: dict[str, ISTTService] = {}
+_stt_instances: dict[tuple, ISTTService] = {}
 _factory_lock = threading.Lock()
 
 
@@ -727,8 +787,10 @@ def get_stt_service(
         return MockSTTService(**kwargs)
 
     with _factory_lock:
-        if selected in _stt_instances:
-            return _stt_instances[selected]
+        # Explicit CPU requests must not reuse an earlier auto/CUDA instance.
+        cache_key = (selected, tuple(sorted(kwargs.items())))
+        if cache_key in _stt_instances:
+            return _stt_instances[cache_key]
 
         instance: ISTTService
         if selected == "faster-whisper":
@@ -761,7 +823,7 @@ def get_stt_service(
                 "Opciones soportadas: 'faster-whisper', 'google', 'mock'."
             )
 
-        _stt_instances[selected] = instance
+        _stt_instances[cache_key] = instance
         return instance
 
 
@@ -769,3 +831,5 @@ def reset_stt_services() -> None:
     """Restablece el cache de proveedores STT para aislamiento en suites de tests."""
     with _factory_lock:
         _stt_instances.clear()
+
+

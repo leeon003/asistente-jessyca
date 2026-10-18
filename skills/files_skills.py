@@ -126,7 +126,7 @@ class FilesReadSkill(BaseSkill):
             capabilities=("filesystem_read", "filesystem"),
             required_tools=("file.read",),
             required_agents=("FileAgent",),
-            required_models=("llama3.2:latest",),
+            required_models=(),
             permissions=("file.read",),
             risk_level=SecurityLevel.SAFE,
         )
@@ -181,7 +181,7 @@ class FilesCreateSkill(BaseSkill):
             capabilities=("filesystem_write", "filesystem"),
             required_tools=("file.write",),
             required_agents=("FileAgent",),
-            required_models=("llama3.2:latest",),
+            required_models=(),
             permissions=("file.write",),
             risk_level=SecurityLevel.SAFE,
         )
@@ -249,7 +249,7 @@ class FilesCopySkill(BaseSkill):
             capabilities=("filesystem_read", "filesystem_write"),
             required_tools=("file.copy",),
             required_agents=("FileAgent",),
-            required_models=("llama3.2:latest",),
+            required_models=(),
             permissions=("file.copy",),
             risk_level=SecurityLevel.SAFE,
         )
@@ -332,7 +332,7 @@ class FilesMoveSkill(BaseSkill):
             capabilities=("filesystem_read", "filesystem_write"),
             required_tools=("file.move",),
             required_agents=("FileAgent",),
-            required_models=("llama3.2:latest",),
+            required_models=(),
             permissions=("file.move",),
             risk_level=SecurityLevel.SAFE,
         )
@@ -408,7 +408,7 @@ class FilesRenameSkill(BaseSkill):
             capabilities=("filesystem_read", "filesystem_write"),
             required_tools=("file.rename",),
             required_agents=("FileAgent",),
-            required_models=("llama3.2:latest",),
+            required_models=(),
             permissions=("file.rename",),
             risk_level=SecurityLevel.SAFE,
         )
@@ -479,7 +479,7 @@ class FilesCreateFolderSkill(BaseSkill):
             capabilities=("filesystem_write", "filesystem"),
             required_tools=("file.create_folder",),
             required_agents=("FileAgent",),
-            required_models=("llama3.2:latest",),
+            required_models=(),
             permissions=("file.write",),
             risk_level=SecurityLevel.SAFE,
         )
@@ -553,7 +553,7 @@ class FilesListSkill(BaseSkill):
             capabilities=("filesystem_read", "filesystem"),
             required_tools=("file.list",),
             required_agents=("FileAgent",),
-            required_models=("llama3.2:latest",),
+            required_models=(),
             permissions=("file.read",),
             risk_level=SecurityLevel.SAFE,
         )
@@ -658,7 +658,7 @@ class FilesMetadataSkill(BaseSkill):
             capabilities=("filesystem_read", "filesystem"),
             required_tools=("file.metadata",),
             required_agents=("FileAgent",),
-            required_models=("llama3.2:latest",),
+            required_models=(),
             permissions=("file.read",),
             risk_level=SecurityLevel.SAFE,
         )
@@ -745,7 +745,7 @@ class FilesOrganizeSkill(BaseSkill):
             capabilities=("filesystem_read", "filesystem_write"),
             required_tools=("file.search", "file.move"),
             required_agents=("FileAgent",),
-            required_models=("llama3.2:latest",),
+            required_models=(),
             permissions=("file.search", "file.move"),
             risk_level=SecurityLevel.SAFE,
         )

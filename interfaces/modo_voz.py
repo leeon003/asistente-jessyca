@@ -32,6 +32,7 @@ from core.local_agent.local_agent import JessycaLocalAgent
 from core.local_agent.local_agent_models import InputModality, JessycaRequest
 from core.logger import get_logger
 from core.state import StateMachine
+from core.state.states import SessionState
 from services.voice.audio_capture import CalibratedVoiceCaptureEngine
 from services.voice.audio_device_manager import (
     SignalValidationStatus,
@@ -45,6 +46,7 @@ from services.voice.continuous_voice_session import (
 from services.voice.device_resolver import VoiceDeviceResolver
 from services.voice.stt_event_adapter import STTEventAdapter
 from services.voice.stt_service import get_stt_service
+from services.voice.spoken_text import prepare_spoken_text
 from services.voice.tts_provider import get_tts_manager
 from services.voice.voice_errors import VoiceCancelledError, VoiceInterruptedError
 from services.voice.voice_diagnostics import (
@@ -100,6 +102,7 @@ class VoiceSpeaker:
         self._pygame_ready = False
         self._tts_manager = get_tts_manager()
         self.barge_in_controller = barge_in_controller
+        self.aurora_bridge: Any | None = None
         self._init_audio_system()
 
     def _init_audio_system(self) -> None:
@@ -141,12 +144,15 @@ class VoiceSpeaker:
 
     def stop(self) -> None:
         """Detiene de inmediato cualquier reproducción o generación activa de voz."""
+        # Playback owns this lock while speaking. Cancel before waiting for it,
+        # otherwise an interruption cannot reach the running synthesis.
+        current_token = getattr(self, "_current_token", None)
+        if current_token:
+            current_token.cancel()
+        if self._tts_manager:
+            self._tts_manager.cancel(reason="speaker_stopped")
         with self._lock:
-            if hasattr(self, "_current_token") and self._current_token:
-                self._current_token.cancel()
-                self._current_token = None
-            if self._tts_manager:
-                self._tts_manager.cancel(reason="speaker_stopped")
+            self._current_token = None
             try:
                 import pygame
 
@@ -159,13 +165,25 @@ class VoiceSpeaker:
                     self._sapi_speaker.Speak("", 2)  # SVSFPurgeBeforeSpeak
                 except Exception:
                     pass
+            if hasattr(self, "aurora_bridge") and self.aurora_bridge:
+                try:
+                    self.aurora_bridge.notify_tts_end(interrupted=True)
+                except Exception:
+                    pass
 
-    def speak(self, text: str, session_id: str | None = None) -> VoiceSpeakerMetrics:
+    def speak(
+        self,
+        text: str,
+        session_id: str | None = None,
+        capture_engine: Any | None = None,
+    ) -> VoiceSpeakerMetrics:
         """Sintetiza y reproduce el texto mediante TTSManager entregando por frases completas para fluidez."""
         if not text or not text.strip():
             return VoiceSpeakerMetrics()
 
-        clean_text = text.strip()
+        clean_text = prepare_spoken_text(text)
+        if not clean_text:
+            return VoiceSpeakerMetrics()
         metrics = VoiceSpeakerMetrics(voice_name=str(self.voice_name))
         t_start = time.perf_counter()
 
@@ -177,77 +195,130 @@ class VoiceSpeaker:
         if self.barge_in_controller:
             self.barge_in_controller.notify_tts_started(cancellation_token=token, session_id=session_id)
 
+        if hasattr(self, "aurora_bridge") and self.aurora_bridge:
+            try:
+                self.aurora_bridge.notify_tts_start(clean_text)
+            except Exception:
+                pass
+
         try:
             # Dividir en frases completas para reducir TTFA (Time to First Audio) y permitir corte inmediato
-            sentences = [s.strip() for s in re.split(r"(?<=[.!?])\s+", clean_text) if s.strip()]
+            sentences = [clean_text] if len(clean_text) <= 280 else [
+                s.strip() for s in re.split(r"(?<=[.!?])\s+", clean_text) if s.strip()
+            ]
             if not sentences:
                 sentences = [clean_text]
 
             total_duration_ms = 0.0
             first_sentence = True
 
-            with self._lock:
-                for sentence in sentences:
-                    if token.is_cancelled:
-                        logger.info("[VOICE SPEAKER] Reproducción interrumpida entre frases.")
-                        break
+            def _run_playback() -> None:
+                nonlocal total_duration_ms, first_sentence
+                with self._lock:
+                    for sentence in sentences:
+                        if token.is_cancelled:
+                            logger.info("[VOICE SPEAKER] Reproducción interrumpida entre frases.")
+                            break
 
-                    try:
-                        success, tts_met = self._tts_manager.speak(
-                            sentence,
-                            voice=str(self.voice_name),
-                            cancellation_token=token,
-                        )
-                        if success:
-                            if first_sentence:
-                                metrics.startup_latency_ms = tts_met.t2_first_audio_ms or ((time.perf_counter() - t_start) * 1000.0)
-                                first_sentence = False
-                            total_duration_ms += tts_met.t4_audio_duration_ms
-                            metrics.engine_used = tts_met.engine_used or tts_met.provider_used
-                            continue
-                    except VoiceCancelledError:
-                        logger.info("[VOICE SPEAKER] Locución cancelada por interrupción del usuario.")
-                        break
-                    except Exception as e:
-                        logger.warning(f"[VOICE TTS] TTSManager falló ({e}), intentando fallback SAPI...")
+                        try:
+                            success, tts_met = self._tts_manager.speak(
+                                sentence,
+                                voice=str(self.voice_name),
+                                cancellation_token=token,
+                            )
+                            if success:
+                                if first_sentence:
+                                    metrics.startup_latency_ms = tts_met.t2_first_audio_ms or ((time.perf_counter() - t_start) * 1000.0)
+                                    first_sentence = False
+                                total_duration_ms += tts_met.t4_audio_duration_ms
+                                metrics.engine_used = tts_met.engine_used or tts_met.provider_used
+                                continue
+                        except VoiceCancelledError:
+                            logger.info("[VOICE SPEAKER] Locución cancelada por interrupción del usuario.")
+                            break
+                        except Exception as e:
+                            logger.warning(f"[VOICE TTS] TTSManager falló ({e}), intentando fallback SAPI...")
 
-                    if token.is_cancelled:
-                        break
+                        if token.is_cancelled:
+                            break
 
-                    # Fallback a SAPI por frase si TTSManager falla
-                    try:
-                        sp = self._get_sapi_speaker()
-                        if sp:
+                        # Fallback a SAPI por frase si TTSManager falla
+                        try:
+                            sp = self._get_sapi_speaker()
+                            if sp:
+                                t_play_start = time.perf_counter()
+                                if first_sentence:
+                                    metrics.startup_latency_ms = (t_play_start - t_start) * 1000.0
+                                    first_sentence = False
+                                sp.Speak(sentence)
+                                dur = (time.perf_counter() - t_play_start) * 1000.0
+                                total_duration_ms += dur
+                                metrics.engine_used = "sapi"
+                                continue
+                        except Exception:
+                            pass
+
+                        # Fallback pyttsx3 por frase
+                        try:
+                            import pyttsx3
+
+                            engine = pyttsx3.init()
+                            engine.setProperty("rate", 175)
                             t_play_start = time.perf_counter()
                             if first_sentence:
                                 metrics.startup_latency_ms = (t_play_start - t_start) * 1000.0
                                 first_sentence = False
-                            sp.Speak(sentence)
-                            dur = (time.perf_counter() - t_play_start) * 1000.0
-                            total_duration_ms += dur
-                            metrics.engine_used = "sapi"
-                            continue
-                    except Exception:
-                        pass
+                            engine.say(sentence)
+                            engine.runAndWait()
+                            engine.stop()
+                            total_duration_ms += (time.perf_counter() - t_play_start) * 1000.0
+                            metrics.engine_used = "pyttsx3"
+                        except Exception as ex3:
+                            logger.error(f"[VOICE TTS FATAL] Fallo en todos los motores de voz: {ex3}")
+                            break
 
-                    # Fallback pyttsx3 por frase
+            # Si se proporciona capture_engine y barge_in_controller, monitorear el micrófono concurrentemente
+            # garantizando coordinación única a través de capture_engine._lock (sin doble captura)
+            if capture_engine is not None and self.barge_in_controller is not None:
+                play_thread = threading.Thread(target=_run_playback, name="TTSPlaybackWorker", daemon=True)
+                play_thread.start()
+
+                mic = getattr(capture_engine, "_microphone", None)
+                if mic:
                     try:
-                        import pyttsx3
+                        with capture_engine._lock:
+                            with mic as source:
+                                from services.voice.audio_input import AudioChunk
 
-                        engine = pyttsx3.init()
-                        engine.setProperty("rate", 175)
-                        t_play_start = time.perf_counter()
-                        if first_sentence:
-                            metrics.startup_latency_ms = (t_play_start - t_start) * 1000.0
-                            first_sentence = False
-                        engine.say(sentence)
-                        engine.runAndWait()
-                        engine.stop()
-                        total_duration_ms += (time.perf_counter() - t_play_start) * 1000.0
-                        metrics.engine_used = "pyttsx3"
-                    except Exception as ex3:
-                        logger.error(f"[VOICE TTS FATAL] Fallo en todos los motores de voz: {ex3}")
-                        break
+                                while play_thread.is_alive() and not token.is_cancelled:
+                                    try:
+                                        buf = source.stream.read(source.CHUNK, exception_on_overflow=False)
+                                        if not buf:
+                                            break
+                                        chunk_obj = AudioChunk(
+                                            data=buf,
+                                            sample_rate=source.SAMPLE_RATE,
+                                            bytes_per_sample=source.SAMPLE_WIDTH,
+                                            channels=1,
+                                        )
+                                        interrupted = self.barge_in_controller.process_audio_chunk(
+                                            chunk=chunk_obj,
+                                            conversation_active=True,
+                                            session_id=session_id,
+                                        )
+                                        if interrupted:
+                                            logger.info("[VOICE SPEAKER] [BARGE-IN ACTIVADO] Audio de JESSYCA interrumpido por habla del usuario.")
+                                            break
+                                    except Exception as e_stream:
+                                        logger.debug(f"[VOICE SPEAKER] Stream de lectura en barge-in finalizado: {e_stream}")
+                                        break
+                    except Exception as e_mic:
+                        logger.debug(f"[VOICE SPEAKER] Monitoreo de micrófono en barge-in no disponible: {e_mic}")
+
+                play_thread.join(timeout=45.0)
+            else:
+                # Modo síncrono estándar (compatible con CLI básica y tests unitarios)
+                _run_playback()
 
             metrics.duration_ms = total_duration_ms
             return metrics
@@ -255,6 +326,11 @@ class VoiceSpeaker:
             self._current_token = None
             if self.barge_in_controller:
                 self.barge_in_controller.notify_tts_finished()
+            if hasattr(self, "aurora_bridge") and self.aurora_bridge:
+                try:
+                    self.aurora_bridge.notify_tts_end(interrupted=bool(token and token.is_cancelled))
+                except Exception:
+                    pass
 
 
 def iniciar_modo_voz(
@@ -262,6 +338,7 @@ def iniciar_modo_voz(
     custom_banner: str | None = None,
     mcp_info: str | None = None,
     ptt_mode: bool = False,
+    enable_orb: bool = True,
 ) -> None:
     """Inicia el bucle interactivo de voz (continua o Pulsar para Hablar / PTT)."""
     if custom_banner:
@@ -378,6 +455,22 @@ def iniciar_modo_voz(
     )
     speaker.barge_in_controller = barge_in_controller
 
+    # Inicializar Orbe 3D Aurora si está habilitado
+    aurora_runtime: Any | None = None
+    aurora_bridge: Any | None = None
+    if enable_orb:
+        try:
+            from interfaces.aurora.runtime import AuroraRuntime
+            aurora_runtime = AuroraRuntime(headless=False)
+            aurora_runtime.start()
+            aurora_bridge = aurora_runtime.bridge
+            agent.aurora_bridge = aurora_bridge
+            aurora_bridge.attach_state_machine(state_machine)
+            speaker.aurora_bridge = aurora_bridge
+            print("  [✓] JESSYCA ORB 4.0: Núcleo Aurora 3D & Fusión Reactiva en ejecución")
+        except Exception as e_orb:
+            logger.warning(f"[MODO_VOZ] No se pudo lanzar el Orbe Aurora: {e_orb}")
+
 
     saludo = "Hola, soy Jessyca. Di 'Jessica' seguido de tu orden, o habla directamente."
     print(f"\n  Jessyca: {saludo}\n")
@@ -448,6 +541,7 @@ def iniciar_modo_voz(
                     timeout=7.0,
                     on_listening_start=_on_listening,
                     on_transcribing_start=_on_transcribing,
+                    on_audio_chunk=aurora_bridge.on_pcm_chunk if aurora_bridge else None,
                 )
                 stt_latency_ms = (time.perf_counter() - t_capture_start) * 1000.0
                 logger.info(f"[VOICE_CAPTURE_STOPPED] Captura finalizada. Descarte: {capture_result.discard_reason.value}")
@@ -504,6 +598,9 @@ def iniciar_modo_voz(
                 print("  [Procesando con Agente Core...]")
                 logger.info(f"[VOICE_EXECUTION_STARTED] Procesando petición de voz: '{texto}'")
 
+                if aurora_bridge:
+                    aurora_bridge.notify_cognition("routing")
+
                 voice_session.on_processing_started()
 
                 # Procesamiento con Agente Local JESSYCA
@@ -531,15 +628,15 @@ def iniciar_modo_voz(
                     if res.proposed_interpretation:
                         print(f"  [Aclaración detectada | Transcripción: '{texto}' | Interpretación propuesta: '{res.proposed_interpretation}']")
                     print(f"\n  Jessyca (Aclaración): {msg}")
-                    tts_metrics = speaker.speak(msg, session_id=session_id)
+                    tts_metrics = speaker.speak(msg, session_id=session_id, capture_engine=capture_engine)
                 elif res.requires_confirmation:
                     msg = f"Atención: {res.response_text}. ¿Deseas autorizar esta acción?"
                     print(f"\n  Jessyca (Confirmación): {msg}")
-                    tts_metrics = speaker.speak(msg, session_id=session_id)
+                    tts_metrics = speaker.speak(msg, session_id=session_id, capture_engine=capture_engine)
                 else:
                     msg = res.spoken_text or res.response_text
                     print(f"\n  Jessyca: {msg}")
-                    tts_metrics = speaker.speak(msg, session_id=session_id)
+                    tts_metrics = speaker.speak(msg, session_id=session_id, capture_engine=capture_engine)
 
                 t_turn_end = time.perf_counter()
                 last_spoken_text = msg or ""
@@ -606,6 +703,13 @@ def iniciar_modo_voz(
                 logger.error(f"[MODO VOZ] Error en el ciclo de interacción: {e}")
                 print(f"  [Error inesperado: {e}]")
     finally:
+        if getattr(agent, "aurora_bridge", None) is aurora_bridge:
+            agent.aurora_bridge = None
+        if aurora_runtime:
+            try:
+                aurora_runtime.stop()
+            except Exception as e_orb_stop:
+                logger.debug(f"[MODO VOZ CLEANUP] Error al detener Orbe Aurora: {e_orb_stop}")
         try:
             from core.browser_session_manager import reset_shared_browser_adapter
             reset_shared_browser_adapter()

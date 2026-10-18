@@ -75,7 +75,7 @@ def _handle_files_search(params: dict[str, Any], ctx: dict[str, Any]) -> dict[st
         return {"found_files": [], "count": 0, "directory": str(p_dir), "error": "Directorio no encontrado"}
 
     found: list[str] = []
-    doc_extensions = {".docx", ".xlsx", ".pptx", ".pdf", ".txt", ".md", ".json"}
+    doc_extensions = {".docx", ".xlsx", ".pptx", ".pdf", ".txt", ".md", ".json", ".csv", ".log", ".rtf", ".odt", ".epub"}
     is_generic_doc = query in ("documento", "documentos", "doc", "archivo", "archivos", "*")
 
     for entry in sorted(p_dir.rglob("*")):

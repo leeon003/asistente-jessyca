@@ -1,0 +1,32 @@
+{
+  "scope": "Real recorded/synthesized Spanish injected through WebAudio; real local STT, agent HTTP and TTS. Not a physical microphone test.",
+  "browser": "Chrome 155",
+  "errors": [],
+  "transcripts": [
+    {
+      "status": 200,
+      "text": "Hola Jessica, ¿cuál es el estado del sistema?",
+      "confidence": 0.6664,
+      "empty": false
+    },
+    {
+      "status": 200,
+      "text": "¿Cuánto es dos más dos?",
+      "confidence": 0.8393,
+      "empty": false
+    }
+  ],
+  "chat_inputs": [
+    "¿cuál es el estado del sistema?",
+    "¿Cuánto es dos más dos?"
+  ],
+  "speech_responses": [
+    200,
+    200
+  ],
+  "first_reply": "No tengo acceso al estado real de tu sistema operativo o a las herramientas locales en este momento. Solo puedo responder basándome en la información que tú me proporciones o en mi conocimiento general sobre software y hardware. ¿Hay algún aspecto específico del sistema (como el uso de CPU, memoria o procesos) que te gustaría analizar?",
+  "second_reply": "Dos más dos son cuatro.",
+  "microphone_open_count": 1,
+  "still_attentive": true,
+  "passed": true
+}

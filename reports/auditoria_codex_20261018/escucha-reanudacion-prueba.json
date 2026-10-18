@@ -1,0 +1,23 @@
+{
+  "scope": "Real Chrome 155 and WebAudio with controlled microphone signal and mocked transcripts/chat; real TTS. No human microphone certification.",
+  "errors": [],
+  "transcriptions": [
+    57388,
+    46464,
+    54656
+  ],
+  "chat_requests": [
+    "hola.",
+    "continúa por favor"
+  ],
+  "real_tts_played": true,
+  "own_reply_did_not_create_another_transcription": true,
+  "microphone_open_count": 1,
+  "resumed_after_two_turns": true,
+  "stop_releases_microphone": true,
+  "manual_resume_works": true,
+  "manual_mode_still_available": true,
+  "switching_modes_keeps_one_active_stream": true,
+  "all_test_microphone_tracks_released": true,
+  "cancelled_transcript_cannot_execute_late_command": true
+}
