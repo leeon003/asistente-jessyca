@@ -109,27 +109,7 @@ class AppSettings(BaseSettings):
         description="Mecanismo de transporte MCP para modo DEMO interactivo (streamable-http, sse, http).",
     )
 
-    # Configuración del Router Inteligente (Fase 3 / Fase 4 Shadow / Fase 5 Controlled)
-    MODEL_ROUTER_ENABLED: bool = Field(
-        default=False,
-        description="Flag maestro de activación del Model Router (False=desactivado/comportamiento anterior, True=enrutamiento controlado activo).",
-    )
-    MODEL_ROUTER_MODE: str = Field(
-        default="shadow",
-        description="Modo de operación del router de modelos (static, shadow, experimental).",
-    )
-    ROUTER_CONFIDENCE_THRESHOLD: float = Field(
-        default=0.80,
-        description="Umbral mínimo de confianza para aplicar recomendación de modelo complejo.",
-    )
-    ROUTER_SHADOW_LOG_FILE: Path = Field(
-        default=Path("logs/router_shadow.jsonl"),
-        description="Ruta del archivo de registro estructurado para decisiones en modo shadow.",
-    )
-    NEMOTRON_ENABLED: bool = Field(
-        default=False,
-        description="Flag de habilitación para el provider remoto NVIDIA Nemotron 3 Ultra (False por defecto).",
-    )
+    # Transporte para clientes MCP externos
     MCP_EXTERNAL_TRANSPORT: str = Field(
         default="stdio",
         description="Mecanismo de transporte MCP para clientes externos dedicados (stdio).",

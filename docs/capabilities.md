@@ -67,7 +67,7 @@ Resuelve las consultas `tool_name + operation` contra el `CapabilityRegistry`. S
 
 ## Distinción: `ToolRegistry` vs `CapabilityRegistry`
 
-- **`ToolRegistry` (`tools/registry.py`)**: Maneja el descubrimiento de instancias de herramientas en tiempo de ejecución (`BaseTool`) y la interfaz de MCP.
+- **`ToolRegistry` (`tools/tool_registry.py`)**: Maneja el descubrimiento de instancias de herramientas en tiempo de ejecución (`BaseTool`) y la interfaz de MCP.
 - **`CapabilityRegistry` (`core/capability_registry.py`)**: Maneja los metadatos declarativos de seguridad, niveles de riesgo, autorizaciones e invariantes del sistema.
 
 ---

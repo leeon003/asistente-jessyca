@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "jessyca-windows-mcp"
 version = "0.1.0"
 description = "Arquitectura base del asistente Jessyca impulsado por Model Context Protocol (MCP) para Windows 10 y 11."
-readme = "README.md"
+readme = "Documentos/README.md"
 authors = [
     { name = "Jessyca Open Source Community" }
 ]
@@ -28,6 +28,7 @@ dependencies = [
     "pydantic-settings>=2.0.0",
     "python-dotenv>=1.0.0",
     "psutil>=5.9.0",
+    "requests>=2.31.0",
     "rich>=13.0.0",
     "fastapi>=0.104.0",
     "uvicorn[standard]>=0.24.0",
