@@ -141,6 +141,9 @@ class ProcessService:
     ) -> ProcessTerminationResult:
         """Termina un proceso activo verificando Protected Processes y PID Reuse Protection."""
         pid_int = self.validate_pid(pid)
+        # Never address idle/kernel/init identifiers, even before process lookup.
+        if pid_int in {0, 1, 4}:
+            raise ProtectedProcessError("reserved system process", pid_int)
 
         try:
             proc = psutil.Process(pid_int)

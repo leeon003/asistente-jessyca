@@ -1,0 +1,576 @@
+{
+  "tracked_files": 1359,
+  "python_files": 1112,
+  "parse_errors": [],
+  "module_collisions": {
+    "server": [
+      "server.py",
+      "server/__init__.py"
+    ],
+    "tools.registry": [
+      "tools/registry.py",
+      "tools/registry/__init__.py"
+    ]
+  },
+  "duplicate_class_fields": [
+    {
+      "path": "config/settings.py",
+      "cls": "AppSettings",
+      "field": "MODEL_ROUTER_ENABLED",
+      "lines": [
+        113,
+        1187
+      ]
+    },
+    {
+      "path": "config/settings.py",
+      "cls": "AppSettings",
+      "field": "MODEL_ROUTER_MODE",
+      "lines": [
+        117,
+        1191
+      ]
+    },
+    {
+      "path": "config/settings.py",
+      "cls": "AppSettings",
+      "field": "ROUTER_CONFIDENCE_THRESHOLD",
+      "lines": [
+        121,
+        1195
+      ]
+    },
+    {
+      "path": "config/settings.py",
+      "cls": "AppSettings",
+      "field": "ROUTER_SHADOW_LOG_FILE",
+      "lines": [
+        125,
+        1199
+      ]
+    },
+    {
+      "path": "config/settings.py",
+      "cls": "AppSettings",
+      "field": "NEMOTRON_ENABLED",
+      "lines": [
+        129,
+        1157
+      ]
+    }
+  ],
+  "identical_files": [],
+  "external_import_candidates": {
+    "PIL": [
+      "core/diagnostics/probes.py",
+      "core/integration/adapters/computer_use_adapter.py",
+      "skills/screenshot_skill.py",
+      "tools/desktop/backend.py",
+      "tools/desktop/ocr_backend.py"
+    ],
+    "anydoc": [
+      "core/anydoc/adapter.py",
+      "core/anydoc/orchestrator.py"
+    ],
+    "chromadb": [
+      "core/local_vector_store.py"
+    ],
+    "dotenv": [
+      "core/brain.py"
+    ],
+    "edge_tts": [
+      "services/voice/tts_provider.py",
+      "services/voice/tts_service.py"
+    ],
+    "fastapi": [
+      "interfaces/mobile_api/app.py",
+      "interfaces/webui_bridge/adapter.py",
+      "interfaces/webui_bridge/app.py",
+      "tests/interfaces/webui_bridge/test_owui_mem_context.py",
+      "tests/interfaces/webui_bridge/test_webui_bridge.py",
+      "tests/test_mobile_api.py"
+    ],
+    "faster_whisper": [
+      "services/voice/stt_service.py"
+    ],
+    "fastmcp": [
+      "server/app.py"
+    ],
+    "nest_asyncio": [
+      "services/voice/tts_service.py"
+    ],
+    "numpy": [
+      "services/voice/audio_device_manager.py",
+      "services/voice/device_resolver.py"
+    ],
+    "pocket_tts": [
+      "services/voice/tts_provider.py"
+    ],
+    "psutil": [
+      "benchmarks/benchmark_tts_pocket_vs_camila.py",
+      "core/application_session_manager.py",
+      "core/diagnostics/probes.py",
+      "core/execution/execution_verifier.py",
+      "core/integration/adapters/computer_use_adapter.py",
+      "core/integration/adapters/jarvis_adapter.py",
+      "core/jde/verification.py",
+      "scripts/run_archify_phase3_certification_e2e.py",
+      "skills/apps.py",
+      "skills/apps_skill.py",
+      "tests/benchmarks/test_real_world_benchmark_100.py",
+      "tools/network/backend.py",
+      "tools/network/connection_backend.py",
+      "tools/process/process_service.py",
+      "tools/services/backend.py",
+      "utils/platform.py"
+    ],
+    "pyautogui": [
+      "core/integration/adapters/computer_use_adapter.py",
+      "core/integration/adapters/jarvis_adapter.py",
+      "skills/apps_skill.py",
+      "tests/test_computer_use_adapter.py"
+    ],
+    "pydantic": [
+      "config/settings.py",
+      "core/action_intent_contract.py",
+      "core/archify/adapter.py",
+      "core/are/models.py",
+      "core/dialogue/dialogue_models.py",
+      "core/experience/analysis_models.py",
+      "core/experience/models.py",
+      "core/experience/sanitization.py",
+      "core/jde/audit.py",
+      "core/jde/authority.py",
+      "core/jde/capabilities.py",
+      "core/jde/conflict.py",
+      "core/jde/contract.py",
+      "core/jde/models.py",
+      "core/jde/policy.py",
+      "core/jde/promotion.py",
+      "core/jde/receipts.py",
+      "core/jde/replay.py",
+      "core/jde/runtime_binding.py",
+      "core/jde/shadow.py",
+      "core/jde/verification.py",
+      "core/learning/daily/daily_metrics.py",
+      "core/learning/daily/daily_policy.py",
+      "core/learning/daily/daily_report.py",
+      "core/learning/deployment.py",
+      "core/learning/evaluator.py",
+      "core/learning/proposal_models.py",
+      "core/learning/regression/regression_models.py",
+      "core/learning/rollback.py",
+      "core/learning/version_manager.py",
+      "core/personalization/preference_models.py",
+      "interfaces/mobile_api/models.py",
+      "interfaces/webui_bridge/models.py",
+      "services/voice/voice_diagnostics.py",
+      "tests/are/test_are_runtime.py",
+      "tests/execution/test_action_intent_contract.py",
+      "tests/jde/test_jde_adversarial.py",
+      "tools/schemas.py"
+    ],
+    "pydantic_settings": [
+      "config/settings.py"
+    ],
+    "pygame": [
+      "interfaces/modo_voz.py",
+      "services/voice/tts_provider.py"
+    ],
+    "pyperclip": [
+      "core/integration/adapters/jarvis_adapter.py",
+      "skills/apps_skill.py",
+      "skills/windows_skills.py"
+    ],
+    "pytesseract": [
+      "tools/desktop/ocr_backend.py"
+    ],
+    "pytest": [
+      "tests/agent/test_context_fuzzing.py",
+      "tests/agent/test_context_limits.py",
+      "tests/agent/test_context_models.py",
+      "tests/agent/test_context_security.py",
+      "tests/agent/test_session_fuzzing.py",
+      "tests/agent/test_session_limits.py",
+      "tests/agent/test_session_manager.py",
+      "tests/agent/test_session_models.py",
+      "tests/agent/test_session_security.py",
+      "tests/anydoc/test_anydoc_phase1.py",
+      "tests/anydoc/test_phase2_controlled.py",
+      "tests/anydoc/test_phase3_certification.py",
+      "tests/application/test_application_control.py",
+      "tests/archify/test_archify_integration.py",
+      "tests/archify/test_archify_phase2_controlled.py",
+      "tests/archify/test_archify_phase3_certification.py",
+      "tests/are/test_are_anydoc_integration.py",
+      "tests/are/test_are_controlled.py",
+      "tests/are/test_are_e2e.py",
+      "tests/are/test_are_idempotency.py",
+      "tests/are/test_are_jde_authority.py",
+      "tests/are/test_are_orca_integration.py",
+      "tests/are/test_are_planning.py",
+      "tests/are/test_are_recovery.py",
+      "tests/are/test_are_runtime.py",
+      "tests/are/test_are_security.py",
+      "tests/autonomy/test_autonomy_decision.py",
+      "tests/autonomy/test_autonomy_escalation.py",
+      "tests/autonomy/test_autonomy_governor.py",
+      "tests/autonomy/test_autonomy_governor_governance.py",
+      "tests/autonomy/test_autonomy_policy.py",
+      "tests/autonomy/test_change_transaction.py",
+      "tests/autonomy/test_etapa_13_security_audit.py",
+      "tests/autonomy/test_etapa_15_security_audit.py",
+      "tests/autonomy/test_etapa_16_2_autonomy_level_model.py",
+      "tests/autonomy/test_memory_cannot_grant_authority.py",
+      "tests/autonomy/test_plugin_cannot_grant_authority.py",
+      "tests/autonomy/test_registry_boundary.py",
+      "tests/autonomy/test_scheduler_cannot_grant_authority.py",
+      "tests/autonomy/test_service_boundary.py",
+      "tests/autonomy/test_software_boundary.py",
+      "tests/autonomy/test_task_scheduler.py",
+      "tests/autonomy/test_wake_word.py",
+      "tests/autonomy/test_workflow_cannot_grant_authority.py",
+      "tests/browser/test_browser_control.py",
+      "tests/capabilities/test_capabilities.py",
+      "tests/capabilities/test_capability_registry.py",
+      "tests/capabilities/test_capability_security.py",
+      "tests/capabilities/test_capability_validator.py",
+      "tests/command_output/test_output_models.py",
+      "tests/command_parser/test_command_argument_validator.py",
+      "tests/command_parser/test_command_lexer.py",
+      "tests/command_parser/test_command_parser_security.py",
+      "tests/command_parser/test_secure_command_parser.py",
+      "tests/command_policy/test_command_policy_manager.py",
+      "tests/command_policy/test_command_policy_models.py",
+      "tests/conftest.py",
+      "tests/conversation/test_clarification_and_followup_phase53.py",
+      "tests/conversation/test_conversational_core_phase49.py",
+      "tests/conversation/test_conversational_memory_phase54.py",
+      "tests/conversation/test_conversational_mode_phase.py",
+      "tests/conversation/test_natural_action_dialogue_phase52_1.py",
+      "tests/conversation/test_natural_dialogue_phase50.py",
+      "tests/core/llm/test_architecture_decoupling.py",
+      "tests/core/llm/test_inference_provider.py",
+      "tests/core/llm/test_model_manager.py",
+      "tests/core/llm/test_model_profile.py",
+      "tests/core/llm/test_model_registry.py",
+      "tests/core/llm/test_vision_pipeline.py",
+      "tests/core/llm/test_vram_and_lifecycle.py",
+      "tests/demo/test_demo_stabilization.py",
+      "tests/desktop/test_action_guard_executors.py",
+      "tests/desktop/test_automation_authorization.py",
+      "tests/desktop/test_automation_click.py",
+      "tests/desktop/test_automation_drag_drop.py",
+      "tests/desktop/test_automation_emergency_stop.py",
+      "tests/desktop/test_automation_fuzzing.py",
+      "tests/desktop/test_automation_limits.py",
+      "tests/desktop/test_automation_models.py",
+      "tests/desktop/test_automation_security.py",
+      "tests/desktop/test_automation_stale_target.py",
+      "tests/desktop/test_coordinate_mapping.py",
+      "tests/desktop/test_desktop_executor.py",
+      "tests/desktop/test_desktop_fuzzing.py",
+      "tests/desktop/test_desktop_limits.py",
+      "tests/desktop/test_desktop_models.py",
+      "tests/desktop/test_desktop_security.py",
+      "tests/desktop/test_ocr_fuzzing.py",
+      "tests/desktop/test_ocr_limits.py",
+      "tests/desktop/test_ocr_models.py",
+      "tests/desktop/test_ocr_security.py",
+      "tests/desktop/test_ui_inspection_fuzzing.py",
+      "tests/desktop/test_ui_inspection_limits.py",
+      "tests/desktop/test_ui_inspection_models.py",
+      "tests/desktop/test_ui_inspection_security.py",
+      "tests/diagnostics/test_self_diagnostics.py",
+      "tests/dialogue/test_conversational_action_controller.py",
+      "tests/dialogue/test_conversational_intent_continuity.py",
+      "tests/dialogue/test_conversational_recovery.py",
+      "tests/dialogue/test_multi_step_action_continuity.py",
+      "tests/e2e/test_full_e2e_integration.py",
+      "tests/execution/test_action_execution_bridge.py",
+      "tests/execution/test_action_intent_contract.py",
+      "tests/execution/test_action_pipeline.py",
+      "tests/execution/test_apps_duplicate_execution_fix.py",
+      "tests/execution/test_apps_false_success_prevention.py",
+      "tests/execution/test_execution_dispatcher.py",
+      "tests/execution/test_execution_gate_bridge.py",
+      "tests/execution/test_execution_verification.py",
+      "tests/execution/test_post_execution_verifier.py",
+      "tests/experience/test_experience_logger.py",
+      "tests/filesystem/test_delete_operations.py",
+      "tests/filesystem/test_document_bridge.py",
+      "tests/filesystem/test_file_read.py",
+      "tests/filesystem/test_file_write.py",
+      "tests/filesystem/test_filesystem_security.py",
+      "tests/filesystem/test_path_security.py",
+      "tests/integration/test_fase20_final_system_certification.py",
+      "tests/interfaces/webui_bridge/test_owui_04_3_verification.py",
+      "tests/interfaces/webui_bridge/test_owui_mem_context.py",
+      "tests/interfaces/webui_bridge/test_webui_bridge.py",
+      "tests/jde/test_decision_engine.py",
+      "tests/jde/test_false_success_regressions.py",
+      "tests/jde/test_jde_adversarial.py",
+      "tests/jde/test_jde_bypass.py",
+      "tests/jde/test_jde_enforcement.py",
+      "tests/jde/test_jde_idempotency.py",
+      "tests/jde/test_jde_kill_switch.py",
+      "tests/jde/test_jde_runtime_e2e.py",
+      "tests/jde/test_jde_verification.py",
+      "tests/jde/test_phase3a_false_success_fixes.py",
+      "tests/jde/test_phase3b_critical_verification.py",
+      "tests/jde/test_phase3c_consolidation.py",
+      "tests/jde/test_phase4_authority.py",
+      "tests/jde/test_phase5_canary.py",
+      "tests/jde/test_phase6_limited.py",
+      "tests/jde/test_phase7_progressive.py",
+      "tests/jde/test_phase8_full_authority.py",
+      "tests/jde/test_runtime_binding.py",
+      "tests/jde/test_runtime_modes.py",
+      "tests/jde/test_shadow_integration.py",
+      "tests/jde/test_shadow_mode.py",
+      "tests/learning/test_learning_proposal_engine.py",
+      "tests/learning/test_regression_learning.py",
+      "tests/learning/test_safe_self_improvement.py",
+      "tests/llm/test_nemotron_provider.py",
+      "tests/llm/test_phase2_benchmark.py",
+      "tests/media/test_media_and_clipboard.py",
+      "tests/media/test_smart_media_playback.py",
+      "tests/memory/test_etapa_12_security_audit.py",
+      "tests/memory/test_multi_agent_memory.py",
+      "tests/memory/test_semantic_retriever.py",
+      "tests/memory/test_vector_store.py",
+      "tests/network/test_connection_fuzzing.py",
+      "tests/network/test_connection_models.py",
+      "tests/network/test_connection_security.py",
+      "tests/network/test_connection_security_invariants.py",
+      "tests/network/test_dns_cache_fuzzing.py",
+      "tests/network/test_dns_cache_models.py",
+      "tests/network/test_dns_cache_security.py",
+      "tests/network/test_dns_cache_security_invariants.py",
+      "tests/network/test_network_boundary_consolidation.py",
+      "tests/network/test_network_fuzzing.py",
+      "tests/network/test_network_models.py",
+      "tests/network/test_network_security.py",
+      "tests/network/test_routing_fuzzing.py",
+      "tests/network/test_routing_models.py",
+      "tests/network/test_routing_security.py",
+      "tests/network/test_routing_security_invariants.py",
+      "tests/observability/test_metric_collector.py",
+      "tests/observability/test_observability_context.py",
+      "tests/observability/test_security_event_and_error.py",
+      "tests/observability/test_structured_telemetry.py",
+      "tests/observability/test_trace_manager.py",
+      "tests/orca_ade/test_adapter.py",
+      "tests/orca_ade/test_concurrency.py",
+      "tests/orca_ade/test_discovery.py",
+      "tests/orca_ade/test_failures.py",
+      "tests/orca_ade/test_jde_governance.py",
+      "tests/orca_ade/test_permissions.py",
+      "tests/orca_ade/test_phase2_controlled.py",
+      "tests/orca_ade/test_phase3_certification.py",
+      "tests/orca_ade/test_security.py",
+      "tests/orca_ade/test_shadow.py",
+      "tests/personalization/test_personalization_engine.py",
+      "tests/planner/test_action_planner_contract_integration.py",
+      "tests/planner/test_controlled_tool_planner.py",
+      "tests/plugins/test_etapa_14_security_audit.py",
+      "tests/plugins/test_plugin_execution_pipeline.py",
+      "tests/plugins/test_plugin_loader.py",
+      "tests/plugins/test_plugin_manifest.py",
+      "tests/plugins/test_plugin_sandbox.py",
+      "tests/plugins/test_plugin_security_policy.py",
+      "tests/process/test_process_fuzzing.py",
+      "tests/process/test_process_models.py",
+      "tests/process/test_process_pid_reuse.py",
+      "tests/process/test_process_security.py",
+      "tests/process/test_process_service.py",
+      "tests/recovery/test_controlled_failure_recovery.py",
+      "tests/registry/test_registry_fuzzing.py",
+      "tests/registry/test_registry_models.py",
+      "tests/registry/test_registry_path_security.py",
+      "tests/registry/test_registry_security.py",
+      "tests/registry/test_registry_service.py",
+      "tests/router/test_false_success_regression.py",
+      "tests/router/test_phase5_controlled_routing.py",
+      "tests/router/test_phase6_controlled_operation.py",
+      "tests/router/test_router_suite.py",
+      "tests/router/test_shadow_mode.py",
+      "tests/security/test_etapa_16_confirmation_bypass.py",
+      "tests/security/test_etapa_16_memory_poisoning.py",
+      "tests/security/test_etapa_16_permission_escalation.py",
+      "tests/security/test_etapa_16_plugin_escalation.py",
+      "tests/security/test_etapa_16_prompt_injection.py",
+      "tests/security/test_etapa_16_scheduler_bypass.py",
+      "tests/security/test_etapa_16_tool_capability_escalation.py",
+      "tests/security/test_etapa_16_vectors_07_to_10.py",
+      "tests/security/test_etapa_16_vectors_12_to_14.py",
+      "tests/security/test_etapa_16_vectors_15_to_18.py",
+      "tests/security/test_final_certification_audit.py",
+      "tests/security/test_security_audit.py",
+      "tests/security/test_security_bypass.py",
+      "tests/security/test_security_fuzzing.py",
+      "tests/security/test_security_invariants.py",
+      "tests/security/test_security_policy.py",
+      "tests/server/test_lifecycle.py",
+      "tests/server/test_registry_integration.py",
+      "tests/server/test_secure_boundary.py",
+      "tests/server/test_server.py",
+      "tests/services/test_service_backend.py",
+      "tests/services/test_service_fuzzing.py",
+      "tests/services/test_service_models.py",
+      "tests/services/test_service_name_security.py",
+      "tests/services/test_service_security.py",
+      "tests/services/test_service_service.py",
+      "tests/shell_boundary/test_boundary_models.py",
+      "tests/skills/test_browser_youtube_skill.py",
+      "tests/skills/test_skill_marketplace.py",
+      "tests/test_are_adapter.py",
+      "tests/test_audit_logger_substage04_6.py",
+      "tests/test_computer_use_adapter.py",
+      "tests/test_confirmation_manager_substage04_4.py",
+      "tests/test_event_bus_v4.py",
+      "tests/test_executor.py",
+      "tests/test_integration_hub.py",
+      "tests/test_jarvis_adapter.py",
+      "tests/test_launcher_webui.py",
+      "tests/test_mobile_api.py",
+      "tests/test_notepad_semantic_execution.py",
+      "tests/test_security_architecture.py",
+      "tests/test_security_policy_substage04_5.py",
+      "tests/test_server_startup_hotfix.py",
+      "tests/test_state_machine_v4.py",
+      "tests/vision/test_multimodal_vision_pipeline.py",
+      "tests/voice/test_adaptive_end_of_speech.py",
+      "tests/voice/test_alexa_like_interaction_phase56.py",
+      "tests/voice/test_audio_device_manager.py",
+      "tests/voice/test_continuous_voice_session_phase51.py",
+      "tests/voice/test_natural_turn_taking_phase52.py",
+      "tests/voice/test_voice_capture_diagnostic_phase51_1.py",
+      "tests/voice/test_voice_clarification_tts_hotfix.py",
+      "tests/voice/test_voice_device_resolver_phase51_2.py",
+      "tests/voice/test_voice_experience_integration_phase55.py",
+      "tests/voice/test_voice_pipeline.py",
+      "tests/voice/test_voice_quality_and_demo.py"
+    ],
+    "pythoncom": [
+      "interfaces/modo_voz.py"
+    ],
+    "pyttsx3": [
+      "interfaces/modo_voz.py"
+    ],
+    "requests": [
+      "core/brain.py",
+      "core/llm/inference.py",
+      "core/llm/model_lifecycle.py",
+      "core/llm/nemotron_provider.py",
+      "tests/core/llm/test_inference_provider.py",
+      "tests/core/llm/test_vram_and_lifecycle.py",
+      "tests/llm/test_nemotron_provider.py"
+    ],
+    "scipy": [
+      "services/voice/tts_provider.py"
+    ],
+    "sounddevice": [
+      "services/voice/audio_device_manager.py",
+      "services/voice/device_resolver.py"
+    ],
+    "speech_recognition": [
+      "services/voice/audio_capture.py",
+      "tests/voice/test_adaptive_end_of_speech.py"
+    ],
+    "starlette": [
+      "tests/e2e/test_full_e2e_integration.py",
+      "tests/interfaces/webui_bridge/test_owui_04_3_verification.py"
+    ],
+    "torch": [
+      "benchmarks/benchmark_tts_pocket_vs_camila.py",
+      "core/diagnostics/probes.py",
+      "core/distribution/environment_diagnostics.py"
+    ],
+    "uiautomation": [
+      "tools/desktop/automation_backend.py",
+      "tools/desktop/executors.py",
+      "tools/desktop/ui_backend.py"
+    ],
+    "uvicorn": [
+      "interfaces/mobile_api/server.py",
+      "interfaces/webui_bridge/server.py"
+    ],
+    "win32com": [
+      "core/application_session_manager.py",
+      "interfaces/modo_voz.py"
+    ],
+    "win32con": [
+      "core/integration/adapters/computer_use_adapter.py"
+    ],
+    "win32gui": [
+      "core/application_session_manager.py",
+      "core/execution/execution_verifier.py",
+      "core/integration/adapters/computer_use_adapter.py",
+      "skills/apps_skill.py"
+    ],
+    "win32process": [
+      "core/application_session_manager.py",
+      "core/execution/execution_verifier.py"
+    ],
+    "yaml": [
+      "skills/apps.py",
+      "skills/apps_skill.py"
+    ]
+  },
+  "dynamic_load_sites": [
+    {
+      "path": "conftest.py",
+      "line": 16,
+      "call": "_importlib_util.spec_from_file_location"
+    },
+    {
+      "path": "core/distribution/environment_diagnostics.py",
+      "line": 160,
+      "call": "__import__"
+    },
+    {
+      "path": "core/observability/structured_event.py",
+      "line": 588,
+      "call": "__import__"
+    },
+    {
+      "path": "core/plugin_loader.py",
+      "line": 263,
+      "call": "importlib.util.spec_from_file_location"
+    },
+    {
+      "path": "skills/isolated_loader.py",
+      "line": 59,
+      "call": "importlib.util.spec_from_file_location"
+    },
+    {
+      "path": "tests/security/test_etapa_16_vectors_15_to_18.py",
+      "line": 281,
+      "call": "__import__"
+    },
+    {
+      "path": "tests/test_brain.py",
+      "line": 138,
+      "call": "__import__"
+    },
+    {
+      "path": "tools/registry.py",
+      "line": 79,
+      "call": "importlib.util.spec_from_file_location"
+    },
+    {
+      "path": "tools/tool_registry.py",
+      "line": 61,
+      "call": "importlib.util.spec_from_file_location"
+    }
+  ],
+  "entrypoints": [
+    "main.py",
+    "interfaces/modo_texto.py",
+    "interfaces/modo_voz.py",
+    "interfaces/mobile_api/app.py",
+    "interfaces/webui_bridge/app.py"
+  ],
+  "limitations": "Read-only AST inventory of tracked Python files; never imports the application.\n\nUsage: python scripts/audit_repository.py > inventory.json\nStatic reachability includes conditional imports; it is NOT runtime activation or\nproof of obsolescence. Dynamic loads and external consumers require manual review.\n"
+}

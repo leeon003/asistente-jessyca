@@ -19,7 +19,12 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-import anydoc
+try:
+    import anydoc
+except ModuleNotFoundError as exc:
+    if exc.name != "anydoc":
+        raise
+    anydoc = None
 
 from core.execution.execution_verifier import ExecutionStatus
 from core.anydoc.models import (
@@ -176,6 +181,8 @@ class AnyDocAdapter(IntegrationAdapter):
 
     def detect_format(self, file_path_or_bytes: str | bytes) -> str:
         """Detecta el formato mediante análisis de contenido (markers) y extensiones."""
+        if anydoc is None:
+            raise RuntimeError("Install the documents extra (firecrawl-anydoc) to use AnyDoc")
         if isinstance(file_path_or_bytes, bytes):
             detected = anydoc.format_from_bytes(file_path_or_bytes)
             return detected or DocumentFormat.UNKNOWN.value
@@ -203,6 +210,10 @@ class AnyDocAdapter(IntegrationAdapter):
     ) -> AnyDocResult:
         """Convierte un documento local a Markdown sin acceso a red y confinado."""
         op_id = operation_id or f"anydoc_{uuid.uuid4().hex[:12]}"
+        if anydoc is None:
+            return AnyDocResult(operation_id=op_id, status=ConversionStatus.UNSUPPORTED,
+                                input_path=input_path, detected_format="unknown",
+                                error_message="Missing firecrawl-anydoc dependency")
         start_time = time.perf_counter()
 
         try:
@@ -479,6 +490,9 @@ class AnyDocAdapter(IntegrationAdapter):
         if self._mode == AnyDocMode.OFF:
             self.status = IntegrationStatus.DISABLED
             return True
+        if anydoc is None:
+            self.status = IntegrationStatus.UNAVAILABLE
+            return False
         self.status = IntegrationStatus.READY
         return True
 
@@ -512,6 +526,13 @@ class AnyDocAdapter(IntegrationAdapter):
                 verification_required=False,
                 error="AnyDoc adapter is OFF",
                 duration_ms=(time.perf_counter() - start_time) * 1000.0,
+            )
+
+        if anydoc is None:
+            self.status = IntegrationStatus.UNAVAILABLE
+            return IntegrationExecutionResult(
+                executed=False, status=ExecutionStatus.FAILED, verified=False,
+                error="Missing firecrawl-anydoc dependency",
             )
 
         if capability_name in ("document_processing.convert", "document_convert_to_markdown"):
@@ -684,9 +705,10 @@ class AnyDocAdapter(IntegrationAdapter):
 
     async def health_check(self) -> IntegrationHealth:
         return IntegrationHealth(
-            healthy=True,
+            is_healthy=anydoc is not None and self.status == IntegrationStatus.READY,
             status=self.status,
-            message=f"AnyDocAdapter operational in mode {self._mode.value} (v0.2.4-lab)",
+            message=(f"AnyDocAdapter state: {self.status.value}" if anydoc is not None
+                     else "Missing firecrawl-anydoc dependency"),
             details={
                 "mode": self._mode.value,
                 "engine": "anydoc-rust-core",

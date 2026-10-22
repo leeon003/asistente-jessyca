@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import os
 import urllib.parse
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 
 from config.settings import AppSettings
 from core.audit_logger import AuditEvent, AuditEventType, get_audit_logger
@@ -65,6 +65,10 @@ class PathSecurityManager:
         # 3. Detección de rutas UNC y de dispositivos Windows (\\server\share, \\?\C:\, \\.\)
         if clean_raw.startswith(("\\\\", "//", "\\\\?\\", "\\\\.\\")):
             raise UnsupportedPathError("Las rutas UNC, de red o de dispositivos nativos de Windows no están autorizadas.")
+
+        # A foreign Windows drive must not become a relative POSIX filename.
+        if os.name != "nt" and PureWindowsPath(clean_raw).drive:
+            raise UnsupportedPathError(clean_raw)
 
         # 4. Construcción de ruta absoluta respecto al sandbox si es relativa
         try:

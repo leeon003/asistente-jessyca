@@ -323,8 +323,6 @@ class WindowsApplicationAdapter(IApplicationAdapter):
 
         try:
             if os.name == "nt":
-                is_cli = descriptor.executable.lower() in ("cmd.exe", "powershell.exe", "pwsh.exe")
-
                 exe_target = descriptor.executable
                 if not shutil.which(exe_target):
                     candidates = [
@@ -342,18 +340,8 @@ class WindowsApplicationAdapter(IApplicationAdapter):
                 p = subprocess.Popen(cmd, shell=False)
                 proc_pid = p.pid
 
-                if not is_cli:
-                    # Aplicaciones GUI interactivas (e.g. notepad.exe, calc.exe, mspaint.exe):
-                    # Se utiliza Shell.Application para que Windows Explorer cree la ventana
-                    # directamente en la sesión y escritorio interactivo de usuario (WinSta0\Default),
-                    # evitando el aislamiento de subshell / cmd.exe /c que dejaba el proceso sin ventana.
-                    try:
-                        import win32com.client
-                        shell = win32com.client.Dispatch("Shell.Application")
-                        arg_str = " ".join(args) if args else ""
-                        shell.ShellExecute(exe_target, arg_str, "", "open", 1)
-                    except Exception as shell_err:
-                        logger.debug(f"[WINDOWS APP ADAPTER] ShellExecute fallback: {shell_err}")
+                # A successful Popen is the single launch operation. Verification
+                # must only observe; ShellExecute here would start a second instance.
 
                 # Esperar hasta 2.0s a que aparezca la ventana interactiva visible
                 deadline = time.time() + 2.0

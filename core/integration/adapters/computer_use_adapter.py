@@ -54,11 +54,7 @@ class ComputerUseAdapter(IntegrationAdapter):
             version="1.0.0",
             dependencies=["pyautogui", "psutil"],
         )
-        try:
-            import pyautogui
-            pyautogui.FAILSAFE = False
-        except Exception:
-            pass
+        # Construction must not mutate process-wide desktop safety settings.
         self._register_audited_capabilities()
 
     def _register_audited_capabilities(self) -> None:
