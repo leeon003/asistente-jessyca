@@ -22,9 +22,7 @@ import time
 import uuid
 from typing import Any
 
-import anydoc
-
-from core.anydoc.adapter import AnyDocAdapter
+from core.anydoc.adapter import AnyDocAdapter, anydoc
 from core.anydoc.models import (
     AnyDocMode,
     AnyDocReceipt,
@@ -140,6 +138,15 @@ class AnyDocGovernedOrchestrator:
         """Ejecuta una tarea documental gobernada cumpliendo el flujo estricto de seguridad."""
         start_time = time.perf_counter()
         op_id = contract.operation_id
+        if anydoc is None:
+            result = AnyDocResult(
+                operation_id=op_id, status=ConversionStatus.UNSUPPORTED,
+                input_path=contract.input_path, detected_format="unknown",
+                error_message="Missing firecrawl-anydoc dependency",
+                verified=False, side_effects=0,
+            )
+            self._execution_history.append(result)
+            return result
 
         # 0. Verificación de Sello Criptográfico (Integridad del Contrato contra Manipulación)
         if contract_seal is not None and not contract.verify_seal(contract_seal):

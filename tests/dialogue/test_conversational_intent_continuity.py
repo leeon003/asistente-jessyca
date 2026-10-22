@@ -628,3 +628,9 @@ def test_no_prior_context_returns_clarification(clean_continuity_env):
     assert r.status == ConversationalActionStatus.CLARIFICATION_REQUIRED
     assert spy_apps.call_count == 0
     assert "¿Qué aplicación deseas que cierre?" in r.response_text
+
+
+def test_same_millisecond_turns_keep_separate_authorization(clean_continuity_env, monkeypatch):
+    """Rapid independent actions must not reuse another action's cached approval."""
+    monkeypatch.setattr('core.execution.action_pipeline.time.time', lambda: 1000.0)
+    test_case_e_new_action_replaces_previous_context(clean_continuity_env)

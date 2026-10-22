@@ -5,6 +5,8 @@ Fecha: 2026-10-21. Continuación del PR #1, sobre
 `audit/harness2-consolidation-20261021`. No se modifica ni fusiona `main`.
 JESSYCA CRM, RAMY y WhatsApp quedan fuera del alcance y sin cambios.
 
+> Informe histórico de la primera pasada. Empaquetado, dependencias y pruebas posteriores se actualizan en [ACTUALIZACION_PENDIENTES.md](ACTUALIZACION_PENDIENTES.md).
+
 ## Alcance y conclusión
 
 Se obtuvo el checkout completo: **1.359 archivos versionados, 1.112 archivos Python**,
