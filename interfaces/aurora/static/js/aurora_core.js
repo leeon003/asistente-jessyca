@@ -103,46 +103,49 @@ class AuroraCore3D {
     c.restore();
     c.beginPath();c.arc(0,0,201,.28,Math.PI-.28);c.strokeStyle=accent;c.globalAlpha=.3 + motionAmp*.4 + (!this.reducedMotion && now < this.highlightUntil ? .2 : 0);c.lineWidth=1.5;c.stroke();c.globalAlpha=1;
     // Brows and pupils carry the gesture; no success is inferred from silence.
-    const gazeX = thinking ? 9 : listening ? Math.sin(t*.7)*3 : 0;
-    const gazeY = thinking ? -12 : 0;
+    const gazeX = thinking ? 5 : listening ? Math.sin(t*.7)*2 : 0;
+    const gazeY = thinking ? -6 : 0;
     // Smooth eyelid closure; reduced motion keeps the chosen expression static.
     const blinkPhase = t % 5.8;
     const openness = this.reducedMotion ? 1 : 1 - Math.max(0, 1 - Math.abs(blinkPhase - 5.62) / .14);
-    const eyeHeight = Math.max(2, (listening ? 46 : unsure ? 40 : error ? 36 : 42) * openness);
-    c.shadowColor='rgba(199,232,255,.45)';c.shadowBlur=12;
+    const eyeHeight = Math.max(2, (listening ? 36 : unsure ? 33 : error ? 31 : 34) * openness);
+    c.shadowColor='rgba(217,207,239,.25)';c.shadowBlur=5;
     for (const side of [-1,1]) {
-      const x=side*66;
+      const x=side*61;
       if(success) {
         stroke(x-27,-15,x,-49,x+27,-15,'#fff1df',6);
         stroke(x+side*25,-17,x+side*34,-19,x+side*38,-26,'#fff1df',2.5);
       } else {
-        // Tall oval eyes and clipped pupils remain inside the lids while blinking.
-        ellipse(x,-24,29,eyeHeight,'#fff1df');
+        // Rounded oval eyes with large pupils, clipped while blinking.
+        ellipse(x,-12,33,eyeHeight,'#f5e8ef');
         c.save();
-        c.beginPath();c.ellipse(x,-24,29,eyeHeight,0,0,Math.PI*2);c.clip();
+        c.beginPath();c.ellipse(x,-12,33,eyeHeight,0,0,Math.PI*2);c.clip();
         c.shadowBlur=0;
-        ellipse(x+gazeX,-22+gazeY,16,26,'#090e17');
-        ellipse(x+gazeX-5,-33+gazeY,3.5,5,'#ecf5ff');
-        ellipse(x+gazeX+6,-13+gazeY,1.5,2,'#90a8bb');
+        ellipse(x+gazeX,-10+gazeY,27,30,'#262237');
+        ellipse(x+gazeX-9,-23+gazeY,7,8,'#fff9f3');
+        ellipse(x+gazeX+10,1+gazeY,3.5,4,'#c9bfdc');
         c.restore();
-        // A subtle upper lid and swept outer lash, mirrored on each eye.
-        stroke(x-28,-24-eyeHeight*.35,x,-24-eyeHeight*1.55,x+28,-24-eyeHeight*.35,'#c8d1dc',1.8);
-        const outerX=x+side*28, outerY=-24-eyeHeight*.35;
-        stroke(outerX,outerY,outerX+side*9,outerY+1,outerX+side*14,outerY-8,'#dbe3ec',2.5);
+        // Short outer lashes keep the face soft instead of outlining a staring eye.
+        const outerX=x+side*30, outerY=-12-eyeHeight*.25;
+        stroke(outerX,outerY,outerX+side*5,outerY,outerX+side*8,outerY-5,'#d4bed3',2);
       }
-      const browY = unsure && side===1 ? -103 : thinking && side===-1 ? -102 : listening ? -103 : -94;
-      // Tapered arched brows: pronounced silhouette without a heavy straight bar.
-      c.beginPath();
-      c.moveTo(x-28,browY+8);
-      c.bezierCurveTo(x-10,browY-10,x+11,browY-13,x+28,browY+2+(error?8:0));
-      c.bezierCurveTo(x+9,browY-3,x-7,browY-2,x-28,browY+8);
-      c.fillStyle='#f1e8dc';c.fill();
+      const browY = unsure && side===1 ? -67 : thinking && side===-1 ? -65 : listening ? -65 : -60;
+      stroke(x-16,browY+3,x,browY-7,x+16,browY+2+(error?4:0),'#d6c7d9',3);
+      // Soft blush, confined to the face, appears in every expression.
+      c.shadowBlur=0;
+      const blush=c.createRadialGradient(side*91,29,1,side*91,29,24);
+      blush.addColorStop(0,'rgba(240,153,184,.28)');
+      blush.addColorStop(1,'rgba(240,153,184,0)');
+      ellipse(side*91,29,24,13,blush);
     }
     c.shadowBlur=0;
-    if(state==='SPEAKING') ellipse(0,62,13+motionAmp*8,5+motionAmp*22,'#e5edf0');
-    else if(unsure) stroke(-15,62,0,56,15,64,'#c7d3dc',3);
-    else if(error) stroke(-15,66,0,54,15,66,'#c7d3dc',3);
-    else stroke(-19,57,0,success?79:68,19,57,'#e1e8ec',3);
+    if(state==='SPEAKING') ellipse(0,43,8+motionAmp*4,3+motionAmp*11,'#edd0dc');
+    else if(unsure) stroke(-9,42,0,39,9,43,'#e4ccd9',2.5);
+    else if(error) stroke(-9,45,0,39,9,45,'#e4ccd9',2.5);
+    else {
+      stroke(-13,39,-8,success?52:49,0,43,'#edd7e2',2.8);
+      stroke(0,43,8,success?52:49,13,39,'#edd7e2',2.8);
+    }
     // Quiet at zero amplitude. Speaking/listening react only to supplied audio.
     for(let i=0;i<17;i++) {
       const x=(i-8)*9, y=153-Math.abs(i-8)*1.15;

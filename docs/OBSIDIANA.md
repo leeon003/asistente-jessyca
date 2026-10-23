@@ -46,3 +46,11 @@ incluida la sonrisa de completado, sin cambiar las señales de voz o tareas.
 Validación antes y después: 14 pruebas JavaScript y 10 Python de Studio aprobadas.
 El acabado es una interpretación Canvas del concepto, no un render idéntico a
 la imagen artística. La comprobación visual en Windows sigue pendiente.
+
+## Ajuste kawaii tras revisión en Windows
+
+La captura del usuario mostraba una mirada demasiado abierta. Se redujo la
+altura de los ojos y se aumentó la proporción de pupila, con reflejos suaves,
+cejas más bajas, pestañas cortas, rubor tenue y sonrisa pequeña. Se conservan
+los estados reales y el modo de movimiento reducido. Pruebas antes y después:
+14 JavaScript y 10 Python aprobadas. Pendiente valoración visual del usuario.
