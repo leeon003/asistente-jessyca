@@ -105,18 +105,38 @@ class AuroraCore3D {
     // Brows and pupils carry the gesture; no success is inferred from silence.
     const gazeX = thinking ? 9 : listening ? Math.sin(t*.7)*3 : 0;
     const gazeY = thinking ? -12 : 0;
-    const blink = !this.reducedMotion && t%5.8 > 5.65;
-    const eyeHeight = blink ? 3 : listening ? 43 : unsure ? 33 : error ? 29 : 35;
+    // Smooth eyelid closure; reduced motion keeps the chosen expression static.
+    const blinkPhase = t % 5.8;
+    const openness = this.reducedMotion ? 1 : 1 - Math.max(0, 1 - Math.abs(blinkPhase - 5.62) / .14);
+    const eyeHeight = Math.max(2, (listening ? 46 : unsure ? 40 : error ? 36 : 42) * openness);
     c.shadowColor='rgba(199,232,255,.45)';c.shadowBlur=12;
     for (const side of [-1,1]) {
       const x=side*66;
-      if(success) stroke(x-27,-15,x,-47,x+27,-15,'#f4f5ef',8);
-      else {
-        ellipse(x,-24,31,eyeHeight,'#f4f5ef');
-        if(!blink) { c.shadowBlur=0;ellipse(x+gazeX,-22+gazeY,12,Math.min(19,eyeHeight-3),'#090e17');ellipse(x+gazeX-3,-29+gazeY,3,4,'#b4d6e1');c.shadowBlur=12; }
+      if(success) {
+        stroke(x-27,-15,x,-49,x+27,-15,'#fff1df',6);
+        stroke(x+side*25,-17,x+side*34,-19,x+side*38,-26,'#fff1df',2.5);
+      } else {
+        // Tall oval eyes and clipped pupils remain inside the lids while blinking.
+        ellipse(x,-24,29,eyeHeight,'#fff1df');
+        c.save();
+        c.beginPath();c.ellipse(x,-24,29,eyeHeight,0,0,Math.PI*2);c.clip();
+        c.shadowBlur=0;
+        ellipse(x+gazeX,-22+gazeY,16,26,'#090e17');
+        ellipse(x+gazeX-5,-33+gazeY,3.5,5,'#ecf5ff');
+        ellipse(x+gazeX+6,-13+gazeY,1.5,2,'#90a8bb');
+        c.restore();
+        // A subtle upper lid and swept outer lash, mirrored on each eye.
+        stroke(x-28,-24-eyeHeight*.35,x,-24-eyeHeight*1.55,x+28,-24-eyeHeight*.35,'#c8d1dc',1.8);
+        const outerX=x+side*28, outerY=-24-eyeHeight*.35;
+        stroke(outerX,outerY,outerX+side*9,outerY+1,outerX+side*14,outerY-8,'#dbe3ec',2.5);
       }
-      const browY = unsure && side===1 ? -91 : thinking && side===-1 ? -90 : listening ? -91 : -79;
-      stroke(x-22,browY+3,x,browY-7,x+22,browY+(error?12:0),'#d5dce1',3);
+      const browY = unsure && side===1 ? -103 : thinking && side===-1 ? -102 : listening ? -103 : -94;
+      // Tapered arched brows: pronounced silhouette without a heavy straight bar.
+      c.beginPath();
+      c.moveTo(x-28,browY+8);
+      c.bezierCurveTo(x-10,browY-10,x+11,browY-13,x+28,browY+2+(error?8:0));
+      c.bezierCurveTo(x+9,browY-3,x-7,browY-2,x-28,browY+8);
+      c.fillStyle='#f1e8dc';c.fill();
     }
     c.shadowBlur=0;
     if(state==='SPEAKING') ellipse(0,62,13+motionAmp*8,5+motionAmp*22,'#e5edf0');

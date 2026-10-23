@@ -34,3 +34,15 @@ detener, movimiento reducido y redimensionado. No certifica toda la aplicación.
 Conservar cambios y stashes antes de actualizar la rama de integración.
 No se modifican los archivos Studio personalizados. No reemplazar Jessyca.exe
 ni usar reset --hard. Renderer servido en /studio/orb/js/aurora_core.js.
+
+## Actualización de rasgos femeninos
+
+Ojos ovalados verticales, pupilas con reflejos, cejas arqueadas de extremos
+finos y pestañas exteriores sutiles. Se conserva la esfera oscura y el aro
+plateado. El parpadeo ahora cierra suavemente los párpados y recorta las pupilas
+para que no sobresalgan. Los rasgos se aplican a todos los estados del renderer,
+incluida la sonrisa de completado, sin cambiar las señales de voz o tareas.
+
+Validación antes y después: 14 pruebas JavaScript y 10 Python de Studio aprobadas.
+El acabado es una interpretación Canvas del concepto, no un render idéntico a
+la imagen artística. La comprobación visual en Windows sigue pendiente.
