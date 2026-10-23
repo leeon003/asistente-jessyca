@@ -1,0 +1,11 @@
+{
+  "scanner": "pip-audit",
+  "date": "2026-10-22",
+  "environment": "fresh Linux Python 3.12 environment with dev,mcp,voice,documents,desktop extras",
+  "packages_checked": 104,
+  "vulnerabilities": [],
+  "limitations": [
+    "Does not include Windows-only dependency versions",
+    "No guarantee against unknown vulnerabilities"
+  ]
+}

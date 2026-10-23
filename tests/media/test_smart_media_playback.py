@@ -337,7 +337,7 @@ class TestSmartMediaPlayback:
     # TEST 15: EXPERIENCE LOGGER INTEGRATION
     # ══════════════════════════════════════════════════════════════════
 
-    def test_15_experience_logger_records_smart_playback(self, temp_dance_dir: Path) -> None:
+    def test_15_experience_logger_records_smart_playback(self, temp_dance_dir: Path, monkeypatch) -> None:
         """TEST 15: Verifica que la experiencia se registre correctamente en ExperienceLogger."""
         (temp_dance_dir / "tango.mp4").write_bytes(b"tango video")
         mock_player = MockMediaPlayer(should_succeed=True)
@@ -348,6 +348,7 @@ class TestSmartMediaPlayback:
 
         exp_logger = get_experience_logger()
         exp_logger.enable()
+        monkeypatch.setattr(agent, "experience_logger", exp_logger)
 
         req = JessycaRequest(
             user_input="Jessyca quiero ver un baile",

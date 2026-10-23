@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import threading
 import time
+import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import StrEnum
@@ -168,7 +169,7 @@ class ActionPipeline:
     ) -> ActionPipelineResult:
         """Ejecuta una acción a través de todas las fases del pipeline garantizando gobernanza estricta."""
         t_start = time.perf_counter()
-        action_id = request_id or (contract.request_id if contract else f"act_{int(time.time() * 1000)}")
+        action_id = request_id or (contract.request_id if contract else f"act_{uuid.uuid4().hex}")
         sess_id = session_id or (contract.session_id if contract else "default_session")
 
         logger.info(

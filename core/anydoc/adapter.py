@@ -27,7 +27,9 @@ try:
     _AnyDocEncrypted = anydoc.EncryptedError
     _AnyDocMissingPart = anydoc.MissingPartError
     _AnyDocUnsupported = anydoc.UnsupportedError
-except ImportError:
+except ModuleNotFoundError as exc:
+    if exc.name != "anydoc":
+        raise
     anydoc = None  # type: ignore[assignment]
 
     class _AnyDocNeedsOcr(Exception):  # type: ignore[no-redef]
@@ -335,6 +337,10 @@ class AnyDocAdapter(IntegrationAdapter):
     ) -> AnyDocResult:
         """Convierte un documento local a Markdown sin acceso a red y confinado."""
         op_id = operation_id or f"anydoc_{uuid.uuid4().hex[:12]}"
+        if not self._backend_available():
+            return AnyDocResult(operation_id=op_id, status=ConversionStatus.UNSUPPORTED,
+                                input_path=input_path, detected_format="unknown",
+                                error_message="Missing firecrawl-anydoc dependency")
         start_time = time.perf_counter()
 
         try:
@@ -365,6 +371,8 @@ class AnyDocAdapter(IntegrationAdapter):
                     operation_id=op_id,
                 )
                 if docling_res.status == ConversionStatus.SUCCESS:
+                    return docling_res
+                if anydoc is None:
                     return docling_res
                 # Fallback explícito si Docling falla
                 logger.warning(
@@ -623,10 +631,18 @@ class AnyDocAdapter(IntegrationAdapter):
             )
         )
 
+    def _backend_available(self) -> bool:
+        if self._backend_type == "docling" and self._docling_backend is not None:
+            return self._docling_backend.health().get("status") == "healthy"
+        return anydoc is not None
+
     async def initialize(self) -> bool:
         if self._mode == AnyDocMode.OFF:
             self.status = IntegrationStatus.DISABLED
             return True
+        if not self._backend_available():
+            self.status = IntegrationStatus.UNAVAILABLE
+            return False
         self.status = IntegrationStatus.READY
         return True
 
@@ -660,6 +676,13 @@ class AnyDocAdapter(IntegrationAdapter):
                 verification_required=False,
                 error="AnyDoc adapter is OFF",
                 duration_ms=(time.perf_counter() - start_time) * 1000.0,
+            )
+
+        if not self._backend_available():
+            self.status = IntegrationStatus.UNAVAILABLE
+            return IntegrationExecutionResult(
+                executed=False, status=ExecutionStatus.FAILED, verified=False,
+                error="Missing firecrawl-anydoc dependency",
             )
 
         if capability_name in ("document_processing.convert", "document_convert_to_markdown"):
@@ -848,8 +871,8 @@ class AnyDocAdapter(IntegrationAdapter):
 
         return IntegrationHealth(
             status=self.status,
-            is_healthy=True,
-            message=f"AnyDocAdapter operational in mode {self._mode.value} (backend: {self._backend_type})",
+            is_healthy=self.status == IntegrationStatus.READY and self._backend_available(),
+            message=f"AnyDocAdapter state: {self.status.value} (backend: {self._backend_type})",
             details=details,
         )
 

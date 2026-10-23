@@ -1,0 +1,52 @@
+{
+  "base": "2513456",
+  "audit": "ad1b7bf",
+  "platform": "Linux Python 3.12",
+  "targeted_before": {
+    "passed": 153,
+    "skipped": 1
+  },
+  "targeted_after_with_new_regressions": {
+    "passed": 163,
+    "skipped": 1
+  },
+  "audit_regressions": {
+    "passed": 3
+  },
+  "brain_aurora_before": {
+    "passed": 70,
+    "failed": 14
+  },
+  "brain_aurora_after": {
+    "passed": 70,
+    "failed": 14
+  },
+  "same_failing_nodes": true,
+  "failing_nodes": [
+    "FAILED tests/aurora/test_aurora_prototype.py::TestAuroraPrototype::test_08_window_manager_detection",
+    "FAILED tests/cognitive_brain/test_audit_phase4_contracts.py::test_apps_writing_failure_is_not_reported_as_success",
+    "FAILED tests/cognitive_brain/test_cua_windows_execution.py::test_jessyca_brain_e2e_multi_step_compound_real_document",
+    "FAILED tests/cognitive_brain/test_cua_windows_execution.py::test_jessyca_brain_e2e_real_execution_calculator",
+    "FAILED tests/cognitive_brain/test_cua_windows_execution.py::test_real_windows_calculator_physical_lifecycle",
+    "FAILED tests/cognitive_brain/test_cua_windows_execution.py::test_real_windows_notepad_physical_lifecycle",
+    "FAILED tests/cognitive_brain/test_phase6_integration_and_certification.py::test_01_controlled_jessyca_brain_activation_in_local_agent",
+    "FAILED tests/cognitive_brain/test_phase6_integration_and_certification.py::test_02_real_ollama_conversation_and_latency",
+    "FAILED tests/cognitive_brain/test_phase6_integration_and_certification.py::test_03_voice_tts_engine_real_generation",
+    "FAILED tests/cognitive_brain/test_phase6_integration_and_certification.py::test_06_compound_multi_step_instruction",
+    "FAILED tests/cognitive_brain/test_phase6_integration_and_certification.py::test_07_memory_and_procedural_learning_cycle",
+    "FAILED tests/cognitive_brain/test_phase6_integration_and_certification.py::test_10_resource_consumption_and_stability",
+    "FAILED tests/cognitive_brain/test_reasoning_and_planning.py::test_local_agent_brain_integration",
+    "FAILED tests/cognitive_brain/test_reasoning_and_planning.py::test_scenario_j_sai_integration"
+  ],
+  "wheel_built": true,
+  "aurora_static_assets_in_wheel": true,
+  "windows_user_report": {
+    "focused_acceptance_passed": 7,
+    "full_suite": "incomplete; Office exceptions and intermittent calculator detection remain unresolved"
+  },
+  "limitations": [
+    "Uncommitted Windows edits are not available in this checkout",
+    "No local Windows runtime or hardware validation performed here",
+    "14 Brain/Aurora failures remain; Linux evidence is not Windows certification"
+  ]
+}

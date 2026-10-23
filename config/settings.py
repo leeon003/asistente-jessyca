@@ -121,6 +121,8 @@ class AppSettings(BaseSettings):
         default="streamable-http",
         description="Mecanismo de transporte MCP para modo DEMO interactivo (streamable-http, sse, http).",
     )
+
+    # Transporte para clientes MCP externos
     MCP_EXTERNAL_TRANSPORT: str = Field(
         default="stdio",
         description="Mecanismo de transporte MCP para clientes externos dedicados (stdio).",
