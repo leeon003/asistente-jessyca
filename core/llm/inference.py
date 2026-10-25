@@ -227,6 +227,7 @@ class OllamaProvider:
         post_callable = self._post_fn if self._post_fn is not None else requests.post
         eff_timeout = request.timeout_seconds if request.timeout_seconds is not None else self.timeout_seconds
 
+        resp = None
         try:
             resp = post_callable(self.endpoint, json=payload, stream=True, timeout=eff_timeout)
             if hasattr(resp, "raise_for_status"):
@@ -254,6 +255,10 @@ class OllamaProvider:
         except Exception as e:
             logger.error(f"[OLLAMA PROVIDER] Error en llamada streaming a {self.endpoint}: {e}")
             raise InferenceError(f"Error durante streaming con modelo '{resolved_model}': {e}") from e
+
+        finally:
+            if resp is not None and hasattr(resp, "close"):
+                resp.close()
 
     def generate_text(
         self,

@@ -172,11 +172,13 @@ class ContinuousVoiceSession:
     def check_timeout(self) -> bool:
         """Verifica si la sesión ha expirado por inactividad y regresa a IDLE."""
         with self._lock:
-            if self.mode == VoiceSessionMode.IDLE:
+            if self.mode in (VoiceSessionMode.IDLE, VoiceSessionMode.PROCESSING, VoiceSessionMode.SPEAKING):
                 return False
 
             elapsed = time.time() - self.last_activity
             limit = self.conversation_idle_timeout
+            if self.mode == VoiceSessionMode.WAITING_FOR_FOLLOWUP:
+                limit = min(limit, self.followup_timeout)
 
             if elapsed > limit:
                 logger.info(

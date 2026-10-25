@@ -180,6 +180,36 @@ class JessycaLocalAgent:
         cancellation_token: CancellationToken | None = None,
         user_confirmation_callback: Callable[[ConfirmationPrompt], bool] | None = None,
     ) -> Iterator[str]:
+        """Track cancellable streams and report measured first-text latency."""
+        req = JessycaRequest(user_input=request) if isinstance(request, str) else request
+        token = cancellation_token or CancellationToken()
+        started = time.perf_counter()
+        metrics = LocalAgentMetrics(task_id=req.request_id, correlation_id=req.request_id)
+        with self._lock:
+            self._active_tokens[req.request_id] = token
+        stream = self._interact_stream_impl(req, token, user_confirmation_callback)
+        try:
+            for chunk in stream:
+                if token.is_cancelled or self.emergency_stop_mgr.is_stopped():
+                    return
+                if metrics.first_text_latency_ms is None:
+                    metrics.first_text_latency_ms = (time.perf_counter() - started) * 1000
+                yield chunk
+        finally:
+            stream.close()
+            metrics.total_latency_ms = (time.perf_counter() - started) * 1000
+            metrics.interruption_handled = token.is_cancelled or self.emergency_stop_mgr.is_stopped()
+            with self._lock:
+                self._active_tokens.pop(req.request_id, None)
+                self._latest_metrics = metrics
+            logger.info("[CONVERSATION_STREAM_LATENCY] %s", metrics.to_dict())
+
+    def _interact_stream_impl(
+        self,
+        request: JessycaRequest | str,
+        cancellation_token: CancellationToken | None = None,
+        user_confirmation_callback: Callable[[ConfirmationPrompt], bool] | None = None,
+    ) -> Iterator[str]:
         """Punto de entrada universal en streaming respetando el principio Anti-False Success.
 
         Para consultas conversacionales directas (general_query, saludos, preguntas):
@@ -193,6 +223,10 @@ class JessycaLocalAgent:
             req = JessycaRequest(user_input=request, modality=InputModality.TEXT)
         else:
             req = request
+
+        token = cancellation_token or CancellationToken()
+        if token.is_cancelled or self.emergency_stop_mgr.is_stopped():
+            return
 
         # Ingestión y deduplicación de contexto conversacional externo (OWUI-MEM-02)
         if req.conversation_context:
@@ -227,6 +261,8 @@ class JessycaLocalAgent:
             resp_text = response.spoken_text or response.response_text or ""
             words = re.split(r"(\s+)", resp_text)
             for w in words:
+                if token.is_cancelled or self.emergency_stop_mgr.is_stopped():
+                    return
                 if w:
                     yield w
             return
@@ -241,11 +277,13 @@ class JessycaLocalAgent:
             context_manager=self.context_manager,
             preferred_model=active_model,
         ):
+            if token.is_cancelled or self.emergency_stop_mgr.is_stopped():
+                return
             full_response_parts.append(chunk)
             yield chunk
 
         final_text = "".join(full_response_parts)
-        if final_text.strip():
+        if final_text.strip() and not token.is_cancelled and not self.emergency_stop_mgr.is_stopped():
             self.context_manager.record_turn(
                 session_id=req.session_id,
                 user_prompt=user_text,
@@ -323,6 +361,7 @@ class JessycaLocalAgent:
             tts_ok, tts_latency = self.voice_interface.synthesize_response(
                 text=tts_text,
                 cancellation_token=token,
+                session_id=session_id,
             )
             response.metrics.tts_latency_ms = tts_latency
             response.metrics.total_latency_ms += tts_latency

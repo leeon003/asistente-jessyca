@@ -208,6 +208,7 @@ class ConversationalDialogueHandler:
         except Exception:
             llm_ok = False
 
+        yielded_any = False
         if llm_ok and hasattr(self.llm_provider, "generate_stream"):
             try:
                 prompt_parts: list[str] = []
@@ -243,6 +244,8 @@ class ConversationalDialogueHandler:
                 if yielded_any:
                     return
             except Exception as e:
+                if yielded_any:
+                    raise
                 logger.warning(f"[CONVERSATIONAL STREAM FALLBACK] Stream falló ({e}), usando síntesis.")
 
         fallback_text = self._synthesize_dialogue(

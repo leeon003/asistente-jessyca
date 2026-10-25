@@ -72,11 +72,13 @@ class LocalAgentMetrics:
     wake_word_detected: bool = False        # Si se activó vía Wake Word
     wake_word_confidence: float = 1.0       # Confianza del detector de Wake Word
     wake_word_latency_ms: float = 0.0       # Latencia de detección de Wake Word
+    first_text_latency_ms: float | None = None  # None means no text was emitted
     interruption_handled: bool = False      # Si el usuario interrumpió / canceló durante el turno
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "task_id": self.task_id,
+            "first_text_latency_ms": self.first_text_latency_ms,
             "correlation_id": self.correlation_id,
             "stt_accuracy": round(self.stt_accuracy, 3),
             "stt_latency_ms": round(self.stt_latency_ms, 2),
