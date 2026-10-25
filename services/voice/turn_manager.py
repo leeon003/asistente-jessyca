@@ -113,7 +113,7 @@ class TurnManager:
         if clean in PURE_INTERRUPTION_PHRASES:
             return True
         tokens = clean.split()
-        if len(tokens) <= 3 and all(t in PURE_INTERRUPTION_PHRASES or t in ("por", "favor", "jessica", "jessyca", "oye") for t in tokens):
+        if tokens and any(t in PURE_INTERRUPTION_PHRASES for t in tokens) and len(tokens) <= 3 and all(t in PURE_INTERRUPTION_PHRASES or t in ("por", "favor", "jessica", "jessyca", "oye") for t in tokens):
             return True
         return False
 

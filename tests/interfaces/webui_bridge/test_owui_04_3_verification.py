@@ -214,7 +214,7 @@ def test_streaming_emits_progressive_tokens_before_full_response(
     """Verifica que el endpoint con stream=true emita chunks progresivos."""
     mock_agent = MagicMock()
 
-    def _simulated_tokens(req: Any) -> Iterator[str]:
+    def _simulated_tokens(req: Any, cancellation_token: Any = None) -> Iterator[str]:
         tokens = ["Hola", " ", "Jessica", ",", " ", "¿en", " ", "qué", " ", "puedo", " ", "ayudarte?"]
         for t in tokens:
             time.sleep(0.01)

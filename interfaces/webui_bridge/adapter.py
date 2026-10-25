@@ -6,6 +6,7 @@ la respuesta resultante de JessycaLocalAgent a estructuras compatibles con OpenA
 
 from __future__ import annotations
 
+import logging
 import hashlib
 import json
 import re
@@ -30,6 +31,8 @@ from interfaces.webui_bridge.models import (
     OpenAIErrorBody,
     OpenAIErrorResponse,
 )
+
+logger = logging.getLogger(__name__)
 
 PUBLIC_MODEL_NAME = "jessyca"
 
@@ -415,73 +418,83 @@ async def generate_live_sse_stream(
     token_generator: Any,
     model: str = PUBLIC_MODEL_NAME,
     completion_id: str | None = None,
+    cancellation_token: Any = None,
 ) -> AsyncGenerator[str, None]:
-    """Generador asíncrono SSE que emite tokens en tiempo real provenientes del generador del Core."""
+    """Bounded worker bridge: backpressure, disconnect cancellation and explicit errors."""
     import asyncio
+    import queue
     import threading
 
     c_id = completion_id or f"chatcmpl-{uuid.uuid4().hex[:12]}"
+    started = time.perf_counter()
+    first_token_ms = None
+    stopped = threading.Event()
+    messages: queue.Queue[tuple[str, Any]] = queue.Queue(maxsize=16)
 
-    first_chunk = ChatCompletionChunk(
-        id=c_id,
-        created=int(time.time()),
-        model=model,
-        choices=[
-            ChatCompletionChunkChoice(
-                index=0,
-                delta=ChatCompletionChunkDelta(role="assistant", content=""),
-                finish_reason=None,
-            )
-        ],
-    )
-    yield f"data: {json.dumps(first_chunk.model_dump())}\n\n"
+    def send(kind: str, value: Any = None) -> bool:
+        while not stopped.is_set():
+            try:
+                messages.put((kind, value), timeout=0.05)
+                return True
+            except queue.Full:
+                continue
+        return False
 
-    loop = asyncio.get_running_loop()
-    queue: asyncio.Queue[str | None] = asyncio.Queue()
-
-    def _producer() -> None:
+    def produce() -> None:
         try:
             for token in token_generator:
-                if token:
-                    loop.call_soon_threadsafe(queue.put_nowait, token)
+                if stopped.is_set():
+                    break
+                if token and not send("token", token):
+                    break
         except Exception:
-            pass
+            send("error")
         finally:
-            loop.call_soon_threadsafe(queue.put_nowait, None)
+            # Only the worker closes its iterator; closing it from the consumer
+            # while next() is running raises ValueError in Python.
+            try:
+                close = getattr(token_generator, "close", None)
+                if close:
+                    close()
+            finally:
+                send("done")
 
-    prod_thread = threading.Thread(target=_producer, daemon=True)
-    prod_thread.start()
-
-    while True:
-        tok = await queue.get()
-        if tok is None:
-            break
+    def frame(content: str = "", role: str | None = None, finish: str | None = None) -> str:
         chunk = ChatCompletionChunk(
-            id=c_id,
-            created=int(time.time()),
-            model=model,
-            choices=[
-                ChatCompletionChunkChoice(
-                    index=0,
-                    delta=ChatCompletionChunkDelta(content=tok),
-                    finish_reason=None,
-                )
-            ],
-        )
-        yield f"data: {json.dumps(chunk.model_dump())}\n\n"
-
-    final_chunk = ChatCompletionChunk(
-        id=c_id,
-        created=int(time.time()),
-        model=model,
-        choices=[
-            ChatCompletionChunkChoice(
+            id=c_id, created=int(time.time()), model=model,
+            choices=[ChatCompletionChunkChoice(
                 index=0,
-                delta=ChatCompletionChunkDelta(),
-                finish_reason="stop",
-            )
-        ],
-    )
-    yield f"data: {json.dumps(final_chunk.model_dump())}\n\n"
-    yield "data: [DONE]\n\n"
+                delta=ChatCompletionChunkDelta(content=content, role=role),
+                finish_reason=finish,
+            )],
+        )
+        return f"data: {json.dumps(chunk.model_dump())}\n\n"
 
+    worker = threading.Thread(target=produce, daemon=True, name=f"sse-{c_id}")
+    try:
+        yield frame(role="assistant")
+        worker.start()
+        while True:
+            try:
+                kind, value = await asyncio.to_thread(messages.get, True, 0.25)
+            except queue.Empty:
+                continue
+            if kind == "done":
+                yield frame(finish="stop")
+                yield "data: [DONE]\n\n"
+                return
+            if kind == "error":
+                yield 'data: {"error":{"message":"La respuesta se interrumpió. Inténtalo de nuevo.","type":"stream_error"}}\n\n'
+                yield "data: [DONE]\n\n"
+                return
+            if first_token_ms is None:
+                first_token_ms = (time.perf_counter() - started) * 1000.0
+            yield frame(content=value)
+    finally:
+        stopped.set()
+        if cancellation_token is not None:
+            cancellation_token.cancel()
+        logger.info(
+            "[STREAM_LATENCY] id=%s first_token_ms=%s total_ms=%.2f",
+            c_id, first_token_ms, (time.perf_counter() - started) * 1000.0,
+        )

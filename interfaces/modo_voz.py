@@ -26,6 +26,8 @@ if sys.stdout and hasattr(sys.stdout, "reconfigure"):
     except Exception:
         pass
 
+from core.cancellation import CancellationToken
+from services.voice.streaming import SpeechStreamMetrics, speak_stream
 from config.manager import get_settings
 from core.local_agent.local_agent import JessycaLocalAgent
 from core.local_agent.local_agent_models import InputModality, JessycaRequest
@@ -71,6 +73,7 @@ class VoiceSpeakerMetrics:
     duration_ms: float = 0.0
     engine_used: str = "edge_tts"
     voice_name: str = "es-PE-CamilaNeural"
+    success: bool = False
 
 
 class VoiceSpeaker:
@@ -124,30 +127,37 @@ class VoiceSpeaker:
             logger.debug(f"[VOICE TTS] SAPI fallback no disponible: {e}")
             return None
 
-    def speak(self, text: str, session_id: str | None = None) -> VoiceSpeakerMetrics:
+    def speak(self, text: str, session_id: str | None = None, cancellation_token: CancellationToken | None = None) -> VoiceSpeakerMetrics:
         """Sintetiza y reproduce el texto mediante TTSManager con fallback transparente y mide latencias."""
         if not text or not text.strip():
             return VoiceSpeakerMetrics()
 
+        token = cancellation_token or CancellationToken()
+        if token.is_cancelled:
+            return VoiceSpeakerMetrics()
         clean_text = text.strip()
         metrics = VoiceSpeakerMetrics(voice_name=str(self.voice_name))
         t_start = time.perf_counter()
 
         if self.barge_in_controller:
-            self.barge_in_controller.notify_tts_started(session_id=session_id)
+            self.barge_in_controller.notify_tts_started(token, session_id=session_id)
 
         try:
             with self._lock:
                 # 1. Motor Centralizado e Intercambiable: TTSManager (Pocket TTS -> Edge-TTS Camila Fallback)
                 try:
-                    success, tts_met = self._tts_manager.speak(clean_text, voice=str(self.voice_name))
+                    success, tts_met = self._tts_manager.speak(clean_text, voice=str(self.voice_name), cancellation_token=token)
                     if success:
+                        metrics.success = True
                         metrics.startup_latency_ms = tts_met.t2_first_audio_ms or ((time.perf_counter() - t_start) * 1000.0)
                         metrics.duration_ms = tts_met.t4_audio_duration_ms
                         metrics.engine_used = tts_met.engine_used or tts_met.provider_used
                         return metrics
                 except Exception as e:
                     logger.warning(f"[VOICE TTS] TTSManager falló ({e}), intentando fallback SAPI...")
+
+            if token.is_cancelled:
+                return metrics
 
             # 2. Fallback a SAPI
             try:
@@ -156,6 +166,7 @@ class VoiceSpeaker:
                     t_play_start = time.perf_counter()
                     metrics.startup_latency_ms = (t_play_start - t_start) * 1000.0
                     sp.Speak(clean_text)
+                    metrics.success = True
                     metrics.duration_ms = (time.perf_counter() - t_play_start) * 1000.0
                     metrics.engine_used = "sapi"
                     return metrics
@@ -171,6 +182,7 @@ class VoiceSpeaker:
                 metrics.startup_latency_ms = (t_play_start - t_start) * 1000.0
                 engine.say(clean_text)
                 engine.runAndWait()
+                metrics.success = True
                 engine.stop()
                 metrics.duration_ms = (time.perf_counter() - t_play_start) * 1000.0
                 metrics.engine_used = "pyttsx3"
@@ -376,6 +388,38 @@ def iniciar_modo_voz(
                 user_input=texto,
                 modality=InputModality.VOICE,
             )
+            # Opt-in while microphone duplex operation is still hardware-dependent.
+            if os.getenv("JESSYCA_VOICE_STREAMING", "").lower() in ("1", "true", "yes"):
+                token = CancellationToken()
+                stream_metrics = SpeechStreamMetrics()
+                spoken_parts: list[str] = []
+
+                def speak_phrase(phrase: str) -> bool:
+                    if agent.emergency_stop_mgr.is_stopped():
+                        token.cancel()
+                        return False
+                    print(f"  Jessyca: {phrase}")
+                    playback = speaker.speak(phrase, session_id=session_id, cancellation_token=token)
+                    if playback.success:
+                        spoken_parts.append(phrase)
+                    return playback.success
+
+                voice_session.on_speaking_started()
+                try:
+                    speak_stream(
+                        agent.interact_stream(req, cancellation_token=token),
+                        speak_phrase, token, metrics=stream_metrics,
+                    )
+                finally:
+                    if token.is_cancelled:
+                        voice_session.on_interrupted()
+                    else:
+                        voice_session.on_speaking_finished()
+                    logger.info("[VOICE_STREAM_LATENCY] session=%s metrics=%s", session_id, stream_metrics)
+                last_spoken_text = " ".join(spoken_parts)
+                last_spoken_time = time.perf_counter()
+                continue
+
             res = agent.interact(req)
             _agent_latency_ms = (time.perf_counter() - t_interact_start) * 1000.0
 

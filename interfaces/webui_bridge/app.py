@@ -283,10 +283,13 @@ def create_webui_bridge_app(
             # STREAMING GENERATIVO REAL:
             # Emite tokens progresivos en tiempo real desde Ollama si es conversacional,
             # o ejecuta y verifica primero en el SO si es una acción física con efectos secundarios.
-            token_gen = agent.interact_stream(jessyca_req)
+            from core.cancellation import CancellationToken
+            stream_token = CancellationToken()
+            token_gen = agent.interact_stream(jessyca_req, cancellation_token=stream_token)
             return StreamingResponse(
                 generate_live_sse_stream(
                     token_generator=token_gen,
+                    cancellation_token=stream_token,
                     model=PUBLIC_MODEL_NAME,
                     completion_id=f"chatcmpl-{jessyca_req.request_id}",
                 ),

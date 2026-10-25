@@ -15,6 +15,7 @@ Evalúa:
 from __future__ import annotations
 
 import time
+import re
 
 from core.cancellation import CancellationToken
 from core.emergency_stop import EmergencyStopManager, get_emergency_stop_manager
@@ -30,6 +31,7 @@ from services.voice.continuous_voice_session import (
     ContinuousVoiceSession,
 )
 from services.voice.stt_service import ISTTService, MockSTTService, TranscriptResult
+from services.voice.turn_manager import TurnManager
 from services.voice.tts_service import ITTSService, MockTTSService
 from services.voice.vad_service import EnergyVADService, IVADService
 from services.voice.voice_pipeline import (
@@ -82,6 +84,7 @@ class LocalVoiceInterface:
             sess = ContinuousVoiceSession(
                 session_id=session_id,
                 conversation_idle_timeout=timeout,
+                turn_manager=TurnManager(self.barge_in),
             )
             self._continuous_sessions[session_id] = sess
         return sess
@@ -175,11 +178,16 @@ class LocalVoiceInterface:
             metrics.total_latency_ms = (time.perf_counter() - start_time) * 1000
             return None, metrics, f"Parada de emergencia activada por voz: '{transcribed_text}'"
 
-        if any(phrase in lower_transcript for phrase in STOP_VOICE_PHRASES):
+        if re.sub(r"[^\w\s]", "", lower_transcript).strip() in STOP_VOICE_PHRASES:
             session.end_session()
             metrics.interruption_handled = True
             metrics.total_latency_ms = (time.perf_counter() - start_time) * 1000
             return None, metrics, f"Cancelación por voz recibida: '{transcribed_text}'"
+
+        if not transcribed_text:
+            session.on_turn_completed()
+            metrics.total_latency_ms = (time.perf_counter() - start_time) * 1000
+            return None, metrics, "No se detectó texto en el audio."
 
         request = JessycaRequest(
             session_id=session_id,
@@ -217,15 +225,20 @@ class LocalVoiceInterface:
             session.end_session()
             return False, 0.0
 
+        token = cancellation_token or CancellationToken()
         t0 = time.perf_counter()
         session.on_speaking_started()
+        self.barge_in.notify_tts_started(token, session_id=session_id)
         try:
             # Comprobar interrupción antes de sintetizar
             if cancellation_token and cancellation_token.is_cancelled:
                 session.end_session()
                 return False, (time.perf_counter() - t0) * 1000
 
-            success = self.tts_service.speak(text)
+            success = self.tts_service.speak(text, cancellation_token=token)
+            if token.is_cancelled:
+                session.on_interrupted()
+                return False, (time.perf_counter() - t0) * 1000
             session.on_speaking_finished()
             latency_ms = (time.perf_counter() - t0) * 1000
             return success, latency_ms

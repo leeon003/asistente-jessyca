@@ -1,0 +1,30 @@
+name: Conversational fluency
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  regression:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+        python: ['3.11', '3.12']
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - run: python -m pip install pytest pytest-asyncio pydantic pydantic-settings python-dotenv psutil rich fastapi uvicorn requests httpx pyyaml networkx
+      - run: python -m pytest tests/interfaces/webui_bridge tests/fluency tests/voice/test_natural_turn_taking_phase52.py tests/voice/test_continuous_voice_session_phase51.py tests/core/llm/test_inference_provider.py tests/agent/test_memory_retriever.py tests/planning/test_planning_engine.py tests/autonomy/test_memory_cannot_grant_authority.py --junitxml=fluency-results.xml
+      - run: python scripts/audit_conversation_inventory.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: fluency-${{ matrix.os }}-${{ matrix.python }}
+          path: |
+            fluency-results.xml
+            docs/audits/conversation_inventory.json
