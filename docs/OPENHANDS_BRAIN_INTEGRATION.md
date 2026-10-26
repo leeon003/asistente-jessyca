@@ -36,3 +36,11 @@ Se incorpora `core/cognitive_brain/openhands_provider.py` y un método explícit
 
 Para ejecutar solo la suite del proveedor:
 `python -m unittest discover -s tests -p 'test_openhands_brain_provider.py' -v`
+
+## Seguimiento del 25-10-2026
+- RiskEngine ahora recibe un `SecurityRequest` tipado, no una cadena suelta.
+- PermissionManager debe aprobar la solicitud antes de invocar el runner.
+- Suite del proveedor ampliada a 16 comprobaciones simuladas.
+- GitHub Actions ejecuta la suite en Linux y Windows hospedado (pruebas Python, **no** automatización CUA/GUI).
+- El SDK real no se ha ejecutado; requiere sandbox aislado ya desplegado, proveedor LLM configurado y validación de acciones internas. No se debe activar en el anfitrión Windows.
+- No se ha demostrado equivalencia con un sandbox mediante validación de rutas, ni se ha ejecutado prueba integral del agente.
