@@ -1,7 +1,29 @@
 """Regression tests for natural streaming phrase boundaries."""
 import unittest
-from core.cancellation import CancellationToken
-from services.voice.streaming import speak_stream
+import importlib.util
+import sys
+import types
+from pathlib import Path
+
+# Load the real streaming module without initializing JESSYCA's entire Windows stack.
+class CancellationToken:
+    def __init__(self):
+        self.is_cancelled = False
+    def cancel(self):
+        self.is_cancelled = True
+
+core = types.ModuleType("core")
+core.__path__ = []
+cancellation = types.ModuleType("core.cancellation")
+cancellation.CancellationToken = CancellationToken
+sys.modules.setdefault("core", core)
+sys.modules.setdefault("core.cancellation", cancellation)
+source = Path(__file__).resolve().parents[2] / "services" / "voice" / "streaming.py"
+spec = importlib.util.spec_from_file_location("_voice_streaming_under_test", source)
+streaming = importlib.util.module_from_spec(spec)
+sys.modules[spec.name] = streaming
+spec.loader.exec_module(streaming)
+speak_stream = streaming.speak_stream
 
 
 class ProsodyTests(unittest.TestCase):
