@@ -3,6 +3,7 @@ on:
   pull_request:
     paths:
       - 'services/voice/streaming.py'
+      - 'interfaces/modo_voz.py'
       - 'tests/fluency/test_natural_phrase_boundaries.py'
       - '.github/workflows/voice-prosody.yml'
 jobs:
@@ -21,5 +22,5 @@ jobs:
         run: python -m pip install pydantic pydantic-settings python-dotenv psutil rich fastapi uvicorn requests pyyaml
       - name: Validate streaming code and boundaries
         run: |
-          python -m py_compile services/voice/streaming.py
+          python -m py_compile services/voice/streaming.py interfaces/modo_voz.py
           python -m unittest discover -s tests/fluency -p 'test_natural_phrase_boundaries.py' -v
