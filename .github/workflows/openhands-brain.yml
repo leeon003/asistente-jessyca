@@ -19,6 +19,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      - name: Install JESSYCA package dependencies
+        run: python -m pip install -e .
       - name: Compile OpenHands provider
         run: python -m py_compile core/cognitive_brain/openhands_provider.py core/cognitive_brain/brain_orchestrator.py
       - name: Isolated provider tests
