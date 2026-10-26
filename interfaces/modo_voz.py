@@ -389,7 +389,7 @@ def iniciar_modo_voz(
                 modality=InputModality.VOICE,
             )
             # Opt-in while microphone duplex operation is still hardware-dependent.
-            if os.getenv("JESSYCA_VOICE_STREAMING", "").lower() in ("1", "true", "yes"):
+            if os.getenv("JESSYCA_VOICE_STREAMING", "1").lower() in ("1", "true", "yes"):
                 token = CancellationToken()
                 stream_metrics = SpeechStreamMetrics()
                 spoken_parts: list[str] = []
