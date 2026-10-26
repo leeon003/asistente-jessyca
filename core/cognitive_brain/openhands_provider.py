@@ -60,9 +60,23 @@ class OpenHandsBrainProvider:
         if self.risk_engine is None:
             return DevelopmentResult(False, "RiskEngine no configurado")
         try:
-            assessment = self.risk_engine.evaluate_risk(
-                "openhands_write", {"instruction": task.instruction, "workspace": str(target)}
+            from core.security_architecture import (
+                SecurityContext, SecurityRequest, SecurityLevel, ToolSecurityMetadata,
             )
+            security_request = SecurityRequest(
+                context=SecurityContext(
+                    user="jessyca",
+                    tool_name="openhands",
+                    parameters={"instruction": task.instruction, "workspace": str(target)},
+                ),
+                metadata=ToolSecurityMetadata(
+                    tool_name="openhands",
+                    category="development",
+                    risk_level=SecurityLevel.WARNING,
+                ),
+                action="write",
+            )
+            assessment = self.risk_engine.evaluate_risk(security_request)
             level = str(getattr(assessment.risk_level, "value", assessment.risk_level)).upper()
             if level not in {"SAFE", "READ_ONLY", "WARNING"}:
                 return DevelopmentResult(False, "RiskEngine bloqueó la tarea")
