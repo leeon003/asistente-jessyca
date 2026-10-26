@@ -34,11 +34,13 @@ class OpenHandsBrainProvider:
         sandbox_root: str | Path | None = None,
         runner: Callable[[str, Path], str] | None = None,
         risk_engine: Any | None = None,
+        permission_manager: Any | None = None,
     ):
         self.enabled = enabled
         self.sandbox_root = Path(sandbox_root).resolve() if sandbox_root is not None else None
         self.runner = runner
         self.risk_engine = risk_engine
+        self.permission_manager = permission_manager
 
     def run(self, task: DevelopmentTask) -> DevelopmentResult:
         if not self.enabled:
@@ -57,8 +59,8 @@ class OpenHandsBrainProvider:
         if target == self.sandbox_root or not target.is_dir():
             return DevelopmentResult(False, "Se requiere subdirectorio aislado existente")
         # RiskEngine is mandatory for execution; fail closed on errors or uncertain levels.
-        if self.risk_engine is None:
-            return DevelopmentResult(False, "RiskEngine no configurado")
+        if self.risk_engine is None or self.permission_manager is None:
+            return DevelopmentResult(False, "RiskEngine o PermissionManager no configurado")
         try:
             from core.security_architecture import (
                 SecurityContext, SecurityRequest, SecurityLevel, ToolSecurityMetadata,
@@ -80,6 +82,19 @@ class OpenHandsBrainProvider:
             level = str(getattr(assessment.risk_level, "value", assessment.risk_level)).upper()
             if level not in {"SAFE", "READ_ONLY", "WARNING"}:
                 return DevelopmentResult(False, "RiskEngine bloqueó la tarea")
+            from core.permission_manager import PermissionRequest
+            authorization = self.permission_manager.evaluate_permission(
+                PermissionRequest(
+                    context=security_request.context,
+                    metadata=security_request.metadata,
+                    risk_assessment=assessment,
+                    tool_name="openhands",
+                    operation="write",
+                    parameters=security_request.context.parameters,
+                )
+            )
+            if not authorization.is_allowed:
+                return DevelopmentResult(False, "PermissionManager no autorizó la tarea")
         except Exception:
             return DevelopmentResult(False, "Evaluación de riesgo fallida")
         try:
