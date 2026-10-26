@@ -2,6 +2,7 @@
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 
 from core.cognitive_brain.openhands_provider import (
     DevelopmentTask,
@@ -21,6 +22,7 @@ class TestOpenHandsBrainProvider(unittest.TestCase):
             enabled=True,
             sandbox_root=self.root,
             runner=lambda text, workspace: self.calls.append((text, workspace)) or "ok",
+            risk_engine=SimpleNamespace(evaluate_risk=lambda request: SimpleNamespace(risk_level="WARNING")),
         )
 
     def test_default_disabled(self):
@@ -74,6 +76,7 @@ class TestOpenHandsBrainProvider(unittest.TestCase):
             enabled=True,
             sandbox_root=self.root,
             runner=lambda *args: 1 / 0,
+            risk_engine=SimpleNamespace(evaluate_risk=lambda request: SimpleNamespace(risk_level="WARNING")),
         )
         response = provider.run(
             DevelopmentTask("test", self.project, approved=True)
@@ -86,6 +89,36 @@ class TestOpenHandsBrainProvider(unittest.TestCase):
         )
         self.assertFalse(response.success)
         self.assertEqual(self.calls, [])
+
+    def test_missing_risk_engine_fails_closed(self):
+        provider = OpenHandsBrainProvider(
+            enabled=True, sandbox_root=self.root,
+            runner=lambda *args: self.fail("runner invoked without risk check"),
+        )
+        self.assertFalse(provider.run(DevelopmentTask("test", self.project, approved=True)).success)
+
+    def test_critical_risk_blocks_execution(self):
+        self.provider.risk_engine = SimpleNamespace(
+            evaluate_risk=lambda request: SimpleNamespace(risk_level="CRITICAL")
+        )
+        self.assertFalse(self.provider.run(DevelopmentTask("test", self.project, approved=True)).success)
+        self.assertEqual(self.calls, [])
+
+    def test_risk_engine_error_blocks_execution(self):
+        def fail(request):
+            raise RuntimeError("error")
+        self.provider.risk_engine = SimpleNamespace(evaluate_risk=fail)
+        self.assertFalse(self.provider.run(DevelopmentTask("test", self.project, approved=True)).success)
+        self.assertEqual(self.calls, [])
+
+    def test_risk_engine_gets_typed_request(self):
+        from core.security_architecture import SecurityRequest
+        def assess(request):
+            self.assertIsInstance(request, SecurityRequest)
+            self.assertEqual(request.action, "write")
+            return SimpleNamespace(risk_level="WARNING")
+        self.provider.risk_engine = SimpleNamespace(evaluate_risk=assess)
+        self.assertTrue(self.provider.run(DevelopmentTask("test", self.project, approved=True)).success)
 
 
 if __name__ == "__main__":
