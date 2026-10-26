@@ -73,7 +73,11 @@ def speak_stream(
                 if not cut or cut > max_chars:
                     if len(pending) < max_chars:
                         break
-                    cut = pending.rfind(" ", 0, max_chars + 1)
+                    # Prefer a natural clause break rather than splitting mid-thought.
+                    clause = list(re.finditer(r"[,;:](?=\\s)", pending[:max_chars + 1]))
+                    cut = clause[-1].end() if clause and clause[-1].end() >= max_chars // 2 else 0
+                    if not cut:
+                        cut = pending.rfind(" ", 0, max_chars + 1)
                     if cut <= 0:
                         cut = max_chars
                 phrase, pending = pending[:cut], pending[cut:]
