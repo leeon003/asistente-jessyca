@@ -1,0 +1,22 @@
+name: OpenHands Docker Sandbox Smoke
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'scripts/openhands_docker_smoke.py'
+      - '.github/workflows/openhands-sandbox.yml'
+jobs:
+  sdk-sandbox:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install official OpenHands SDK
+        run: python -m pip install openhands-sdk openhands-workspace
+      - name: Verify Docker daemon
+        run: docker info
+      - name: Verify SDK DockerWorkspace isolated execution
+        run: python scripts/openhands_docker_smoke.py

@@ -185,6 +185,20 @@ class JessycaBrain:
         except Exception as e:
             logger.debug(f"[BRAIN PROCEDURAL] Error no crítico registrando procedimientos núcleo: {e}")
 
+    def run_development_task(self, instruction: str, workspace: str, *, approved: bool = False):
+        """Despacha tareas de código al proveedor opcional, nunca al controlador Windows.
+
+        El orquestador no activa OpenHands automáticamente; un responsable debe
+        configurar un sandbox, el ejecutor y aprobar cada solicitud.
+        """
+        from core.cognitive_brain.openhands_provider import (
+            DevelopmentResult, DevelopmentTask, OpenHandsBrainProvider,
+        )
+        provider = getattr(self, "openhands_provider", None)
+        if provider is None:
+            provider = OpenHandsBrainProvider()
+        return provider.run(DevelopmentTask(instruction=instruction, workspace=Path(workspace), approved=approved))
+
     # ── CICLO COGNITIVO UNIVERSAL (PERCIBIR -> RECORDAR -> RAZONAR -> PLANIFICAR -> ACTUAR -> VERIFICAR) ──
 
     def process_request(
