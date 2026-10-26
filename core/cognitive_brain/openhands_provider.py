@@ -33,10 +33,12 @@ class OpenHandsBrainProvider:
         enabled: bool = False,
         sandbox_root: str | Path | None = None,
         runner: Callable[[str, Path], str] | None = None,
+        risk_engine: Any | None = None,
     ):
         self.enabled = enabled
         self.sandbox_root = Path(sandbox_root).resolve() if sandbox_root is not None else None
         self.runner = runner
+        self.risk_engine = risk_engine
 
     def run(self, task: DevelopmentTask) -> DevelopmentResult:
         if not self.enabled:
@@ -54,6 +56,18 @@ class OpenHandsBrainProvider:
             return DevelopmentResult(False, "Directorio fuera del sandbox")
         if target == self.sandbox_root or not target.is_dir():
             return DevelopmentResult(False, "Se requiere subdirectorio aislado existente")
+        # RiskEngine is mandatory for execution; fail closed on errors or uncertain levels.
+        if self.risk_engine is None:
+            return DevelopmentResult(False, "RiskEngine no configurado")
+        try:
+            assessment = self.risk_engine.evaluate_risk(
+                "openhands_write", {"instruction": task.instruction, "workspace": str(target)}
+            )
+            level = str(getattr(assessment.risk_level, "value", assessment.risk_level)).upper()
+            if level not in {"SAFE", "READ_ONLY", "WARNING"}:
+                return DevelopmentResult(False, "RiskEngine bloqueó la tarea")
+        except Exception:
+            return DevelopmentResult(False, "Evaluación de riesgo fallida")
         try:
             result = self.runner(task.instruction, target)
         except Exception as exc:
