@@ -44,3 +44,10 @@ Para ejecutar solo la suite del proveedor:
 - GitHub Actions ejecuta la suite en Linux y Windows hospedado (pruebas Python, **no** automatización CUA/GUI).
 - El SDK real no se ha ejecutado; requiere sandbox aislado ya desplegado, proveedor LLM configurado y validación de acciones internas. No se debe activar en el anfitrión Windows.
 - No se ha demostrado equivalencia con un sandbox mediante validación de rutas, ni se ha ejecutado prueba integral del agente.
+
+## Resultados CI comprobados (26-10-2026)
+- Pruebas aisladas en `ubuntu-latest` y `windows-latest`: **PASS** (GitHub Actions 40270207179).
+- SDK oficial `openhands-sdk==1.58.2` y `openhands-workspace==1.58.2` instalados durante el trabajo de CI.
+- Smoke real de `DockerWorkspace`: **PASS**, comando `python -c 'print(12345)'` dentro del contenedor con `exit_code=0` (GitHub Actions 40270207230).
+- No se ha validado el flujo extremo a extremo con LLM, permisos por cada acción interna, límites y cancelación, ni CUA en Windows.
+- **No activar o fusionar como integración terminada mientras falten esas validaciones.**
