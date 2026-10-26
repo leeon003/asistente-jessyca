@@ -23,6 +23,7 @@ class TestOpenHandsBrainProvider(unittest.TestCase):
             sandbox_root=self.root,
             runner=lambda text, workspace: self.calls.append((text, workspace)) or "ok",
             risk_engine=SimpleNamespace(evaluate_risk=lambda request: SimpleNamespace(risk_level="WARNING")),
+            permission_manager=SimpleNamespace(evaluate_permission=lambda request: SimpleNamespace(is_allowed=True)),
         )
 
     def test_default_disabled(self):
@@ -119,6 +120,26 @@ class TestOpenHandsBrainProvider(unittest.TestCase):
             return SimpleNamespace(risk_level="WARNING")
         self.provider.risk_engine = SimpleNamespace(evaluate_risk=assess)
         self.assertTrue(self.provider.run(DevelopmentTask("test", self.project, approved=True)).success)
+
+    def test_permission_denial_blocks_execution(self):
+        self.provider.permission_manager = SimpleNamespace(
+            evaluate_permission=lambda request: SimpleNamespace(is_allowed=False)
+        )
+        self.assertFalse(self.provider.run(DevelopmentTask("test", self.project, approved=True)).success)
+        self.assertEqual(self.calls, [])
+
+    def test_permission_manager_receives_request(self):
+        from core.permission_manager import PermissionRequest
+        def check(request):
+            self.assertIsInstance(request, PermissionRequest)
+            return SimpleNamespace(is_allowed=True)
+        self.provider.permission_manager = SimpleNamespace(evaluate_permission=check)
+        self.assertTrue(self.provider.run(DevelopmentTask("test", self.project, approved=True)).success)
+
+    def test_missing_permission_manager_blocks_execution(self):
+        self.provider.permission_manager = None
+        self.assertFalse(self.provider.run(DevelopmentTask("test", self.project, approved=True)).success)
+        self.assertEqual(self.calls, [])
 
 
 if __name__ == "__main__":
